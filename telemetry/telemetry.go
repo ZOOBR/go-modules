@@ -44,13 +44,34 @@ var telemetryParams = map[uint16]string{
 	1902: "ParamDataOutput",
 
 	// Other parameter groups (with index)
-	2000: "ParamDataAnalog",
-	2010: "ParamDataDigit",
-	2020: "ParamDataMoto",
-	2100: "ParamDataParams",
+	2000: "ParamDataAnalog1",
+	2001: "ParamDataAnalog2",
+	2002: "ParamDataAnalog3",
+	2003: "ParamDataAnalog4",
+	2004: "ParamDataAnalog5",
+	2010: "ParamDataDigit1",
+	2011: "ParamDataDigit2",
+	2012: "ParamDataDigit3",
+	2013: "ParamDataDigit4",
+	2014: "ParamDataDigit5",
+	2020: "ParamDataMoto1",
+	2021: "ParamDataMoto2",
+	2022: "ParamDataMoto3",
+	2023: "ParamDataMoto4",
+	2024: "ParamDataMoto5",
+	2100: "ParamDataParams1",
+	2101: "ParamDataParams2",
+	2102: "ParamDataParams3",
+	2103: "ParamDataParams4",
+	2104: "ParamDataParams5",
 	2200: "ParamDataCan",
-	2300: "ParamDataTire",
-	2400: "ParamDataTempr",
+	2300: "ParamDataTire1",
+	2301: "ParamDataTire2",
+	2302: "ParamDataTire3",
+	2303: "ParamDataTire4",
+	2400: "ParamDataTempr1",
+	2401: "ParamDataTempr2",
+	2402: "ParamDataTempr3",
 
 	// Single parameters codes
 	// 2200: "ParamCanStatus",
@@ -155,8 +176,8 @@ type BinaryData struct {
 	Data []byte
 }
 
-func TranslatePos(p *FlatPosition) map[string]float64 {
-	tPos := make(map[string]float64)
+func TranslatePos(p *FlatPosition) map[string]interface{} {
+	tPos := make(map[string]interface{})
 	for c, v := range p.P {
 		tPos[telemetryParams[c]] = v
 	}
