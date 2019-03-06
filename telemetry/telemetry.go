@@ -451,7 +451,8 @@ func (reader *BinaryReader) ReadStructPositions() (int16, []BinaryPosition) {
 	posArr := make([]BinaryPosition, 0)
 	for reader.Size > reader.offset {
 		res := reader.readPosition()
-		if res < 0 {
+		if res != 0 {
+			reader.offset++
 			continue
 		}
 		posArr = append(posArr, *reader.pos)
@@ -466,7 +467,8 @@ func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
 	var currPos *FlatPosition
 	for reader.Size > reader.offset {
 		res := reader.readPosition()
-		if res < 0 {
+		if res != 0 {
+			reader.offset++
 			continue
 		}
 		if currPos != reader.flatPos {
@@ -485,7 +487,7 @@ func (reader *BinaryReader) readPosition() int16 {
 	//check sign and pass invalid data
 	for !reader.CheckSign() {
 		log.Warn("check sign err:", reader.Buf[reader.offset:reader.offset+1])
-		reader.offset++
+		return errorBinarySize
 	}
 	//recheck size
 	if reader.Size < reader.offset+8 {
