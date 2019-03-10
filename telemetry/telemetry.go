@@ -150,9 +150,9 @@ type BinaryPosition struct {
 }
 
 type FlatPosition struct {
-	Time float64
-	P    map[uint16]float64
-	E    []uint16
+	Time float64            `json:"t"`
+	P    map[uint16]float64 `json:"p"`
+	E    []uint16           `json:"e"`
 }
 
 type BinaryReader struct {
