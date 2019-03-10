@@ -16,18 +16,18 @@ type Sender struct {
 }
 
 type TerminalResponse struct {
-	ID        string                 `json:"id"`
-	Result    int                    `json:"result"`
+	Id        string                 `json:"id"`
+	Result    int16                  `json:"result"`
 	Errors    []CommandError         `json:"error"`
 	Telemetry map[string]interface{} `json:"telemetry"`
 }
 
 type CommandAction struct {
-	Id   string `json:"id"`
-	Dev  uint16 `json:"dev"`
-	Act  uint8  `json:"act"`
-	Ton  uint32 `json:"ton"`
-	Toff uint32 `json:"toff"`
+	Id    string `json:"id"`
+	Index uint16 `json:"index"`
+	Act   uint8  `json:"act"`
+	Ton   uint32 `json:"ton"`
+	Toff  uint32 `json:"toff"`
 }
 
 type Command struct {
@@ -94,6 +94,8 @@ func (sender *Sender) response(obj *string, action *CommandAction) (response Ter
 			if err != nil {
 				log.Error(err)
 				response.SetError(-102)
+			} else if response.Result < 0 {
+				response.SetError(response.Result)
 			} else {
 				response.SetBitErrors()
 			}
@@ -106,30 +108,27 @@ func (sender *Sender) response(obj *string, action *CommandAction) (response Ter
 
 func (sender *Sender) Protection(obj *string, on uint8) TerminalResponse {
 	action := CommandAction{
-		Id:  "protection",
-		Dev: 100,
+		Id:  "guard",
 		Act: on,
 	}
 
 	return sender.response(obj, &action)
 }
 
-func (sender *Sender) Switch(dev uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
+func (sender *Sender) Switch(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
-		Id:   "switch",
-		Dev:  200 + dev,
-		Act:  uint8(on),
-		Ton:  ton,
-		Toff: toff,
+		Id:    "relay",
+		Index: idx,
+		Act:   uint8(on),
+		Ton:   ton,
+		Toff:  toff,
 	}
 	return sender.response(obj, &action)
 }
 
 func (sender *Sender) Diagnostic(obj *string) TerminalResponse {
 	action := CommandAction{
-		Id:  "switch",
-		Dev: 215,
-		Act: 0,
+		Id: "state",
 	}
 	return sender.response(obj, &action)
 }
