@@ -115,6 +115,15 @@ func (sender *Sender) Protection(obj *string, on uint8) TerminalResponse {
 	return sender.response(obj, &action)
 }
 
+func (sender *Sender) Engine(obj *string, on uint8) TerminalResponse {
+	action := CommandAction{
+		Id:  "engine",
+		Act: on,
+	}
+
+	return sender.response(obj, &action)
+}
+
 func (sender *Sender) Switch(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
