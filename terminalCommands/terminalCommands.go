@@ -124,7 +124,7 @@ func (sender *Sender) Engine(obj *string, on uint8) TerminalResponse {
 	return sender.response(obj, &action)
 }
 
-func (sender *Sender) Switch(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
+func (sender *Sender) Relay(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
 		Index: idx,
@@ -135,7 +135,7 @@ func (sender *Sender) Switch(idx uint16, obj *string, on uint8, ton uint32, toff
 	return sender.response(obj, &action)
 }
 
-func (sender *Sender) Diagnostic(obj *string) TerminalResponse {
+func (sender *Sender) State(obj *string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
