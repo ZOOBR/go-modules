@@ -179,6 +179,9 @@ type BinaryData struct {
 func TranslatePos(p *FlatPosition) map[string]interface{} {
 	tPos := make(map[string]interface{})
 	for c, v := range p.P {
+		if mapParamsPrecision[c] > 0 {
+			v = math.Round(float64(v)*mapParamsPrecision[c]) / mapParamsPrecision[c]
+		}
 		tPos[telemetryParams[c]] = v
 	}
 	return tPos
