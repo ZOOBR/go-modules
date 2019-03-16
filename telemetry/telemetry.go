@@ -149,10 +149,40 @@ type BinaryPosition struct {
 	E    []uint16
 }
 
+//FlatPosition compact position format
 type FlatPosition struct {
 	Time float64            `json:"t"`
 	P    map[uint16]float64 `json:"p"`
 	E    []uint16           `json:"e"`
+}
+
+//PrettyPosition struct for user friendly
+type PrettyPosition struct {
+	Time    float64  `json:"t"`  //[PARAMS.time, 't'],
+	Events  []uint16 `json:"e"`  //[PARAMS.event, 'e'],
+	Status  float64  `json:"st"` //[PARAMS.status, 'st'],
+	Power   float64  `json:"v"`  //[PARAMS.power, 'v'],
+	Battery float64  `json:"bv"` //[PARAMS.battery, 'bv'],
+	Gsm     int8     `json:"sl"` //[PARAMS.gsm, 'sl'],
+	Gps     int8     `json:"sc"` //[PARAMS.gps, 'sc'],
+	Lon     float64  `json:"x"`  //[PARAMS.lon, 'x'],
+	Lat     float64  `json:"y"`  //[PARAMS.lat, 'y'],
+	Alt     float64  `json:"z"`  //[PARAMS.alt, 'z'],
+	Speed   float64  `json:"s"`  //[PARAMS.speed, 's'],
+	Angle   int8     `json:"a"`  //[PARAMS.dir, 'a'],
+	Odo     float64  `json:"d"`  //[PARAMS.odo, 'd'],
+	Sensor  float64  `json:"sm"` //[PARAMS.sensor, 'sm'],
+	Relay   float64  `json:"rm"` //[PARAMS.relay, 'rm'],
+
+	// groups (with index)
+	Analog map[uint16]float64 `json:"an"` //[PARAMS.analog, 'an'],
+	Digit  map[uint16]float64 `json:"dg"` //[PARAMS.digit, 'dg'],
+	Moto   map[uint16]float64 `json:"m"`  //[PARAMS.moto, 'm'],
+	Tempr  map[uint16]float64 `json:"tp"` //[PARAMS.tempr, 'tp'],
+	Can    map[uint16]float64 `json:"c"`  //[PARAMS.can, 'c'],
+	Tire   map[uint16]float64 `json:"w"`  //[PARAMS.tire, 'w']
+	// other params
+	P map[uint16]float64 `json:"p"` //[PARAMS.p, 'p']
 }
 
 type BinaryReader struct {
@@ -168,6 +198,7 @@ type BinaryReader struct {
 	PositionFormat string
 	pos            *BinaryPosition
 	flatPos        *FlatPosition
+	pass           bool
 }
 
 type BinaryData struct {
@@ -228,34 +259,30 @@ func (r *BinaryReader) CheckVersion() bool {
 	return true
 }
 
-func (r *BinaryReader) ReadArray(kind uint8) bool {
+func (r *BinaryReader) ReadArray(kind uint8) int16 {
 	bufLen := uint32(len(r.Buf))
 	nibble := uint32(kind & 0x0F)
 	if bufLen < r.offset+2 {
-		return true
+		return errorBinaryLen
 	}
 	elCount := uint32(ReadUint16(r.Buf[r.offset : r.offset+2]))
 	r.offset += 2
 	if bufLen < r.offset+elCount*nibble {
-		return true
+		return errorBinaryLen
 	}
 	if r.PositionFormat == "flat" {
-		r.flatPos.E = make([]uint16, elCount)
+		r.flatPos.E = make([]uint16, 0)
 	} else {
-		r.pos.E = make([]uint16, elCount)
+		r.pos.E = make([]uint16, 0)
 	}
 
 	for index := uint32(0); index < elCount; index++ {
-		key := uint16(index)
-		if r.lenEvents != 0 && !r.Events[key] {
+		err := r.ReadValue(binaryArray, uint16(index))
+		if err != 0 {
 			continue
 		}
-		err := r.ReadValue(binaryArray, uint16(index))
-		if err {
-			return true
-		}
 	}
-	return false
+	return 0
 }
 
 func (r *BinaryReader) Reset() {
@@ -355,22 +382,26 @@ func (r *BinaryReader) Skip(kind uint8, key uint16) {
 	}
 }
 
-func (reader *BinaryReader) ReadValue(kind uint8, key uint16) bool {
+func (reader *BinaryReader) ReadValue(kind uint8, key uint16) int16 {
 	if reader.PositionFormat == "flat" {
 		return reader.ReadFlatValue(kind, key)
 	}
 	bufLen := uint32(len(reader.Buf))
 	nibble := uint32(kind & 0x0F)
 	if bufLen < reader.offset+nibble {
-		return true
+		return errorBinaryLen
 	}
 	if kind != binaryArray && reader.lenParams > 0 && !reader.Params[key] {
 		reader.Skip(kind, key)
-		return false
+		return 0
 	}
 	switch kind {
 	case binaryArray:
-		reader.pos.E[key] = reader.ReadUint16()
+		val := reader.ReadUint16()
+		reader.pos.E = append(reader.pos.E, val)
+		if reader.lenEvents > 0 && reader.Events[val] {
+			reader.pass = true
+		}
 	case binaryZero:
 		reader.pos.I16 = append(reader.pos.I16, ParamsInt16{key, 0})
 	case binaryInt8:
@@ -389,22 +420,26 @@ func (reader *BinaryReader) ReadValue(kind uint8, key uint16) bool {
 		reader.pos.F32 = append(reader.pos.F32, ParamsFloat32{key, reader.ReadFloat32()})
 	}
 
-	return false
+	return 0
 }
 
-func (reader *BinaryReader) ReadFlatValue(kind uint8, key uint16) bool {
+func (reader *BinaryReader) ReadFlatValue(kind uint8, key uint16) int16 {
 	bufLen := uint32(len(reader.Buf))
 	nibble := uint32(kind & 0x0F)
 	if bufLen < reader.offset+nibble {
-		return true
+		return errorBinaryLen
 	}
 	if kind != binaryArray && reader.lenParams > 0 && !reader.Params[key] {
 		reader.Skip(kind, key)
-		return false
+		return 0
 	}
 	switch kind {
 	case binaryArray:
-		reader.flatPos.E[key] = reader.ReadUint16()
+		val := reader.ReadUint16()
+		reader.flatPos.E = append(reader.flatPos.E, val)
+		if reader.lenEvents > 0 && reader.Events[val] {
+			reader.pass = true
+		}
 	case binaryZero:
 		reader.flatPos.P[key] = float64(0)
 	case binaryInt8:
@@ -427,7 +462,7 @@ func (reader *BinaryReader) ReadFlatValue(kind uint8, key uint16) bool {
 		}
 	}
 
-	return false
+	return 0
 }
 
 func (reader *BinaryReader) ReadBinaryPosition() (uint16, string, []byte, float64) {
@@ -454,11 +489,13 @@ func (reader *BinaryReader) ReadStructPositions() (int16, []BinaryPosition) {
 	posArr := make([]BinaryPosition, 0)
 	for reader.Size > reader.offset {
 		res := reader.readPosition()
-		if res != 0 {
+		if res < 0 {
 			reader.offset++
 			continue
 		}
-		posArr = append(posArr, *reader.pos)
+		if reader.lenEvents == 0 || reader.pass == true {
+			posArr = append(posArr, *reader.pos)
+		}
 	}
 	return 0, posArr
 }
@@ -467,14 +504,13 @@ func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
 	reader.PositionFormat = "flat"
 	reader.Reset()
 	posArr := make([]FlatPosition, 0)
-	var currPos *FlatPosition
 	for reader.Size > reader.offset {
 		res := reader.readPosition()
-		if res != 0 {
+		if res < 0 {
 			reader.offset++
 			continue
 		}
-		if currPos != reader.flatPos {
+		if reader.lenEvents == 0 || reader.pass == true {
 			posArr = append(posArr, *reader.flatPos)
 		}
 	}
@@ -483,6 +519,7 @@ func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
 
 func (reader *BinaryReader) readPosition() int16 {
 
+	reader.pass = false
 	//check size
 	if reader.Size < reader.offset+8 {
 		return errorBinarySize
@@ -514,7 +551,7 @@ func (reader *BinaryReader) readPosition() int16 {
 		}
 		reader.offset += 8
 		len -= 8
-		var err bool
+		var res int16
 		reader.pos = new(BinaryPosition)
 		reader.pos.Init()
 		for reader.Size >= len && len >= 3 {
@@ -522,17 +559,13 @@ func (reader *BinaryReader) readPosition() int16 {
 			key := reader.ReadKey()
 			kind := reader.ReadKind()
 			if (kind & binaryArray) != 0 {
-				err = reader.ReadArray(binaryUint16)
+				res = reader.ReadArray(binaryUint16)
 			} else {
-				err = reader.ReadValue(kind, key)
-				if err {
-					break
-				}
+				res = reader.ReadValue(kind, key)
 			}
-			if err {
-				return 1
+			if res < 0 {
+				return res
 			}
-
 			len -= reader.offset - startOffset
 		}
 	} else {
