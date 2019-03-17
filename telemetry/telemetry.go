@@ -151,9 +151,9 @@ type BinaryPosition struct {
 
 //FlatPosition compact position format
 type FlatPosition struct {
-	Time float64            `json:"t"`
-	P    map[uint16]float64 `json:"p"`
-	E    []uint16           `json:"e"`
+	Time float64            `db:"t" json:"t"`
+	P    map[uint16]float64 `db:"p" json:"p"`
+	E    []uint16           `db:"e" json:"e"`
 }
 
 //PrettyPosition struct for user friendly
