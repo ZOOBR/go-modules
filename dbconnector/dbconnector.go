@@ -11,11 +11,12 @@ import (
 	"github.com/kataras/iris/sessions"
 	"github.com/kataras/iris/sessions/sessiondb/redis"
 	"github.com/kataras/iris/sessions/sessiondb/redis/service"
+	_ "github.com/lib/pq"
 )
 
 var (
 	// sqlURI            = flag.String("sql-uri", "root:@/project?parseTime=true", "SQL connection string")
-	sqlURI            = flag.String("sql-uri", "user=postgres password=FHJdg876h&*^6fd dbname=csx sslmode=disable", "SQL connection string")
+	sqlURI            = flag.String("sql-uri", "user=postgres password=postgres dbname=csx sslmode=disable", "SQL connection string")
 	redisURI          = flag.String("redis-uri", "127.0.0.1:6379", "Redis URI")
 	redisDB           = flag.String("redis-db", "2", "Redis DB number")
 	reconnectInterval = flag.Duration("reconnect-interval", 20000, "Reconnect interval")
