@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"encoding/binary"
+	"encoding/json"
+	"errors"
 	"math"
 	"time"
 
@@ -154,6 +156,19 @@ type FlatPosition struct {
 	Time float64            `db:"t" json:"t"`
 	P    map[uint16]float64 `db:"p" json:"p"`
 	E    []uint16           `db:"e" json:"e"`
+}
+
+func (pos *FlatPosition) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		log.Warn("unable scan flat pos:", src)
+		return errors.New("unable scan flat pos")
+	}
+	err := json.Unmarshal(val, &pos)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 //PrettyPosition struct for user friendly
