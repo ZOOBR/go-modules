@@ -1,7 +1,6 @@
 package sql
 
 import (
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -29,7 +28,7 @@ func SetValues(query *string, values *map[string]interface{}) error {
 	}
 	prepText += " "
 	strings.Replace(*query, "?", prepText, -1)
-	_, err := DB.NamedExec(*query, values)
+	_, err := DB.NamedExec(*query, *values)
 	if err != nil {
 		return err
 	}
@@ -38,66 +37,41 @@ func SetValues(query *string, values *map[string]interface{}) error {
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func SetStructValues(query *string, structVal interface{}) error {
-
-	val := reflect.ValueOf(structVal) // could be any underlying type
-
-	// if its a pointer, resolve its value
-	if val.Kind() == reflect.Ptr {
-		val = reflect.Indirect(val)
-	}
-
-	fields := reflect.TypeOf(val)
-	values := reflect.ValueOf(val)
-
-	num := fields.NumField()
+func SetStructValues(query string, structVal interface{}) error {
 	resultMap := make(map[string]interface{})
-
 	prepText := " "
-	for i := 0; i < num; i++ {
-		field := fields.Field(i)
-		value := values.Field(i)
-		fmt.Print("Type:", field.Type, ",", field.Name, "=", value, "\n")
-
-		switch value.Kind() {
-		case reflect.String:
-			v := value.String()
-			resultMap[field.Name] = v
-		//int
-		case reflect.Int:
-			resultMap[field.Name] = value.Int()
-		case reflect.Int8:
-			resultMap[field.Name] = value.Int()
-		case reflect.Int16:
-			resultMap[field.Name] = value.Int()
-		case reflect.Int32:
-			resultMap[field.Name] = value.Int()
-		case reflect.Int64:
-			resultMap[field.Name] = value.Int()
-		//uint
-		case reflect.Uint8:
-			resultMap[field.Name] = value.Uint()
-		case reflect.Uint16:
-			resultMap[field.Name] = value.Uint()
-		case reflect.Uint32:
-			resultMap[field.Name] = value.Uint()
-		case reflect.Uint64:
-			resultMap[field.Name] = value.Uint()
-		//float
-		case reflect.Float32:
-			resultMap[field.Name] = value.Float()
-		case reflect.Float64:
-			resultMap[field.Name] = value.Float()
+	iVal := reflect.ValueOf(structVal).Elem()
+	typ := iVal.Type()
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		if f.Kind() == reflect.Ptr {
+			f = reflect.Indirect(f)
+		}
+		tag := typ.Field(i).Tag.Get("db")
+		switch f.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			resultMap[tag] = f.Int()
+		case uint, uint8, uint16, uint32, uint64:
+			resultMap[tag] = f.Uint()
+		case float32, float64:
+			resultMap[tag] = f.Float()
+		case []byte:
+			v := string(f.Bytes())
+			resultMap[tag] = v
+		case string:
+			resultMap[tag] = f.String()
 		default:
-			fmt.Print("Not support type of struct")
 			continue
 		}
-		prepText += field.Name + "=:" + field.Name
+		prepText += tag + "=:" + tag
+		if i+1 != iVal.NumField() {
+			prepText += ", "
+		}
 	}
 
 	prepText += " "
-	strings.Replace(*query, "?", prepText, -1)
-	_, err := DB.NamedExec(*query, &resultMap)
+	query = strings.Replace(query, "?", prepText, -1)
+	_, err := DB.NamedExec(query, resultMap)
 	if err != nil {
 		return err
 	}
