@@ -584,7 +584,7 @@ func (reader *BinaryReader) readPosition() int16 {
 			len -= reader.offset - startOffset
 		}
 	} else {
-		reader.offset += len
+		reader.offset += len - 1
 		return -1
 	}
 
