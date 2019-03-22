@@ -53,7 +53,7 @@ func prepareFields(fields *[]string) string {
 	return resStr
 }
 
-func makeQuery(params *QueryParams) (*string, error) {
+func MakeQuery(params *QueryParams) (*string, error) {
 	query := baseQuery
 	fields := "*"
 	var from, where, order string
@@ -101,7 +101,7 @@ func execQuery(q *string) QueryResult {
 }
 
 func Find(params *QueryParams) QueryResult {
-	query, err := makeQuery(params)
+	query, err := MakeQuery(params)
 	if err != nil {
 		return QueryResult{Error: err}
 	}
@@ -109,7 +109,7 @@ func Find(params *QueryParams) QueryResult {
 }
 
 func FindOne(params *QueryParams) (*map[string]interface{}, error) {
-	query, err := makeQuery(params)
+	query, err := MakeQuery(params)
 	if err != nil {
 		return nil, err
 	}
