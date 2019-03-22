@@ -2,10 +2,10 @@ package sql
 
 import (
 	"bytes"
-	"html/template"
 	"os"
 	"reflect"
 	"strings"
+	"text/template"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
