@@ -1,6 +1,8 @@
 package sql
 
 import (
+	"bytes"
+	"html/template"
 	"os"
 	"reflect"
 	"strings"
@@ -18,6 +20,108 @@ const (
 
 //DB is pointer to DB connection
 var DB *sqlx.DB
+
+type QueryParams struct {
+	Select *[]string
+	From   *string
+	Where  *[]string
+	Order  *[]string
+}
+
+type QueryStringParams struct {
+	Select *string
+	From   *string
+	Where  *string
+	Order  *string
+}
+
+type QueryResult struct {
+	Result []map[string]interface{}
+	Error  error
+}
+
+var (
+	baseQuery = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Order}}`
+)
+
+// func (s *QueryResult) MarshalJSON() ([]byte, error) {
+
+// }
+
+func prepareFields(fields *[]string) string {
+	resStr := strings.Join(*fields, ",")
+	return resStr
+}
+
+func makeQuery(params *QueryParams) (*string, error) {
+	query := baseQuery
+	fields := "*"
+	var from, where, order string
+	if params.Select != nil {
+		fields = prepareFields(params.Select)
+	}
+	if params.From != nil {
+		from = *params.From
+	}
+	if params.Where != nil {
+		where = " WHERE " + prepareFields(params.Where)
+	}
+	if params.Order != nil {
+		order = " ORDER BY " + prepareFields(params.Order)
+	}
+	pStruct := QueryStringParams{&fields, &from, &where, &order}
+	template := template.Must(template.New("").Parse(query))
+	var tpl bytes.Buffer
+	err := template.Execute(&tpl, pStruct)
+	if err != nil {
+		return nil, err
+	}
+	query = tpl.String()
+	return &query, nil
+}
+
+func execQuery(q *string) QueryResult {
+	results := QueryResult{}
+	rows, err := DB.Queryx(*q)
+	if err != nil {
+		return QueryResult{Error: err}
+	}
+	for rows.Next() {
+		row := make(map[string]interface{})
+		err = rows.MapScan(row)
+		for k, v := range row {
+			switch v.(type) {
+			case []byte:
+				row[k] = string(v.([]byte))
+			}
+		}
+		results.Result = append(results.Result, row)
+	}
+	return results
+}
+
+func Find(params *QueryParams) QueryResult {
+	query, err := makeQuery(params)
+	if err != nil {
+		return QueryResult{Error: err}
+	}
+	return execQuery(query)
+}
+
+func FindOne(params *QueryParams) (*map[string]interface{}, error) {
+	query, err := makeQuery(params)
+	if err != nil {
+		return nil, err
+	}
+	data := execQuery(query)
+	if data.Error != nil {
+		return nil, data.Error
+	}
+	if data.Result != nil && len(data.Result) > 0 {
+		return &data.Result[0], nil
+	}
+	return nil, nil
+}
 
 //SetValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
