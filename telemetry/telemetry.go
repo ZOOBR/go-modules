@@ -331,13 +331,13 @@ func (r *BinaryReader) ReadUint16() uint16 {
 
 func (r *BinaryReader) ReadInt32() int32 {
 	v := int32(ReadUint32(r.Buf[r.offset : r.offset+4]))
-	r.offset += 2
+	r.offset += 4
 	return v
 }
 
 func (r *BinaryReader) ReadUint32() uint32 {
 	v := ReadUint32(r.Buf[r.offset : r.offset+4])
-	r.offset += 2
+	r.offset += 4
 	return v
 }
 
@@ -555,9 +555,9 @@ func (reader *BinaryReader) readPosition() int16 {
 	if reader.Size < len+reader.offset {
 		return 1
 	}
-	timePos := reader.ReadTime()
-	beginUnix := reader.BeginTime.UnixNano() / int64(time.Millisecond)
-	endUnix := reader.EndTime.UnixNano() / int64(time.Millisecond)
+	timePos := reader.ReadTime() / 1000
+	beginUnix := reader.BeginTime.Unix()
+	endUnix := reader.EndTime.Unix()
 	if (reader.BeginTime.IsZero() && reader.EndTime.IsZero()) || (int64(timePos) >= beginUnix && int64(timePos) <= endUnix) {
 		if reader.PositionFormat == "struct" {
 			reader.newPosition(timePos)
