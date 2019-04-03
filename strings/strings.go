@@ -22,6 +22,11 @@ func RandomString(n int, onlyDigits bool) string {
 	return string(b)
 }
 
+func IsValidUUID(u string) bool {
+	_, err := uuid.FromString(u)
+	return err == nil
+}
+
 func NewId() (res *string) {
 	u2, err := uuid.NewV4()
 	if err != nil {
