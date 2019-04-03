@@ -86,7 +86,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 		fields = prepareFields(params.Select)
 	}
 	if params.From != nil {
-		from = *params.From
+		from = `"` + *params.From + `"`
 	}
 	if params.Where != nil {
 		where = " WHERE " + prepareFields(params.Where)
