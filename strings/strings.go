@@ -1,6 +1,11 @@
 package strings
 
-import "math/rand"
+import (
+	"math/rand"
+
+	"github.com/prometheus/common/log"
+	uuid "github.com/satori/go.uuid"
+)
 
 func RandomString(n int, onlyDigits bool) string {
 	var letter []rune
@@ -15,4 +20,14 @@ func RandomString(n int, onlyDigits bool) string {
 		b[i] = letter[rand.Intn(len(letter))]
 	}
 	return string(b)
+}
+
+func NewId() (res *string) {
+	u2, err := uuid.NewV4()
+	if err != nil {
+		log.Error("error generate uuid:", err)
+		return res
+	}
+	uuidVal := u2.String()
+	return &uuidVal
 }
