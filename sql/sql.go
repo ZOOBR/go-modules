@@ -202,7 +202,7 @@ func SetValues(query *string, values *map[string]interface{}) error {
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) SetStructValues(query string, structVal interface{}) error {
+func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
 	resultMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
@@ -233,10 +233,19 @@ func (this *Query) SetStructValues(query string, structVal interface{}) error {
 			continue
 		}
 		prepFields = append(prepFields, `"`+tag+`"`)
-		prepValues = append(prepValues, ":"+tag)
+		if len(isUpdate) > 0 && isUpdate[0] {
+			prepValues = append(prepValues, "'"+tag+"'")
+		} else {
+			prepValues = append(prepValues, ":"+tag)
+		}
+	}
+	var prepText string
+	if len(isUpdate) > 0 && isUpdate[0] {
+		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+	} else {
+		prepText = " (" + strings.Join(prepFields, ",") + ") VALUES (" + strings.Join(prepValues, ",") + ") "
 	}
 
-	prepText := " (" + strings.Join(prepFields, ",") + ") VALUES (" + strings.Join(prepValues, ",") + ") "
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
 	if this.tx != nil {
