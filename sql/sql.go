@@ -2,6 +2,7 @@ package sql
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -217,24 +218,30 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
+		var updV string
 		switch f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
+			updV = fmt.Sprintf("%d", resultMap[tag])
 		case uint, uint8, uint16, uint32, uint64:
 			resultMap[tag] = f.Uint()
+			updV = fmt.Sprintf("%d", resultMap[tag])
 		case float32, float64:
 			resultMap[tag] = f.Float()
+			updV = fmt.Sprintf("%f", resultMap[tag])
 		case []byte:
 			v := string(f.Bytes())
 			resultMap[tag] = v
+			updV = resultMap[tag].(string)
 		case string:
 			resultMap[tag] = f.String()
+			updV = resultMap[tag].(string)
 		default:
 			continue
 		}
 		prepFields = append(prepFields, `"`+tag+`"`)
 		if len(isUpdate) > 0 && isUpdate[0] {
-			prepValues = append(prepValues, "'"+tag+"'")
+			prepValues = append(prepValues, "'"+updV+"'")
 		} else {
 			prepValues = append(prepValues, ":"+tag)
 		}
@@ -302,7 +309,6 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 //Init open connection to database
 func Init() {
 	var err error
-	Q, err = NewQuery(false)
 	if err != nil {
 		golog.Error(err)
 	}
@@ -317,4 +323,5 @@ func Init() {
 		golog.Info("success connect to database:", envURI)
 	}
 	DB = db
+	Q, err = NewQuery(false)
 }
