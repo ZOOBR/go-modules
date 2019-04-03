@@ -19,7 +19,10 @@ const (
 )
 
 //DB is pointer to DB connection
-var DB *sqlx.DB
+var (
+	DB *sqlx.DB
+	Q  Query
+)
 
 type QueryParams struct {
 	Select *[]string
@@ -201,13 +204,17 @@ func SetValues(query *string, values *map[string]interface{}) error {
 //example UPDATE thing SET ? WHERE id = 123
 func (this *Query) SetStructValues(query string, structVal interface{}) error {
 	resultMap := make(map[string]interface{})
-	prepText := " "
+	prepFields := make([]string, 0)
+	prepValues := make([]string, 0)
 	iVal := reflect.ValueOf(structVal).Elem()
 	typ := iVal.Type()
 	for i := 0; i < iVal.NumField(); i++ {
 		f := iVal.Field(i)
 		if f.Kind() == reflect.Ptr {
 			f = reflect.Indirect(f)
+		}
+		if !f.IsValid() {
+			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		switch f.Interface().(type) {
@@ -225,13 +232,11 @@ func (this *Query) SetStructValues(query string, structVal interface{}) error {
 		default:
 			continue
 		}
-		prepText += tag + "=:" + tag
-		if i+1 != iVal.NumField() {
-			prepText += ", "
-		}
+		prepFields = append(prepFields, `"`+tag+`"`)
+		prepValues = append(prepValues, ":"+tag)
 	}
 
-	prepText += " "
+	prepText := " (" + strings.Join(prepFields, ",") + ") VALUES (" + strings.Join(prepValues, ",") + ") "
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
 	if this.tx != nil {
@@ -240,6 +245,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}) error {
 		_, err = this.db.NamedExec(query, resultMap)
 	}
 	if err != nil {
+		golog.Error(query)
+		golog.Error(err)
 		return err
 	}
 	return nil
@@ -285,7 +292,11 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 
 //Init open connection to database
 func Init() {
-
+	var err error
+	Q, err = NewQuery(false)
+	if err != nil {
+		golog.Error(err)
+	}
 	envURI := os.Getenv("SQL_URI")
 	if envURI == "" {
 		envURI = DefaultURI
