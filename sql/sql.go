@@ -2,6 +2,7 @@ package sql
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -205,8 +206,49 @@ func SetValues(query *string, values *map[string]interface{}) error {
 //example UPDATE thing SET ? WHERE id = 123
 func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
 	resultMap := make(map[string]interface{})
+	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
+
+	if len(isUpdate) > 0 && isUpdate[0] {
+		iVal := reflect.ValueOf(structVal).Elem()
+		var oldModel interface{}
+		for i := 0; i < iVal.NumField(); i++ {
+			if iVal.Type().Field(i).Name == "OldModel" {
+				oldModel = iVal.Field(i)
+				break
+			}
+		}
+		if oldModel != nil {
+			iVal := oldModel.(reflect.Value).Elem()
+			typ := iVal.Type()
+			for i := 0; i < iVal.NumField(); i++ {
+				f := iVal.Field(i)
+				if f.Kind() == reflect.Ptr {
+					f = reflect.Indirect(f)
+				}
+				if !f.IsValid() {
+					continue
+				}
+				tag := typ.Field(i).Tag.Get("db")
+				switch f.Interface().(type) {
+				case int, int8, int16, int32, int64:
+					oldMap[tag] = f.Int()
+				case uint, uint8, uint16, uint32, uint64:
+					oldMap[tag] = f.Uint()
+				case float32, float64:
+					oldMap[tag] = f.Float()
+				case []byte:
+					v := string(f.Bytes())
+					oldMap[tag] = v
+				case string:
+					oldMap[tag] = f.String()
+				default:
+					continue
+				}
+			}
+		}
+	}
 	iVal := reflect.ValueOf(structVal).Elem()
 	typ := iVal.Type()
 	for i := 0; i < iVal.NumField(); i++ {
@@ -239,16 +281,26 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		default:
 			continue
 		}
-		prepFields = append(prepFields, `"`+tag+`"`)
+
 		if len(isUpdate) > 0 && isUpdate[0] {
-			prepValues = append(prepValues, "'"+updV+"'")
+			if oldMap[tag] != resultMap[tag] {
+				prepFields = append(prepFields, `"`+tag+`"`)
+				prepValues = append(prepValues, "'"+updV+"'")
+			}
 		} else {
+			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, ":"+tag)
 		}
 	}
 	var prepText string
 	if len(isUpdate) > 0 && isUpdate[0] {
-		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+		if len(prepFields) == 0 {
+			return errors.New("no fields to update")
+		} else if len(prepFields) == 1 {
+			prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
+		} else {
+			prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+		}
 	} else {
 		prepText = " (" + strings.Join(prepFields, ",") + ") VALUES (" + strings.Join(prepValues, ",") + ") "
 	}
