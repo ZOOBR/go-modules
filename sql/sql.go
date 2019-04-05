@@ -2,6 +2,7 @@ package sql
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -118,7 +119,13 @@ func execQuery(q *string) QueryResult {
 		for k, v := range row {
 			switch v.(type) {
 			case []byte:
-				row[k] = string(v.([]byte))
+				var jsonMap map[string]*json.RawMessage
+				err := json.Unmarshal(v.([]byte), &jsonMap)
+				if err != nil {
+					row[k] = string(v.([]byte))
+				} else {
+					row[k] = jsonMap
+				}
 			}
 		}
 		results.Result = append(results.Result, row)
