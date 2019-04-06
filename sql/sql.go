@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"text/template"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -238,7 +239,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					continue
 				}
 				tag := typ.Field(i).Tag.Get("db")
-				switch f.Interface().(type) {
+				switch val := f.Interface().(type) {
 				case int, int8, int16, int32, int64:
 					oldMap[tag] = f.Int()
 				case uint, uint8, uint16, uint32, uint64:
@@ -250,6 +251,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					oldMap[tag] = v
 				case string:
 					oldMap[tag] = f.String()
+				case time.Time:
+					oldMap[tag] = val.Format(time.RFC3339)
 				default:
 					continue
 				}
@@ -268,7 +271,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		var updV string
-		switch f.Interface().(type) {
+		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
 			updV = fmt.Sprintf("%d", resultMap[tag])
@@ -284,6 +287,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			updV = resultMap[tag].(string)
 		case string:
 			resultMap[tag] = f.String()
+			updV = resultMap[tag].(string)
+		case time.Time:
+			resultMap[tag] = val.Format(time.RFC3339)
 			updV = resultMap[tag].(string)
 		default:
 			continue
@@ -317,7 +323,11 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	if this.tx != nil {
 		_, err = this.tx.NamedExec(query, resultMap)
 	} else {
-		_, err = this.db.NamedExec(query, resultMap)
+		if len(isUpdate) > 0 && isUpdate[0] && len(prepFields) == 1 {
+			_, err = this.db.Exec(query)
+		} else {
+			_, err = this.db.NamedExec(query, resultMap)
+		}
 	}
 	if err != nil {
 		golog.Error(query)
