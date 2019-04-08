@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"text/template"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
@@ -238,7 +239,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					continue
 				}
 				tag := typ.Field(i).Tag.Get("db")
-				switch f.Interface().(type) {
+				switch val := f.Interface().(type) {
 				case int, int8, int16, int32, int64:
 					oldMap[tag] = f.Int()
 				case uint, uint8, uint16, uint32, uint64:
@@ -250,6 +251,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					oldMap[tag] = v
 				case string:
 					oldMap[tag] = f.String()
+				case time.Time:
+					oldMap[tag] = val.Format(time.RFC3339)
 				default:
 					continue
 				}
@@ -268,7 +271,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		var updV string
-		switch f.Interface().(type) {
+		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
 			updV = fmt.Sprintf("%d", resultMap[tag])
@@ -284,6 +287,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			updV = resultMap[tag].(string)
 		case string:
 			resultMap[tag] = f.String()
+			updV = resultMap[tag].(string)
+		case time.Time:
+			resultMap[tag] = val.Format(time.RFC3339)
 			updV = resultMap[tag].(string)
 		default:
 			continue
@@ -315,7 +321,188 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
 	if this.tx != nil {
+		if len(isUpdate) > 0 && isUpdate[0] {
+			_, err = this.tx.Exec(query)
+		} else {
+			_, err = this.tx.NamedExec(query, resultMap)
+		}
+	} else {
+		if len(isUpdate) > 0 && isUpdate[0] {
+			_, err = this.db.Exec(query)
+		} else {
+			_, err = this.db.NamedExec(query, resultMap)
+		}
+	}
+	if err != nil {
+		golog.Error(query)
+		golog.Error(err)
+		return err
+	}
+	return nil
+}
+
+//SetStructValues update helper with nodejs mysql style format
+//example UPDATE thing SET ? WHERE id = 123
+func (this *Query) UpdateStructValues(query string, structVal interface{}) error {
+	resultMap := make(map[string]interface{})
+	oldMap := make(map[string]interface{})
+	prepFields := make([]string, 0)
+	prepValues := make([]string, 0)
+
+	iValOld := reflect.ValueOf(structVal).Elem()
+	var oldModel interface{}
+	for i := 0; i < iValOld.NumField(); i++ {
+		if iValOld.Type().Field(i).Name == "OldModel" {
+			oldModel = iValOld.Field(i)
+			break
+		}
+	}
+	if oldModel != nil {
+		iVal := oldModel.(reflect.Value).Elem()
+		typ := iVal.Type()
+		for i := 0; i < iVal.NumField(); i++ {
+			f := iVal.Field(i)
+			if f.Kind() == reflect.Ptr {
+				f = reflect.Indirect(f)
+			}
+			if !f.IsValid() {
+				continue
+			}
+			tag := typ.Field(i).Tag.Get("db")
+			switch val := f.Interface().(type) {
+			case int, int8, int16, int32, int64:
+				oldMap[tag] = f.Int()
+			case uint, uint8, uint16, uint32, uint64:
+				oldMap[tag] = f.Uint()
+			case float32, float64:
+				oldMap[tag] = f.Float()
+			case []byte:
+				v := string(f.Bytes())
+				oldMap[tag] = v
+			case string:
+				oldMap[tag] = f.String()
+			case time.Time:
+				oldMap[tag] = val.Format(time.RFC3339)
+			default:
+				continue
+			}
+		}
+	}
+
+	iVal := reflect.ValueOf(structVal).Elem()
+	typ := iVal.Type()
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		if f.Kind() == reflect.Ptr {
+			f = reflect.Indirect(f)
+		}
+		if !f.IsValid() {
+			continue
+		}
+		tag := typ.Field(i).Tag.Get("db")
+		var updV string
+		switch val := f.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			resultMap[tag] = f.Int()
+			updV = fmt.Sprintf("%d", resultMap[tag])
+		case uint, uint8, uint16, uint32, uint64:
+			resultMap[tag] = f.Uint()
+			updV = fmt.Sprintf("%d", resultMap[tag])
+		case float32, float64:
+			resultMap[tag] = f.Float()
+			updV = fmt.Sprintf("%f", resultMap[tag])
+		case []byte:
+			v := string(f.Bytes())
+			resultMap[tag] = v
+			updV = resultMap[tag].(string)
+		case string:
+			resultMap[tag] = f.String()
+			updV = resultMap[tag].(string)
+		case time.Time:
+			resultMap[tag] = val.Format(time.RFC3339)
+			updV = resultMap[tag].(string)
+		default:
+			continue
+		}
+
+		if oldMap[tag] != resultMap[tag] {
+			prepFields = append(prepFields, `"`+tag+`"`)
+			prepValues = append(prepValues, "'"+updV+"'")
+		}
+
+	}
+	var prepText string
+
+	if len(prepFields) == 0 {
+		return errors.New("no fields to update")
+	} else if len(prepFields) == 1 {
+		prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
+	} else {
+		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+	}
+
+	query = strings.Replace(query, "?", prepText, -1)
+	var err error
+	if this.tx != nil {
+		_, err = this.tx.Exec(query)
+
+	} else {
+		_, err = this.db.Exec(query)
+	}
+	if err != nil {
+		golog.Error(query)
+		golog.Error(err)
+		return err
+	}
+	return nil
+}
+
+//SetStructValues update helper with nodejs mysql style format
+//example UPDATE thing SET ? WHERE id = 123
+func (this *Query) InsertStructValues(query string, structVal interface{}) error {
+	resultMap := make(map[string]interface{})
+	prepFields := make([]string, 0)
+	prepValues := make([]string, 0)
+
+	iVal := reflect.ValueOf(structVal).Elem()
+	typ := iVal.Type()
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		if f.Kind() == reflect.Ptr {
+			f = reflect.Indirect(f)
+		}
+		if !f.IsValid() {
+			continue
+		}
+		tag := typ.Field(i).Tag.Get("db")
+		switch val := f.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			resultMap[tag] = f.Int()
+		case uint, uint8, uint16, uint32, uint64:
+			resultMap[tag] = f.Uint()
+		case float32, float64:
+			resultMap[tag] = f.Float()
+		case []byte:
+			v := string(f.Bytes())
+			resultMap[tag] = v
+		case string:
+			resultMap[tag] = f.String()
+		case time.Time:
+			resultMap[tag] = val.Format(time.RFC3339)
+		default:
+			continue
+		}
+		prepFields = append(prepFields, `"`+tag+`"`)
+		prepValues = append(prepValues, ":"+tag)
+	}
+
+	prepText := " (" + strings.Join(prepFields, ",") + ") VALUES (" + strings.Join(prepValues, ",") + ") "
+
+	query = strings.Replace(query, "?", prepText, -1)
+	var err error
+	if this.tx != nil {
 		_, err = this.tx.NamedExec(query, resultMap)
+
 	} else {
 		_, err = this.db.NamedExec(query, resultMap)
 	}
