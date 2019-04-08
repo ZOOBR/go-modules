@@ -36,3 +36,17 @@ func NewId() (res *string) {
 	uuidVal := u2.String()
 	return &uuidVal
 }
+
+func GetDateFormat(format string) (string, bool) {
+	newFormat := "20060102"
+	if len(format) > 8 {
+		newFormat += "15"
+	}
+	if len(format) > 10 {
+		newFormat += "04"
+	}
+	if len(format) > 12 {
+		newFormat += "05"
+	}
+	return newFormat, len(format) > 8
+}
