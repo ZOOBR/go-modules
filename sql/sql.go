@@ -552,6 +552,37 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 	return resultMap
 }
 
+func MakeQueryFromReq(req map[string]string) string {
+	limit := req["limit"]
+	offset := req["offset"]
+	if limit == "" {
+		limit = "1000"
+	}
+	if offset == "" {
+		offset = "0"
+	}
+	where := ""
+	orderby := ""
+	q := "LIMIT " + limit + " OFFSET " + offset
+	for p, v := range req {
+		if p == "limit" || p == "offset" || p == "sort" {
+			continue
+		}
+		if where != "" {
+			where += " AND "
+		}
+		where += `"` + p + `" ILIKE '%` + v + "%'"
+	}
+	if where != "" {
+		where = "WHERE " + where
+	}
+	if val, ok := req["sort"]; ok {
+		sortParams := strings.Split(val, "-")
+		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
+	}
+	return where + " " + orderby + " " + q
+}
+
 //Init open connection to database
 func Init() {
 	var err error
