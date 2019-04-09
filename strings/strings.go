@@ -2,6 +2,7 @@ package strings
 
 import (
 	"math/rand"
+	"strings"
 
 	"github.com/prometheus/common/log"
 	uuid "github.com/satori/go.uuid"
@@ -49,4 +50,12 @@ func GetDateFormat(format string) (string, bool) {
 		newFormat += "05"
 	}
 	return newFormat, len(format) > 8
+}
+
+func GetIdsStr(ids string) string {
+	idsArray := strings.Split(ids, ",")
+	for key, _ := range idsArray {
+		idsArray[key] = "'" + idsArray[key] + "'"
+	}
+	return strings.Join(idsArray, ",")
 }
