@@ -69,7 +69,7 @@ func (response *TerminalResponse) SetError(code int16) {
 	response.Result = -1
 }
 
-func (sender *Sender) response(obj *string, action *CommandAction) (response TerminalResponse) {
+func (sender *Sender) Run(obj *string, action *CommandAction) (response TerminalResponse) {
 	cmd := Command{
 		Id:      uuid.Must(uuid.NewV4()).String(),
 		Target:  *obj,
@@ -112,7 +112,7 @@ func (sender *Sender) Protection(obj *string, on uint8) TerminalResponse {
 		Act: on,
 	}
 
-	return sender.response(obj, &action)
+	return sender.Run(obj, &action)
 }
 
 func (sender *Sender) Engine(obj *string, on uint8) TerminalResponse {
@@ -121,7 +121,7 @@ func (sender *Sender) Engine(obj *string, on uint8) TerminalResponse {
 		Act: on,
 	}
 
-	return sender.response(obj, &action)
+	return sender.Run(obj, &action)
 }
 
 func (sender *Sender) Relay(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
@@ -132,21 +132,21 @@ func (sender *Sender) Relay(idx uint16, obj *string, on uint8, ton uint32, toff 
 		Ton:   ton,
 		Toff:  toff,
 	}
-	return sender.response(obj, &action)
+	return sender.Run(obj, &action)
 }
 
 func (sender *Sender) State(obj *string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
-	return sender.response(obj, &action)
+	return sender.Run(obj, &action)
 }
 
 func (sender *Sender) Reset(obj *string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
 	}
-	return sender.response(obj, &action)
+	return sender.Run(obj, &action)
 }
 
 func (response *TerminalResponse) SetBitErrors() {
