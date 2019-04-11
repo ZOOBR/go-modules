@@ -29,10 +29,11 @@ var (
 )
 
 type QueryParams struct {
-	Select *[]string
-	From   *string
-	Where  *[]string
-	Order  *[]string
+	BaseTable string
+	Select    *[]string
+	From      *string
+	Where     *[]string
+	Order     *[]string
 }
 
 type QueryStringParams struct {
@@ -81,11 +82,24 @@ func prepareFields(fields *[]string) string {
 	return resStr
 }
 
+func prepareBaseFields(baseTable string, fields *[]string) string {
+	var res string
+	for index := 0; index < len(*fields); index++ {
+		res += `"` + baseTable + `".` + (*fields)[index]
+		if index != len(*fields)-1 {
+			res += ","
+		}
+	}
+	return res
+}
+
 func MakeQuery(params *QueryParams) (*string, error) {
 	query := baseQuery
 	fields := "*"
 	var from, where, order string
-	if params.Select != nil {
+	if params.BaseTable != "" {
+		fields = prepareBaseFields(params.BaseTable, params.Select)
+	} else if params.Select != nil {
 		fields = prepareFields(params.Select)
 	}
 	if params.From != nil {
