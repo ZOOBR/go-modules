@@ -232,7 +232,7 @@ func (response *TerminalResponse) GetErrorsText() string {
 
 func NewSender(url string) Sender {
 	sender := Sender{
-		http:        &http.Client{},
+		http:        &http.Client{Timeout: 30000},
 		terminalURL: &url,
 	}
 	return sender
