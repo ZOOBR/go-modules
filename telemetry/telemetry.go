@@ -555,7 +555,7 @@ func (reader *BinaryReader) readPosition() int16 {
 	if reader.Size < len+reader.offset {
 		return 1
 	}
-	timePos := reader.ReadTime() / 1000
+	timePos := reader.ReadTime()
 	beginUnix := reader.BeginTime.Unix()
 	endUnix := reader.EndTime.Unix()
 	if (reader.BeginTime.IsZero() && reader.EndTime.IsZero()) || (int64(timePos) >= beginUnix && int64(timePos) <= endUnix) {
