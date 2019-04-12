@@ -582,10 +582,17 @@ func MakeQueryFromReq(req map[string]string) string {
 		if p == "limit" || p == "offset" || p == "sort" {
 			continue
 		}
+		f := strings.Split(p, "-")
 		if where != "" {
 			where += " AND "
 		}
-		where += `"` + p + `" ILIKE '%` + v + "%'"
+		switch f[1] {
+		case "text":
+			where += `"` + f[0] + `" ILIKE '%` + v + "%'"
+		case "date":
+			where += `"` + f[0] + `" >= '` + v + "'"
+		}
+
 	}
 	if where != "" {
 		where = "WHERE " + where
