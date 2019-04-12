@@ -36,11 +36,11 @@ type Command struct {
 	Command CommandAction `json:"command"`
 }
 type CommandError struct {
-	Code    int16  `json:"code"`
+	Code    int32  `json:"code"`
 	Message string `json:"message"`
 }
 
-var ErrorCodes = map[int16]string{
+var ErrorCodes = map[int32]string{
 	1100: "Ignition",
 	1101: "Parking",
 	1102: "Doors",
@@ -61,7 +61,7 @@ var ErrorCodes = map[int16]string{
 	-8:   "terminate",
 }
 
-func (response *TerminalResponse) SetError(code int16) {
+func (response *TerminalResponse) SetError(code int32) {
 	if response.Errors == nil {
 		response.Errors = make([]CommandError, 0)
 	}
