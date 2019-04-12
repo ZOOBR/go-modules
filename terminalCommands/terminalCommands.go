@@ -17,7 +17,7 @@ type Sender struct {
 
 type TerminalResponse struct {
 	Id        string                 `json:"id"`
-	Result    int16                  `json:"result"`
+	Result    int32                  `json:"result"`
 	Errors    []CommandError         `json:"error"`
 	Telemetry map[string]interface{} `json:"telemetry"`
 }
@@ -36,11 +36,11 @@ type Command struct {
 	Command CommandAction `json:"command"`
 }
 type CommandError struct {
-	Code    int16  `json:"code"`
+	Code    int32  `json:"code"`
 	Message string `json:"message"`
 }
 
-var ErrorCodes = map[int16]string{
+var ErrorCodes = map[int32]string{
 	1100: "Ignition",
 	1101: "Parking",
 	1102: "Doors",
@@ -61,7 +61,7 @@ var ErrorCodes = map[int16]string{
 	-8:   "terminate",
 }
 
-func (response *TerminalResponse) SetError(code int16) {
+func (response *TerminalResponse) SetError(code int32) {
 	if response.Errors == nil {
 		response.Errors = make([]CommandError, 0)
 	}
@@ -186,6 +186,35 @@ func (response *TerminalResponse) SetBitErrors() {
 	if (*result & (1 << 7)) != 0 {
 		response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
 	}
+	//already guard
+	if (*result & 0x100000) != 0 {
+		//response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
+	}
+
+	// 		//already running
+	// 		if (*result & 0x000100) != 0 {
+	// 			response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
+	// 		}
+	// 				//already running
+	// if (*result & 0x000100) != 0 {
+	// 	response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
+	// }
+	// 		//already running
+	// 		if (*result & 0x000100) != 0 {
+	// 			response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
+	// 		}
+	// 				//already running
+	// if (*result & 0x000100) != 0 {
+	// 	response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
+	// }
+	// guard_error_busy = 0x000080,
+
+	// // flex extended
+	// guard_error_sensor = 0x000100,
+	// guard_error_already = 0x100000,
+	// guard_error_timeout = 0x200000,
+	// guard_error_disable = 0x400000,
+	// guard_error_other = 0x800000
 }
 
 func (response *TerminalResponse) GetErrorsText() string {
