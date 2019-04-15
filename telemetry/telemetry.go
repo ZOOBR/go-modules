@@ -556,8 +556,8 @@ func (reader *BinaryReader) readPosition() int16 {
 		return 1
 	}
 	timePos := reader.ReadTime()
-	beginUnix := reader.BeginTime.Unix()
-	endUnix := reader.EndTime.Unix()
+	beginUnix := reader.BeginTime.Unix() * 1000
+	endUnix := reader.EndTime.Unix() * 1000
 	if (reader.BeginTime.IsZero() && reader.EndTime.IsZero()) || (int64(timePos) >= beginUnix && int64(timePos) <= endUnix) {
 		if reader.PositionFormat == "struct" {
 			reader.newPosition(timePos)
