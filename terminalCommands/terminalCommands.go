@@ -18,7 +18,7 @@ type Sender struct {
 type TerminalResponse struct {
 	Id        string                 `json:"id"`
 	Result    int32                  `json:"result"`
-	Errors    []CommandError         `json:"error"`
+	Errors    []CommandError         `json:"errors"`
 	Telemetry map[string]interface{} `json:"telemetry"`
 }
 
@@ -232,7 +232,7 @@ func (response *TerminalResponse) GetErrorsText() string {
 
 func NewSender(url string) Sender {
 	sender := Sender{
-		http:        &http.Client{Timeout: 30000000},
+		http:        &http.Client{Timeout: 30000000000},
 		terminalURL: &url,
 	}
 	return sender
