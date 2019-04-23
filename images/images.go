@@ -79,7 +79,7 @@ func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
 	s, err := session.NewSession(&aws.Config{
 		Region:      aws.String(S3_REGION),
 		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
-		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, "TOKEN"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 	})
 	if err != nil {
 		log.Error("Error create s3 session", err)
@@ -87,14 +87,13 @@ func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
 	}
 
 	_, err = s3.New(s).PutObject(&s3.PutObjectInput{
-		Bucket:               aws.String(S3_BUCKET),
-		Key:                  aws.String(path),
-		ACL:                  aws.String("private"),
-		Body:                 bytes.NewReader(dec),
-		ContentLength:        aws.Int64(int64(len(dec))),
-		ContentType:          aws.String(http.DetectContentType(dec)),
-		ContentDisposition:   aws.String("attachment"),
-		ServerSideEncryption: aws.String("AES256"),
+		Bucket:             aws.String(S3_BUCKET),
+		Key:                aws.String(path),
+		ACL:                aws.String("private"),
+		Body:               bytes.NewReader(dec),
+		ContentLength:      aws.Int64(int64(len(dec))),
+		ContentType:        aws.String(http.DetectContentType(dec)),
+		ContentDisposition: aws.String("attachment"),
 	})
 	if err != nil {
 		log.Error("Error upload file to s3", err)
