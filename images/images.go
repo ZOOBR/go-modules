@@ -3,6 +3,7 @@ package images
 import (
 	"bytes"
 	"encoding/base64"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -105,4 +106,35 @@ func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
 		File: file + ".jpg"}
 
 	return &res, nil
+}
+
+func GetImageS3(path string) (*[]byte, error) {
+	s, err := session.NewSession(&aws.Config{
+		Region:      aws.String(S3_REGION),
+		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		log.Error("Error create s3 session", err)
+		return nil, err
+	}
+
+	res, err := s3.New(s).GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(S3_BUCKET),
+		Key:    aws.String(path),
+	})
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	image, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	if err != nil {
+		log.Error("Error upload file to s3", err)
+		return nil, err
+	}
+	return &image, nil
 }
