@@ -3,6 +3,7 @@ package images
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -24,13 +25,19 @@ type uploadedPhoto struct {
 }
 
 const (
-	S3_BUCKET            = "csx-docs"
 	S3_BUCKET_THUMBNAILS = "csx-docs-tn"
+	S3_CLIENT_DOCS       = "csx-docs"
+	S3_FINES             = "csx-fines"
 	S3_REGION            = "nl-ams"
 	S3_API_ACCESS_KEY    = "SCWPT293A2FEE4NJZEW2"
 	S3_API_SECRET_KEY    = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
 	S3_API_TOKEN         = "79bb5344-f2e9-4aa3-9c7a-9ad2f41ef9e5"
 )
+
+var bucketsMap = map[string]string{
+	"docs":  S3_CLIENT_DOCS,
+	"fines": S3_FINES,
+}
 
 func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	dec, err := base64.StdEncoding.DecodeString(*photo)
@@ -68,7 +75,7 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
-func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
+func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhoto, error) {
 	dec, err := base64.StdEncoding.DecodeString(*photo)
 	if err != nil {
 		log.Error("Error decode photo: ", err)
@@ -101,8 +108,13 @@ func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
 		return nil, err
 	}
 
+	bucket, ok := bucketsMap[bucketName]
+	if !ok {
+		return nil, errors.New("Bucket not found")
+	}
+
 	_, err = s3.New(s).PutObject(&s3.PutObjectInput{
-		Bucket:             aws.String(S3_BUCKET),
+		Bucket:             aws.String(bucket),
 		Key:                aws.String(path),
 		ACL:                aws.String("private"),
 		Body:               bytes.NewReader(dec),
@@ -138,7 +150,7 @@ func UploadImageS3(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
-func GetImageS3(path string) (*[]byte, error) {
+func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, error) {
 	s, err := session.NewSession(&aws.Config{
 		Region:      aws.String(S3_REGION),
 		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
@@ -148,9 +160,16 @@ func GetImageS3(path string) (*[]byte, error) {
 		log.Error("Error create s3 session", err)
 		return nil, err
 	}
+	bucket, ok := bucketsMap[bucketName]
+	if !ok {
+		return nil, errors.New("Bucket not found")
+	}
+	if len(thumbnail) > 0 && thumbnail[0] {
+		bucket = S3_BUCKET_THUMBNAILS
+	}
 
 	res, err := s3.New(s).GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(S3_BUCKET),
+		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
 	})
 	if err != nil {
