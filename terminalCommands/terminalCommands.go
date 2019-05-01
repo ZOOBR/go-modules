@@ -34,6 +34,7 @@ type Command struct {
 	Id      string        `json:"id"`
 	Target  string        `json:"target"`
 	Command CommandAction `json:"command"`
+	Timeout int           `json:"timeout"`
 }
 type CommandError struct {
 	Code    int32  `json:"code"`
@@ -69,11 +70,14 @@ func (response *TerminalResponse) SetError(code int32) {
 	response.Result = -1
 }
 
-func (sender *Sender) Run(obj *string, action *CommandAction) (response TerminalResponse) {
+func (sender *Sender) Run(obj *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
 	cmd := Command{
 		Id:      uuid.Must(uuid.NewV4()).String(),
 		Target:  *obj,
 		Command: *action,
+	}
+	if len(timeout) > 0 {
+		cmd.Timeout = timeout[0]
 	}
 	b, err := json.Marshal(cmd)
 	if err != nil {
@@ -232,7 +236,7 @@ func (response *TerminalResponse) GetErrorsText() string {
 
 func NewSender(url string) Sender {
 	sender := Sender{
-		http:        &http.Client{Timeout: 30000000000},
+		http:        &http.Client{Timeout: 40000000000},
 		terminalURL: &url,
 	}
 	return sender
