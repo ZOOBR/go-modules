@@ -224,6 +224,15 @@ func SetValues(query *string, values *map[string]interface{}) error {
 	return nil
 }
 
+func (this *Query) Delete(query string) (err error) {
+	if this.tx != nil {
+		_, err = this.tx.Exec(query)
+	} else {
+		_, err = this.db.Exec(query)
+	}
+	return err
+}
+
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
 func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
@@ -267,6 +276,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					oldMap[tag] = f.String()
 				case time.Time:
 					oldMap[tag] = val.Format(time.RFC3339)
+				case []string:
+					jsonArray, _ := json.Marshal(val)
+					oldMap[tag] = jsonArray
 				default:
 					continue
 				}
@@ -305,6 +317,10 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		case time.Time:
 			resultMap[tag] = val.Format(time.RFC3339)
 			updV = resultMap[tag].(string)
+		case []string:
+			jsonArray, _ := json.Marshal(val)
+			resultMap[tag] = string(jsonArray)
+			updV = string(jsonArray)
 		default:
 			continue
 		}
