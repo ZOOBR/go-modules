@@ -582,7 +582,7 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 	return resultMap
 }
 
-func MakeQueryFromReq(req map[string]string) string {
+func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	limit := req["limit"]
 	offset := req["offset"]
 	if limit == "" {
@@ -592,6 +592,9 @@ func MakeQueryFromReq(req map[string]string) string {
 		offset = "0"
 	}
 	where := ""
+	if len(extConditions) > 0 {
+		where += extConditions[0]
+	}
 	orderby := ""
 	q := "LIMIT " + limit + " OFFSET " + offset
 	for p, v := range req {
@@ -606,7 +609,11 @@ func MakeQueryFromReq(req map[string]string) string {
 		case "text":
 			where += `"` + f[0] + `" ILIKE '%` + v + "%'"
 		case "date":
-			where += `"` + f[0] + `" >= '` + v + "'"
+			rangeDates := strings.Split(v, "_")
+			where += `"` + f[0] + `" >= '` + rangeDates[0] + "'"
+			if len(rangeDates) > 1 {
+				where += ` AND "` + f[0] + `" <= '` + rangeDates[1] + "'"
+			}
 		}
 
 	}
