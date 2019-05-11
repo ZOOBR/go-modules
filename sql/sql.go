@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -263,6 +264,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 				}
 				tag := typ.Field(i).Tag.Get("db")
 				switch val := f.Interface().(type) {
+				case bool:
+					oldMap[tag] = f.Bool()
 				case int, int8, int16, int32, int64:
 					oldMap[tag] = f.Int()
 				case uint, uint8, uint16, uint32, uint64:
@@ -298,6 +301,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		tag := typ.Field(i).Tag.Get("db")
 		var updV string
 		switch val := f.Interface().(type) {
+		case bool:
+			resultMap[tag] = f.Bool()
+			updV = strconv.FormatBool(resultMap[tag].(bool))
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
 			updV = fmt.Sprintf("%d", resultMap[tag])
