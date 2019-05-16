@@ -17,6 +17,8 @@ const (
 	DefaultURI = "127.0.0.1:6379"
 	//DefaultDB is default Redis DB
 	DefaultDB = "10"
+	//DefaultPass is default Redis password
+	DefaultPassword = ""
 	//ReconnectInterval is default reconnect interval
 	ReconnectInterval = 20000
 	//SessionDefaultDuration - default duration of session in minutes
@@ -40,6 +42,10 @@ func Init() {
 	if envDB == "" {
 		envDB = DefaultDB
 	}
+	envPass := os.Getenv("REDIS_PASSWORD")
+	if envPass == "" {
+		envPass = DefaultPassword
+	}
 
 	var envSessDuration int
 	envDuration := os.Getenv("REDIS_SESS_DURATION")
@@ -57,7 +63,7 @@ func Init() {
 	redisDb := redis.New(service.Config{
 		Network:     "tcp",
 		Addr:        envURI,
-		Password:    "",
+		Password:    envPass,
 		Database:    envDB,
 		MaxIdle:     0,
 		MaxActive:   0,
