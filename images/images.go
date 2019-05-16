@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"image"
+	"image/jpeg"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -16,8 +17,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/disintegration/imaging"
 	"github.com/rwcarlsen/goexif/exif"
+
+	"github.com/nfnt/resize"
 	log "github.com/sirupsen/logrus"
 	str "gitlab.com/battler/modules/strings"
 )
@@ -95,7 +97,7 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 	var thumbnail []byte
 	thumbnail, err = x.JpegThumbnail()
 	if err != nil {
-		img, _, err := image.Decode(bytes.NewReader(dec))
+		img, _, err := image.Decode(bytes.NewBuffer(dec))
 		if err != nil {
 			log.Error("Error gen thumbnail: ", err)
 			return nil, err
@@ -113,16 +115,26 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 		xSize := binary.BigEndian.Uint32(xTag.Val)
 		ySize := binary.BigEndian.Uint32(yTag.Val)
 		ratio := xSize / ySize
-		var thX, thY int
+		var thX, thY uint
 		if ratio > 1 {
 			thX = 176
-			thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
+			// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
+			thY = 0
 		} else {
 			thY = 176
-			thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
+			// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
+			thX = 0
 		}
-		dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
-		thumbnail = dstThumb.Pix
+		// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
+		// thumbnail = dstThumb.Pix
+		dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
+		w := bytes.NewBuffer([]byte{})
+		err = jpeg.Encode(w, dstThumb, nil)
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		thumbnail = w.Bytes()
 	}
 
 	file := str.RandomString(10, false)
