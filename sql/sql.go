@@ -511,6 +511,9 @@ func (this *Query) InsertStructValues(query string, structVal interface{}) error
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
+		if tag == "-" {
+			continue
+		}
 		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
