@@ -620,8 +620,9 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			if len(rangeDates) > 1 {
 				where += ` AND "` + f[0] + `" <= '` + rangeDates[1] + "'"
 			}
+		case "select":
+			where += `"` + f[0] + `" = '` + v + "'"
 		}
-
 	}
 	if where != "" {
 		where = "WHERE " + where
