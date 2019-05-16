@@ -3,7 +3,9 @@ package images
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
+	"image"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/disintegration/imaging"
 	"github.com/rwcarlsen/goexif/exif"
 	log "github.com/sirupsen/logrus"
 	str "gitlab.com/battler/modules/strings"
@@ -92,8 +95,34 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 	var thumbnail []byte
 	thumbnail, err = x.JpegThumbnail()
 	if err != nil {
-		log.Error("Error gen thumbnail: ", err)
-		return nil, err
+		img, _, err := image.Decode(bytes.NewReader(dec))
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		xTag, err := x.Get("PixelXDimension")
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		yTag, err := x.Get("PixelYDimension")
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		xSize := binary.BigEndian.Uint32(xTag.Val)
+		ySize := binary.BigEndian.Uint32(yTag.Val)
+		ratio := xSize / ySize
+		var thX, thY int
+		if ratio > 1 {
+			thX = 176
+			thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
+		} else {
+			thY = 176
+			thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
+		}
+		dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
+		thumbnail = dstThumb.Pix
 	}
 
 	file := str.RandomString(10, false)
