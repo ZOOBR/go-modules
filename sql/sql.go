@@ -123,7 +123,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	return &query, nil
 }
 
-func execQuery(q *string) QueryResult {
+func ExecQuery(q *string) QueryResult {
 	results := QueryResult{}
 	rows, err := DB.Queryx(*q)
 	if err != nil {
@@ -155,7 +155,7 @@ func Find(params *QueryParams) QueryResult {
 	if err != nil {
 		return QueryResult{Error: err}
 	}
-	return execQuery(query)
+	return ExecQuery(query)
 }
 
 func FindOne(params *QueryParams) (*map[string]interface{}, error) {
@@ -163,7 +163,7 @@ func FindOne(params *QueryParams) (*map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	data := execQuery(query)
+	data := ExecQuery(query)
 	if data.Error != nil {
 		return nil, data.Error
 	}
@@ -600,19 +600,20 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	if offset == "" {
 		offset = "0"
 	}
-	where := ""
+	newQ := ""
 	fields, okF := req["fields"]
 	table, okT := req["table"]
 	if okF && okT {
-		where += `SELECT ` + fields + ` FROM "` + table + `" `
+		newQ += `SELECT ` + fields + ` FROM "` + table + `" `
 	}
+	where := ""
 	if len(extConditions) > 0 {
 		where += extConditions[0]
 	}
 	orderby := ""
 	q := "LIMIT " + limit + " OFFSET " + offset
 	for p, v := range req {
-		if p == "limit" || p == "offset" || p == "sort" {
+		if p == "limit" || p == "offset" || p == "sort" || p == "table" || p == "fields" {
 			continue
 		}
 		f := strings.Split(p, "-")
@@ -639,7 +640,7 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 		sortParams := strings.Split(val, "-")
 		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
 	}
-	return where + " " + orderby + " " + q
+	return newQ + " " + where + " " + orderby + " " + q
 }
 
 //Init open connection to database
