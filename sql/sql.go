@@ -601,6 +601,11 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 		offset = "0"
 	}
 	where := ""
+	fields, okF := req["fields"]
+	table, okT := req["table"]
+	if okF && okT {
+		where += `SELECT ` + fields + ` FROM "` + table + `" `
+	}
 	if len(extConditions) > 0 {
 		where += extConditions[0]
 	}
