@@ -34,7 +34,7 @@ const (
 	S3_CLIENT_DOCS       = "csx-docs"
 	S3_FINES             = "csx-fines"
 	S3_OBJECT_DAMAGES    = "csx-photo-damages"
-	S3_PUBLIC            = "csx-public"
+	S3_PUBLIC            = "csx-upload"
 	S3_REGION            = "nl-ams"
 	S3_API_ACCESS_KEY    = "SCWPT293A2FEE4NJZEW2"
 	S3_API_SECRET_KEY    = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
@@ -46,6 +46,12 @@ var bucketsMap = map[string]string{
 	"fines":   S3_FINES,
 	"damages": S3_OBJECT_DAMAGES,
 	"public":  S3_PUBLIC,
+}
+var regionsMap = map[string]string{
+	"docs":    "nl-ams",
+	"fines":   "fr-par",
+	"damages": "fr-par",
+	"public":  "fr-par",
 }
 
 func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
@@ -143,9 +149,14 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 	dest := strings.Join(strings.Split(file, ""), "/")
 	path := dest + "/" + file + ".jpg"
 
+	regionS3, ok := regionsMap[bucketName]
+	if !ok {
+		return nil, errors.New("Region not found")
+	}
+
 	s, err := session.NewSession(&aws.Config{
-		Region:      aws.String(S3_REGION),
-		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+		Region:      aws.String(regionS3),
+		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
 		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 	})
 	if err != nil {
@@ -172,8 +183,17 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 		return nil, err
 	}
 
+	th, err := session.NewSession(&aws.Config{
+		Region:      aws.String("nl-ams"),
+		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		log.Error("Error create s3 session", err)
+		return nil, err
+	}
 	if len(thumbnail) > 0 {
-		_, err = s3.New(s).PutObject(&s3.PutObjectInput{
+		_, err = s3.New(th).PutObject(&s3.PutObjectInput{
 			Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
 			Key:                aws.String(path),
 			ACL:                aws.String("private"),
@@ -196,9 +216,13 @@ func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhot
 }
 
 func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, error) {
+	regionS3, ok := regionsMap[bucketName]
+	if !ok {
+		return nil, errors.New("Region not found")
+	}
 	s, err := session.NewSession(&aws.Config{
-		Region:      aws.String(S3_REGION),
-		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+		Region:      aws.String(regionS3),
+		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
 		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 	})
 	if err != nil {
