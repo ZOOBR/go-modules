@@ -7,7 +7,7 @@ type ErrorItem struct {
 
 var (
 	errorsItems = map[string]ErrorItem{
-		"Auth failed": ErrorItem{
+		"AuthFailed": ErrorItem{
 			statusCode: 401,
 			messages: map[string]string{
 				"en": "You are not authorized",
