@@ -7,46 +7,11 @@ type ErrorItem struct {
 
 var (
 	errorsItems = map[string]ErrorItem{
-		"invalidPromocode": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Invalid promocode",
-				"ru": "Неправильный промокод",
-			},
-		},
-		"PromocodeExpired": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Promocode has expired",
-				"ru": "Срок действия промокод истек",
-			},
-		},
-		"DbError": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Oops, something going wrong...",
-				"ru": "Упс, что-то пошло не так...",
-			},
-		},
 		"Auth failed": ErrorItem{
 			statusCode: 401,
 			messages: map[string]string{
 				"en": "You are not authorized",
 				"ru": "Вы не авторизованы",
-			},
-		},
-		"MissingReqParams": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Missing required parameters in request",
-				"ru": "Отсутствуют обязательные параметры в запросе",
-			},
-		},
-		"InvalidJSON": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Invalid JSON format",
-				"ru": "Некорректный JSON формат",
 			},
 		},
 		"CardNotFound": ErrorItem{
@@ -56,11 +21,102 @@ var (
 				"ru": "Карта не найдена",
 			},
 		},
+		"DbError": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Oops, something going wrong...",
+				"ru": "Упс, что-то пошло не так...",
+			},
+		},
+		"ErrorPasswordHash": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Password saving failed",
+				"ru": "Не удалось сохранить пароль",
+			},
+		},
+		"ErrorUploadFile": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Error file upload",
+				"ru": "Ошибка загрузки файла",
+			},
+		},
+		"InvalidRegData": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Invalid input data",
+				"ru": "Введенные данные некорректны",
+			},
+		},
+		"InvoiceNotFound": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Invoice not found",
+				"ru": "Счет не найден",
+			},
+		},
 		"InvalidCard": ErrorItem{
 			statusCode: 400,
 			messages: map[string]string{
 				"en": "Card is invalid",
 				"ru": "Карта не действительна",
+			},
+		},
+		"invalidPromocode": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Invalid promocode",
+				"ru": "Неправильный промокод",
+			},
+		},
+		"InvalidJSON": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Invalid JSON format",
+				"ru": "Некорректный JSON формат",
+			},
+		},
+		"InvoicePayError": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Can not pay invoice",
+				"ru": "Не удалось оплатить счет",
+			},
+		},
+		"MissingReqParams": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Missing required parameters in request",
+				"ru": "Отсутствуют обязательные параметры в запросе",
+			},
+		},
+		"PasswordsMatch": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Old and new password match",
+				"ru": "Старый и новый пароли совпадают",
+			},
+		},
+		"PromocodeExpired": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Promocode was activated before or has expired",
+				"ru": "Промокод был активирован ранее или истек срок действия",
+			},
+		},
+		"RentNotFound": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Rent not found",
+				"ru": "Аренда не найдена",
+			},
+		},
+		"RentStateNotFound": ErrorItem{
+			statusCode: 400,
+			messages: map[string]string{
+				"en": "Rent state not found",
+				"ru": "Арендное состояние не найдено",
 			},
 		},
 		"S3Error": ErrorItem{
@@ -75,34 +131,6 @@ var (
 			messages: map[string]string{
 				"en": "Service unavailable",
 				"ru": "Сервис недоступен",
-			},
-		},
-		"ErrorUploadFile": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Error file upload",
-				"ru": "Ошибка загрузки файла",
-			},
-		},
-		"PasswordsMatch": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Old and new password match",
-				"ru": "Старый и новый пароли совпадают",
-			},
-		},
-		"ErrorPasswordHash": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Password saving failed",
-				"ru": "Не удалось сохранить пароль",
-			},
-		},
-		"InvalidRegData": ErrorItem{
-			statusCode: 400,
-			messages: map[string]string{
-				"en": "Invalid input data",
-				"ru": "Введенные данные некорректны",
 			},
 		},
 	}
