@@ -18,6 +18,9 @@ var (
 )
 
 func Error(errorCode string, lang string) (msg string, statusCode int) {
+	if lang == "" {
+		lang = "en"
+	}
 	item, ok := errorsItems[errorCode]
 	if !ok {
 		return errorCode, 400
