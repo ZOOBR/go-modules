@@ -220,6 +220,14 @@ func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, err
 	if !ok {
 		return nil, errors.New("Region not found")
 	}
+	bucket, ok := bucketsMap[bucketName]
+	if !ok {
+		return nil, errors.New("Bucket not found")
+	}
+	if len(thumbnail) > 0 && thumbnail[0] {
+		bucket = S3_BUCKET_THUMBNAILS
+		regionS3 = "nl-ams"
+	}
 	s, err := session.NewSession(&aws.Config{
 		Region:      aws.String(regionS3),
 		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
@@ -229,14 +237,6 @@ func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, err
 		log.Error("Error create s3 session", err)
 		return nil, err
 	}
-	bucket, ok := bucketsMap[bucketName]
-	if !ok {
-		return nil, errors.New("Bucket not found")
-	}
-	if len(thumbnail) > 0 && thumbnail[0] {
-		bucket = S3_BUCKET_THUMBNAILS
-	}
-
 	res, err := s3.New(s).GetObject(&s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
