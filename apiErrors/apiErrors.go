@@ -1,6 +1,8 @@
 package apiErrors
 
 import (
+	"strings"
+
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/models"
 )
@@ -33,7 +35,13 @@ func Init() {
 func Error(errorCode string, lang string) (msg string, statusCode int) {
 	if lang == "" {
 		lang = "en"
+	} else {
+		langs := strings.SplitAfter(lang, ",")
+		if len(langs) > 1 {
+			lang = strings.Trim(langs[1], " ")
+		}
 	}
+
 	item, ok := errorsItems[errorCode]
 	if !ok {
 		return errorCode, 400
