@@ -34,7 +34,7 @@ const (
 	S3_CLIENT_DOCS       = "csx-docs"
 	S3_FINES             = "csx-fines"
 	S3_OBJECT_DAMAGES    = "csx-photo-damages"
-	S3_PUBLIC            = "csx-upload"
+	S3_PUBLIC            = "csx-public"
 	S3_REGION            = "nl-ams"
 	S3_API_ACCESS_KEY    = "SCWPT293A2FEE4NJZEW2"
 	S3_API_SECRET_KEY    = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
@@ -51,7 +51,7 @@ var regionsMap = map[string]string{
 	"docs":    "nl-ams",
 	"fines":   "fr-par",
 	"damages": "fr-par",
-	"public":  "fr-par",
+	"public":  "nl-ams",
 }
 
 func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
