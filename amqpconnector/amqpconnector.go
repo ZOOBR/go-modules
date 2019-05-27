@@ -11,11 +11,14 @@ import (
 
 //Consumer structure for NewConsumer result
 type Consumer struct {
-	conn       *amqp.Connection
-	Channel    *amqp.Channel
-	tag        string
-	Done       chan error
-	Deliveries <-chan amqp.Delivery
+	conn         *amqp.Connection
+	Channel      *amqp.Channel
+	tag          string
+	Done         chan error
+	Deliveries   <-chan amqp.Delivery
+	Exchange     string
+	ExchangeType string
+	Uri          string
 }
 
 //NewConsumer create simple consumer for read messages with ack
@@ -103,10 +106,13 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (
 
 func NewPublisher(amqpURI, exchange, exchangeType, key, ctag string) (*Consumer, error) {
 	c := &Consumer{
-		conn:    nil,
-		Channel: nil,
-		tag:     ctag,
-		Done:    make(chan error),
+		conn:         nil,
+		Channel:      nil,
+		tag:          ctag,
+		Done:         make(chan error),
+		Uri:          amqpURI,
+		Exchange:     exchange,
+		ExchangeType: exchangeType,
 	}
 
 	var err error
@@ -144,6 +150,15 @@ func NewPublisher(amqpURI, exchange, exchangeType, key, ctag string) (*Consumer,
 		return nil, fmt.Errorf("Queue Consume: %s", err)
 	}
 	return c, nil
+}
+
+func (consumer *Consumer) Publish(msg []byte) error {
+	content := amqp.Publishing{
+		ContentType: "text/plain",
+		Body:        msg,
+	}
+	err := consumer.Channel.Publish(consumer.Exchange, "", false, false, content)
+	return err
 }
 
 func Publish(amqpURI, exchange, exchangeType, routingKey, body string, reliable bool) error {
