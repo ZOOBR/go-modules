@@ -607,9 +607,12 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	}
 	newQ := ""
 	fields, okF := req["fields"]
+	join, okJ := req["join"]
 	table, okT := req["table"]
 	if okF && okT {
 		newQ += `SELECT ` + fields + ` FROM "` + table + `" `
+	} else if okF && okJ {
+		newQ += `SELECT ` + fields + ` FROM ` + join + ` `
 	}
 	where := ""
 	if len(extConditions) > 0 {
@@ -618,7 +621,7 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	orderby := ""
 	q := "LIMIT " + limit + " OFFSET " + offset
 	for p, v := range req {
-		if p == "limit" || p == "offset" || p == "sort" || p == "table" || p == "fields" {
+		if p == "limit" || p == "offset" || p == "sort" || p == "table" || p == "fields" || p == "join" {
 			continue
 		}
 		f := strings.Split(p, "-")
@@ -636,6 +639,8 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			}
 		case "select":
 			where += `"` + f[0] + `" = '` + v + "'"
+		case "is":
+			where += `"` + f[0] + `" IS ` + v
 		}
 	}
 	if where != "" {
@@ -645,7 +650,9 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 		sortParams := strings.Split(val, "-")
 		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
 	}
-	return newQ + " " + where + " " + orderby + " " + q
+	fullReq := newQ + " " + where + " " + orderby + " " + q
+	// fmt.Println(fullReq)
+	return fullReq
 }
 
 //Init open connection to database
