@@ -41,6 +41,35 @@ type CommandError struct {
 	Message string `json:"message"`
 }
 
+const (
+	// belka compatible
+	guard_error_ign    = 0x000001
+	guard_error_park   = 0x000002
+	guard_error_doors  = 0x000004
+	guard_error_trunk  = 0x000008
+	guard_error_space  = 0x000010
+	guard_error_hood   = 0x000020
+	guard_error_lights = 0x000040
+	guard_error_busy   = 0x000080
+
+	// flex extended
+	guard_error_sensor    = 0x000100
+	guard_error_guard     = 0x000200
+	guard_error_can_park  = 0x000400
+	guard_error_can_brake = 0x000800
+	guard_error_already   = 0x100000
+	guard_error_timeout   = 0x200000
+	guard_error_disable   = 0x400000
+	guard_error_other     = 0x800000
+
+	// common
+	command_error_other        = guard_error_other
+	command_error_timeout      = guard_error_timeout
+	command_error_disable      = guard_error_disable
+	command_error_invalid_args = 0x1000000
+	command_error_invalid_crc  = 0x2000000
+)
+
 var ErrorCodes = map[int32]string{
 	1100: "TurnOffIgnition",
 	1101: "TurnOnParking",
@@ -50,6 +79,11 @@ var ErrorCodes = map[int32]string{
 	1105: "CloseHood",
 	1106: "TurnOffLight",
 	1107: "CommandRunning",
+	1108: "SensorError",
+	1109: "GuardError",
+	1110: "BrakeError",
+	1111: "CommandDisabled",
+	1112: "OtherError",
 	-101: "ServiceUnavailable",
 	-102: "InvalidResponse",
 	-1:   "fail",
@@ -190,35 +224,44 @@ func (response *TerminalResponse) SetBitErrors() {
 	if (*result & (1 << 7)) != 0 {
 		response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
 	}
+
 	//already guard
-	if (*result & 0x100000) != 0 {
+	if (*result & guard_error_already) != 0 {
 		//response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
 	}
+	//error sensor
+	if (*result & guard_error_sensor) != 0 {
+		response.Errors = append(response.Errors, CommandError{1108, ErrorCodes[1108]})
+	}
+	//error guard
+	if (*result & guard_error_guard) != 0 {
+		response.Errors = append(response.Errors, CommandError{1109, ErrorCodes[1109]})
+	}
+	//error can park
+	if (*result & guard_error_can_park) != 0 {
+		response.Errors = append(response.Errors, CommandError{1101, ErrorCodes[1101]})
+	}
 
-	// 		//already running
-	// 		if (*result & 0x000100) != 0 {
-	// 			response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
-	// 		}
-	// 				//already running
-	// if (*result & 0x000100) != 0 {
-	// 	response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
-	// }
-	// 		//already running
-	// 		if (*result & 0x000100) != 0 {
-	// 			response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
-	// 		}
-	// 				//already running
-	// if (*result & 0x000100) != 0 {
-	// 	response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
-	// }
-	// guard_error_busy = 0x000080,
+	//error can brake
+	if (*result & guard_error_can_brake) != 0 {
+		response.Errors = append(response.Errors, CommandError{1110, ErrorCodes[1110]})
+	}
 
-	// // flex extended
-	// guard_error_sensor = 0x000100,
-	// guard_error_already = 0x100000,
-	// guard_error_timeout = 0x200000,
-	// guard_error_disable = 0x400000,
-	// guard_error_other = 0x800000
+	//error timeout
+	if (*result & guard_error_timeout) != 0 {
+		response.Errors = append(response.Errors, CommandError{-3, ErrorCodes[-3]})
+	}
+
+	//error disabled
+	if (*result & guard_error_disable) != 0 {
+		response.Errors = append(response.Errors, CommandError{1111, ErrorCodes[1111]})
+	}
+
+	//error other
+	if (*result & guard_error_other) != 0 {
+		response.Errors = append(response.Errors, CommandError{1112, ErrorCodes[1112]})
+	}
+
 }
 
 func (response *TerminalResponse) GetErrorsText() string {
