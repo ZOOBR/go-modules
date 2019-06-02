@@ -355,7 +355,7 @@ func (r *BinaryReader) ReadFloat32() float32 {
 }
 
 func (r *BinaryReader) ReadFloat64() float64 {
-	bits := binary.BigEndian.Uint64(r.Buf[r.offset : r.offset+4])
+	bits := binary.BigEndian.Uint64(r.Buf[r.offset : r.offset+8])
 	float := math.Float64frombits(bits)
 	r.offset += 8
 	return float
