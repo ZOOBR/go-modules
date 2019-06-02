@@ -128,6 +128,11 @@ type ParamsFloat32 struct {
 	V float32
 }
 
+type ParamsFloat64 struct {
+	K uint16
+	V float64
+}
+
 type ParamsInt16 struct {
 	K uint16
 	V int16
@@ -146,6 +151,7 @@ type ParamsUint32 struct {
 type BinaryPosition struct {
 	Time float64
 	F32  []ParamsFloat32
+	F64  []ParamsFloat64
 	I16  []ParamsInt16
 	UI32 []ParamsUint32
 	E    []uint16
@@ -394,6 +400,8 @@ func (r *BinaryReader) Skip(kind uint8, key uint16) {
 		r.offset += 4
 	case binaryFloat32:
 		r.offset += 4
+	case binaryFloat64:
+		r.offset += 8
 	}
 }
 
@@ -433,6 +441,8 @@ func (reader *BinaryReader) ReadValue(kind uint8, key uint16) int16 {
 		reader.pos.UI32 = append(reader.pos.UI32, ParamsUint32{key, reader.ReadUint32()})
 	case binaryFloat32:
 		reader.pos.F32 = append(reader.pos.F32, ParamsFloat32{key, reader.ReadFloat32()})
+	case binaryFloat64:
+		reader.pos.F64 = append(reader.pos.F64, ParamsFloat64{key, reader.ReadFloat64()})
 	}
 
 	return 0
@@ -469,6 +479,12 @@ func (reader *BinaryReader) ReadFlatValue(kind uint8, key uint16) int16 {
 		reader.flatPos.P[key] = float64(reader.ReadInt32())
 	case binaryUint32:
 		reader.flatPos.P[key] = float64(reader.ReadUint32())
+	case binaryFloat64:
+		if mapParamsPrecision[key] > 0 {
+			reader.flatPos.P[key] = math.Round(float64(reader.ReadFloat64())*mapParamsPrecision[key]) / mapParamsPrecision[key]
+		} else {
+			reader.flatPos.P[key] = float64(reader.ReadFloat64())
+		}
 	case binaryFloat32:
 		if mapParamsPrecision[key] > 0 {
 			reader.flatPos.P[key] = math.Round(float64(reader.ReadFloat32())*mapParamsPrecision[key]) / mapParamsPrecision[key]
