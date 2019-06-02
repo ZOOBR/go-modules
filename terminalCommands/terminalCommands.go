@@ -94,6 +94,7 @@ var ErrorCodes = map[int32]string{
 	-6:   "low_data",
 	-7:   "invalid_format",
 	-8:   "terminate",
+	-11:  "CommandTimeout",
 }
 
 func (response *TerminalResponse) SetError(code int32) {
