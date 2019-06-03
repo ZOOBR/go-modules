@@ -631,7 +631,6 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 		switch f[1] {
 		case "text":
 			if f[0] == "fullname" {
-				fmt.Fprintln(os.Stdout, "hello cold")
 				where += `CONCAT_WS(' ', surname, name, fathername) ILIKE '%` + v + "%'"
 			} else {
 				where += `"` + f[0] + `" ILIKE '%` + v + "%'"
