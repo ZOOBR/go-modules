@@ -656,7 +656,7 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 }
 
 //Init open connection to database
-func Init() {
+func Init() error {
 	var err error
 	if err != nil {
 		golog.Error(err)
@@ -668,9 +668,11 @@ func Init() {
 	db, err := sqlx.Connect("postgres", envURI)
 	if err != nil {
 		golog.Error("failed connect to database:", envURI, " ", err)
+		return err
 	} else {
 		golog.Info("success connect to database:", envURI)
 	}
 	DB = db
 	Q, err = NewQuery(false)
+	return nil
 }
