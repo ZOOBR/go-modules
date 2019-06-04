@@ -597,7 +597,7 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 }
 
 func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
-	r := strings.NewReplacer("create ", "", "insert ", "", "set ", "", "drop ", "", "alter ", "", "update ", "", "delete ", "", "CREATE ", "", "INSERT ", "", "SET ", "", "DROP ", "", "ALTER ", "", "UPDATE ", "", "DELETE ", "")
+	r := strings.NewReplacer("create ", "", "insert ", "", " set ", "", "drop ", "", "alter ", "", "update ", "", "delete ", "", "CREATE ", "", "INSERT ", "", " SET ", "", "DROP ", "", "ALTER ", "", "UPDATE ", "", "DELETE ", "")
 	limit := req["limit"]
 	offset := req["offset"]
 	if limit == "" {
