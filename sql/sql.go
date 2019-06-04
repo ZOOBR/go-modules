@@ -657,23 +657,25 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 }
 
 //Init open connection to database
-func Init() error {
+func Init() {
 	var err error
-	if err != nil {
-		golog.Error(err)
-	}
+	var db *sqlx.DB
+	connected := false
 	envURI := os.Getenv("SQL_URI")
 	if envURI == "" {
 		envURI = DefaultURI
 	}
-	db, err := sqlx.Connect("postgres", envURI)
-	if err != nil {
-		golog.Error("failed connect to database:", envURI, " ", err)
-		return err
-	} else {
-		golog.Info("success connect to database:", envURI)
+	for !connected {
+		db, err = sqlx.Connect("postgres", envURI)
+		if err != nil {
+			golog.Error("failed connect to database:", envURI, " ", err)
+			time.Sleep(20 * time.Second)
+			continue
+		} else {
+			connected = true
+		}
 	}
+	golog.Info("success connect to database:", envURI)
 	DB = db
 	Q, err = NewQuery(false)
-	return nil
 }
