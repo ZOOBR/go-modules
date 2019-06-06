@@ -519,6 +519,10 @@ func (this *Query) InsertStructValues(query string, structVal interface{}) error
 		if tag == "-" {
 			continue
 		}
+		tagReadOnly := typ.Field(i).Tag.Get("readOnly")
+		if tagReadOnly == "1" {
+			continue
+		}
 		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
