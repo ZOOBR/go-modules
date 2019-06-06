@@ -305,6 +305,12 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
+		tagWrite := typ.Field(i).Tag.Get("dbField")
+		if tagWrite == "-" {
+			continue
+		} else if tagWrite != "" {
+			tag = tagWrite
+		}
 		var updV string
 		switch val := f.Interface().(type) {
 		case bool:
