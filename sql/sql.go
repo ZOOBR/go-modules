@@ -648,19 +648,26 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			if where != "" {
 				where += " AND "
 			}
+			fieldParts := strings.Split(f[0], ".")
+			var field string
+			if len(fieldParts) < 2 {
+				field = `"` + f[0] + `"`
+			} else {
+				field = f[0]
+			}
 			switch f[1] {
 			case "text":
-				where += `"` + f[0] + `" ILIKE '%` + v + "%'"
+				where += field + ` ILIKE '%` + v + "%'"
 			case "date":
 				rangeDates := strings.Split(v, "_")
-				where += `"` + f[0] + `" >= '` + rangeDates[0] + "'"
+				where += field + ` >= '` + rangeDates[0] + "'"
 				if len(rangeDates) > 1 {
-					where += ` AND "` + f[0] + `" <= '` + rangeDates[1] + "'"
+					where += ` AND ` + field + ` <= '` + rangeDates[1] + "'"
 				}
 			case "select":
-				where += `"` + f[0] + `" = '` + v + "'"
+				where += field + ` = '` + v + "'"
 			case "is":
-				where += `"` + f[0] + `" IS ` + v
+				where += field + ` IS ` + v
 			}
 		}
 	}
