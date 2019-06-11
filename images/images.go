@@ -93,14 +93,21 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
-func UploadImageS3(photo *string, bucketName string, dir *string) (*uploadedPhoto, error) {
-	dec, err := base64.StdEncoding.DecodeString(*photo)
-	if err != nil {
-		log.Error("Error decode photo: ", err)
-		return nil, err
+func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...[]byte) (*uploadedPhoto, error) {
+	var dec []byte
+	if len(rawData) == 0 || (len(rawData) > 0 && len(rawData[0]) == 0) {
+		var err error
+		dec, err = base64.StdEncoding.DecodeString(*photo)
+		if err != nil {
+			log.Error("Error decode photo: ", err)
+			return nil, err
+		}
+	} else {
+		dec = rawData[0]
 	}
+
 	var x *exif.Exif
-	x, err = exif.Decode(bytes.NewBuffer(dec))
+	x, err := exif.Decode(bytes.NewBuffer(dec))
 	if err != nil {
 		log.Error("Error decode exif: ", err)
 		return nil, err
