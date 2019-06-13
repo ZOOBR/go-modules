@@ -123,7 +123,7 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...mul
 	}
 	var thumbnail []byte
 	thumbnail, err = x.JpegThumbnail()
-	if err != nil {
+	if err != nil || len(thumbnail) == 0 {
 		img, _, err := image.Decode(bytes.NewReader(dec))
 		if err != nil {
 			log.Error("Error gen thumbnail: ", err)
