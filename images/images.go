@@ -7,7 +7,9 @@ import (
 	"errors"
 	"image"
 	"image/jpeg"
+	"io"
 	"io/ioutil"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"strings"
@@ -17,7 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/rwcarlsen/goexif/exif"
+
+	//"github.com/rwcarlsen/goexif/exif"
+	"github.com/xor-gate/goexif2/exif"
 
 	"github.com/nfnt/resize"
 	log "github.com/sirupsen/logrus"
@@ -93,21 +97,26 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
-func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...[]byte) (*uploadedPhoto, error) {
-	var dec []byte
-	if len(rawData) == 0 || (len(rawData) > 0 && len(rawData[0]) == 0) {
+func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...multipart.File) (*uploadedPhoto, error) {
+	var r io.Reader
+	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
 		var err error
-		dec, err = base64.StdEncoding.DecodeString(*photo)
+		dec, err := base64.StdEncoding.DecodeString(*photo)
 		if err != nil {
 			log.Error("Error decode photo: ", err)
 			return nil, err
 		}
+		r = bytes.NewReader(dec)
 	} else {
-		dec = rawData[0]
+		r = rawData[0]
 	}
-
+	dec, err := ioutil.ReadAll(r)
+	if err != nil {
+		log.Error("Error read buf: ", err)
+		return nil, err
+	}
 	var x *exif.Exif
-	x, err := exif.Decode(bytes.NewBuffer(dec))
+	x, err = exif.Decode(bytes.NewReader(dec))
 	if err != nil {
 		log.Error("Error decode exif: ", err)
 		return nil, err
@@ -115,7 +124,7 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...[]b
 	var thumbnail []byte
 	thumbnail, err = x.JpegThumbnail()
 	if err != nil {
-		img, _, err := image.Decode(bytes.NewBuffer(dec))
+		img, _, err := image.Decode(bytes.NewReader(dec))
 		if err != nil {
 			log.Error("Error gen thumbnail: ", err)
 			return nil, err
