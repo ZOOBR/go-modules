@@ -639,42 +639,51 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	}
 	orderby := ""
 	q := "LIMIT " + limit + " OFFSET " + offset
-	for p, v := range req {
-		if p == "limit" || p == "offset" || p == "sort" || p == "table" || p == "fields" || p == "join" {
-			continue
-		}
-		f := strings.Split(p, "-")
-		if len(f) > 1 {
-			if where != "" {
-				where += " AND "
+	if filtered, ok := req["filter"]; ok {
+		filters := strings.Split(filtered, "$")
+		for _, kv := range filters {
+			if kv == "" {
+				continue
 			}
-			fieldParts := strings.Split(f[0], ".")
-			var field string
-			if len(fieldParts) < 2 {
-				field = `"` + f[0] + `"`
-			} else {
-				field = f[0]
+			keyValue := strings.Split(kv, "->")
+			if len(keyValue) < 2 {
+				continue
 			}
-			switch f[1] {
-			case "text":
-				where += field + ` ILIKE '%` + v + "%'"
-			case "date":
-				rangeDates := strings.Split(v, "_")
-				where += field + ` >= '` + rangeDates[0] + "'"
-				if len(rangeDates) > 1 {
-					where += ` AND ` + field + ` <= '` + rangeDates[1] + "'"
+			v := keyValue[1]
+			f := strings.Split(v, "~")
+			if len(f) > 1 {
+				v := f[1]
+				if where != "" {
+					where += " AND "
 				}
-			case "select":
-				where += field + ` = '` + v + "'"
-			case "is":
-				where += field + ` IS ` + v
+				fieldParts := strings.Split(f[0], ".")
+				var field string
+				if len(fieldParts) < 2 {
+					field = `"` + f[0] + `"`
+				} else {
+					field = f[0]
+				}
+				switch keyValue[0] {
+				case "text":
+					where += field + ` ILIKE '%` + v + "%'"
+				case "date":
+					rangeDates := strings.Split(v, "_")
+					where += field + ` >= '` + rangeDates[0] + "'"
+					if len(rangeDates) > 1 {
+						where += ` AND ` + field + ` <= '` + rangeDates[1] + "'"
+					}
+				case "select":
+					where += field + ` = '` + v + "'"
+				case "is":
+					where += field + ` IS ` + v
+				}
 			}
 		}
 	}
 	if where != "" {
 		where = "WHERE " + where
 	}
-	if val, ok := req["sort"]; ok {
+	if val, ok := req["sort"]; ok && val != "" {
 		sortParams := strings.Split(val, "-")
 		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
 	}
