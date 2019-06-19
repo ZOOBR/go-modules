@@ -115,53 +115,56 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...mul
 		log.Error("Error read buf: ", err)
 		return nil, err
 	}
-	var x *exif.Exif
-	x, err = exif.Decode(bytes.NewReader(dec))
-	if err != nil {
-		log.Error("Error decode exif: ", err)
-		return nil, err
-	}
+
 	var thumbnail []byte
-	thumbnail, err = x.JpegThumbnail()
-	if err != nil || len(thumbnail) == 0 {
-		img, _, err := image.Decode(bytes.NewReader(dec))
+	if bucketName != "fines" {
+		var x *exif.Exif
+		x, err = exif.Decode(bytes.NewReader(dec))
 		if err != nil {
-			log.Error("Error gen thumbnail: ", err)
+			log.Error("Error decode exif: ", err)
 			return nil, err
 		}
-		xTag, err := x.Get("PixelXDimension")
-		if err != nil {
-			log.Error("Error gen thumbnail: ", err)
-			return nil, err
+		thumbnail, err = x.JpegThumbnail()
+		if err != nil || len(thumbnail) == 0 {
+			img, _, err := image.Decode(bytes.NewReader(dec))
+			if err != nil {
+				log.Error("Error gen thumbnail: ", err)
+				return nil, err
+			}
+			xTag, err := x.Get("PixelXDimension")
+			if err != nil {
+				log.Error("Error gen thumbnail: ", err)
+				return nil, err
+			}
+			yTag, err := x.Get("PixelYDimension")
+			if err != nil {
+				log.Error("Error gen thumbnail: ", err)
+				return nil, err
+			}
+			xSize := binary.BigEndian.Uint32(xTag.Val)
+			ySize := binary.BigEndian.Uint32(yTag.Val)
+			ratio := xSize / ySize
+			var thX, thY uint
+			if ratio > 1 {
+				thX = 176
+				// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
+				thY = 0
+			} else {
+				thY = 176
+				// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
+				thX = 0
+			}
+			// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
+			// thumbnail = dstThumb.Pix
+			dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
+			w := bytes.NewBuffer([]byte{})
+			err = jpeg.Encode(w, dstThumb, nil)
+			if err != nil {
+				log.Error("Error gen thumbnail: ", err)
+				return nil, err
+			}
+			thumbnail = w.Bytes()
 		}
-		yTag, err := x.Get("PixelYDimension")
-		if err != nil {
-			log.Error("Error gen thumbnail: ", err)
-			return nil, err
-		}
-		xSize := binary.BigEndian.Uint32(xTag.Val)
-		ySize := binary.BigEndian.Uint32(yTag.Val)
-		ratio := xSize / ySize
-		var thX, thY uint
-		if ratio > 1 {
-			thX = 176
-			// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
-			thY = 0
-		} else {
-			thY = 176
-			// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
-			thX = 0
-		}
-		// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
-		// thumbnail = dstThumb.Pix
-		dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
-		w := bytes.NewBuffer([]byte{})
-		err = jpeg.Encode(w, dstThumb, nil)
-		if err != nil {
-			log.Error("Error gen thumbnail: ", err)
-			return nil, err
-		}
-		thumbnail = w.Bytes()
 	}
 
 	file := str.RandomString(10, false)
@@ -202,28 +205,30 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...mul
 		return nil, err
 	}
 
-	th, err := session.NewSession(&aws.Config{
-		Region:      aws.String("nl-ams"),
-		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
-		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-	})
-	if err != nil {
-		log.Error("Error create s3 session", err)
-		return nil, err
-	}
-	if len(thumbnail) > 0 {
-		_, err = s3.New(th).PutObject(&s3.PutObjectInput{
-			Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
-			Key:                aws.String(path),
-			ACL:                aws.String("private"),
-			Body:               bytes.NewReader(thumbnail),
-			ContentLength:      aws.Int64(int64(len(thumbnail))),
-			ContentType:        aws.String(http.DetectContentType(thumbnail)),
-			ContentDisposition: aws.String("attachment"),
+	if bucketName != "fines" {
+		th, err := session.NewSession(&aws.Config{
+			Region:      aws.String("nl-ams"),
+			Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 		})
 		if err != nil {
-			log.Error("Error upload file to s3", err)
+			log.Error("Error create s3 session", err)
 			return nil, err
+		}
+		if len(thumbnail) > 0 {
+			_, err = s3.New(th).PutObject(&s3.PutObjectInput{
+				Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
+				Key:                aws.String(path),
+				ACL:                aws.String("private"),
+				Body:               bytes.NewReader(thumbnail),
+				ContentLength:      aws.Int64(int64(len(thumbnail))),
+				ContentType:        aws.String(http.DetectContentType(thumbnail)),
+				ContentDisposition: aws.String("attachment"),
+			})
+			if err != nil {
+				log.Error("Error upload file to s3", err)
+				return nil, err
+			}
 		}
 	}
 
