@@ -734,9 +734,19 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					where += field + ` ILIKE '%` + v + "%'"
 				case "date":
 					rangeDates := strings.Split(v, "_")
-					where += field + ` >= '` + rangeDates[0] + "'"
+					beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
+					if err != nil {
+						continue
+					}
+					tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+					where += field + ` >= '` + tmBegin + "'"
 					if len(rangeDates) > 1 {
-						where += ` AND ` + field + ` <= '` + rangeDates[1] + "'"
+						endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
+						if err != nil {
+							continue
+						}
+						tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+						where += ` AND ` + field + ` <= '` + tmEnd + "'"
 					}
 				case "select":
 					where += field + ` = '` + v + "'"
