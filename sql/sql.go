@@ -11,11 +11,15 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/kataras/golog"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/common/log"
+	strUtil "gitlab.com/battler/modules/strings"
 )
 
 const (
@@ -92,6 +96,56 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 		}
 	}
 	return res
+}
+
+func (this *Query) saveLog(table string, item string, user string, data interface{}, diff map[string]interface{}) {
+	if len(diff) > 0 {
+		keys := []string{}
+		values := []string{}
+		for key := range diff {
+			keys = append(keys, key)
+			values = append(values, ":"+key)
+		}
+		id := strUtil.NewId()
+		query := `INSERT INTO "modelLog" (id,table,item,user,diff,data,time) = (:id,:table,:item,:user,:diff,:data,:time)`
+		diffByte, err := json.Marshal(diff)
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			return
+		}
+		dataByte, err := json.Marshal(data)
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			return
+		}
+		now := time.Now().UTC()
+		logItem := map[string]interface{}{
+			"id":    id,
+			"table": table,
+			"item":  item,
+			"user":  user,
+			"diff":  string(diffByte),
+			"data":  string(dataByte),
+			"time":  now,
+		}
+
+		if this.tx != nil {
+			_, err = this.tx.NamedExec(query, logItem)
+		} else {
+			_, err = this.db.NamedExec(query, logItem)
+		}
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+		}
+	}
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }
 
 func MakeQuery(params *QueryParams) (*string, error) {
@@ -391,11 +445,12 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) UpdateStructValues(query string, structVal interface{}) error {
+func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...string) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
+	diff := make(map[string]interface{})
 
 	iValOld := reflect.ValueOf(structVal).Elem()
 	var oldModel interface{}
@@ -450,6 +505,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
+		diff[tag] = f.Interface()
 		var updV string
 		switch val := f.Interface().(type) {
 		case bool:
@@ -492,6 +548,16 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 		prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
 	} else {
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+	}
+	if len(options) > 0 {
+		// 0 - id
+		// 1 - user
+		// 2 - table name
+		table := lowerFirst(typ.Name())
+		if len(options) > 2 {
+			table = options[2]
+		}
+		this.saveLog(table, options[0], options[0], oldModel, diff)
 	}
 
 	query = strings.Replace(query, "?", prepText, -1)
