@@ -107,7 +107,7 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 			values = append(values, ":"+key)
 		}
 		id := strUtil.NewId()
-		query := `INSERT INTO "modelLog" (id,table,item,user,diff,data,time) = (:id,:table,:item,:user,:diff,:data,:time)`
+		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","data","time") VALUES (:id,:table,:item,:user,:diff,:data,:time)`
 		diffByte, err := json.Marshal(diff)
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
@@ -445,7 +445,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...string) error {
+func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
@@ -472,6 +472,12 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 				continue
 			}
 			tag := typ.Field(i).Tag.Get("db")
+			tagWrite := typ.Field(i).Tag.Get("dbField")
+			if tagWrite == "-" || tag == "-" {
+				continue
+			} else if tagWrite != "" {
+				tag = tagWrite
+			}
 			switch val := f.Interface().(type) {
 			case bool:
 				oldMap[tag] = f.Bool()
@@ -505,7 +511,12 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
-		diff[tag] = f.Interface()
+		tagWrite := typ.Field(i).Tag.Get("dbField")
+		if tagWrite == "-" || tag == "-" {
+			continue
+		} else if tagWrite != "" {
+			tag = tagWrite
+		}
 		var updV string
 		switch val := f.Interface().(type) {
 		case bool:
@@ -535,6 +546,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		}
 
 		if oldMap[tag] != resultMap[tag] {
+			diff[tag] = f.Interface()
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
 		}
@@ -550,14 +562,21 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
 	}
 	if len(options) > 0 {
-		// 0 - id
-		// 1 - user
-		// 2 - table name
-		table := lowerFirst(typ.Name())
-		if len(options) > 2 {
-			table = options[2]
+		opts, ok := options[0].([]string)
+		if !ok {
+			log.Error("err get info for log model info:", options)
+		} else {
+			// 0 - id
+			// 1 - user
+			// 2 - table name
+			table := lowerFirst(typ.Name())
+			if len(opts) > 2 {
+				table = opts[2]
+			}
+			id := opts[0]
+			user := opts[1]
+			this.saveLog(table, id, user, oldMap, diff)
 		}
-		this.saveLog(table, options[0], options[0], oldModel, diff)
 	}
 
 	query = strings.Replace(query, "?", prepText, -1)
