@@ -11,11 +11,15 @@ import (
 	"strings"
 	"text/template"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/kataras/golog"
 	_ "github.com/lib/pq"
+	"github.com/prometheus/common/log"
+	strUtil "gitlab.com/battler/modules/strings"
 )
 
 const (
@@ -92,6 +96,56 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 		}
 	}
 	return res
+}
+
+func (this *Query) saveLog(table string, item string, user string, data interface{}, diff map[string]interface{}) {
+	if len(diff) > 0 {
+		keys := []string{}
+		values := []string{}
+		for key := range diff {
+			keys = append(keys, key)
+			values = append(values, ":"+key)
+		}
+		id := strUtil.NewId()
+		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","data","time") VALUES (:id,:table,:item,:user,:diff,:data,:time)`
+		diffByte, err := json.Marshal(diff)
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			return
+		}
+		dataByte, err := json.Marshal(data)
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			return
+		}
+		now := time.Now().UTC()
+		logItem := map[string]interface{}{
+			"id":    id,
+			"table": table,
+			"item":  item,
+			"user":  user,
+			"diff":  string(diffByte),
+			"data":  string(dataByte),
+			"time":  now,
+		}
+
+		if this.tx != nil {
+			_, err = this.tx.NamedExec(query, logItem)
+		} else {
+			_, err = this.db.NamedExec(query, logItem)
+		}
+		if err != nil {
+			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+		}
+	}
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }
 
 func MakeQuery(params *QueryParams) (*string, error) {
@@ -397,11 +451,12 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) UpdateStructValues(query string, structVal interface{}) error {
+func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
+	diff := make(map[string]interface{})
 
 	iValOld := reflect.ValueOf(structVal).Elem()
 	var oldModel interface{}
@@ -423,6 +478,12 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 				continue
 			}
 			tag := typ.Field(i).Tag.Get("db")
+			tagWrite := typ.Field(i).Tag.Get("dbField")
+			if tagWrite == "-" || tag == "-" {
+				continue
+			} else if tagWrite != "" {
+				tag = tagWrite
+			}
 			switch val := f.Interface().(type) {
 			case bool:
 				oldMap[tag] = f.Bool()
@@ -456,6 +517,12 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 			continue
 		}
 		tag := typ.Field(i).Tag.Get("db")
+		tagWrite := typ.Field(i).Tag.Get("dbField")
+		if tagWrite == "-" || tag == "-" {
+			continue
+		} else if tagWrite != "" {
+			tag = tagWrite
+		}
 		var updV string
 		switch val := f.Interface().(type) {
 		case bool:
@@ -485,6 +552,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 		}
 
 		if oldMap[tag] != resultMap[tag] {
+			diff[tag] = f.Interface()
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
 		}
@@ -498,6 +566,23 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}) error
 		prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
 	} else {
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
+	}
+	if len(options) > 0 {
+		opts, ok := options[0].([]string)
+		if !ok {
+			log.Error("err get info for log model info:", options)
+		} else {
+			// 0 - id
+			// 1 - user
+			// 2 - table name
+			table := lowerFirst(typ.Name())
+			if len(opts) > 2 {
+				table = opts[2]
+			}
+			id := opts[0]
+			user := opts[1]
+			this.saveLog(table, id, user, oldMap, diff)
+		}
 	}
 
 	query = strings.Replace(query, "?", prepText, -1)
@@ -674,9 +759,19 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					where += field + ` ILIKE '%` + v + "%'"
 				case "date":
 					rangeDates := strings.Split(v, "_")
-					where += field + ` >= '` + rangeDates[0] + "'"
+					beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
+					if err != nil {
+						continue
+					}
+					tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+					where += field + ` >= '` + tmBegin + "'"
 					if len(rangeDates) > 1 {
-						where += ` AND ` + field + ` <= '` + rangeDates[1] + "'"
+						endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
+						if err != nil {
+							continue
+						}
+						tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+						where += ` AND ` + field + ` <= '` + tmEnd + "'"
 					}
 				case "select":
 					where += field + ` = '` + v + "'"
