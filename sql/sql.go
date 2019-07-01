@@ -241,6 +241,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
+	diff := make(map[string]interface{})
 
 	if len(isUpdate) > 0 && isUpdate[0] {
 		iVal := reflect.ValueOf(structVal).Elem()
@@ -312,6 +313,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			tag = tagWrite
 		}
 		var updV string
+
 		switch val := f.Interface().(type) {
 		case bool:
 			resultMap[tag] = f.Bool()
@@ -347,14 +349,17 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			if oldMap[tag] != resultMap[tag] {
 				prepFields = append(prepFields, `"`+tag+`"`)
 				prepValues = append(prepValues, "'"+updV+"'")
+				diff[tag] = f.Interface()
 			}
 		} else {
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, ":"+tag)
 		}
 	}
+
 	var prepText string
 	if len(isUpdate) > 0 && isUpdate[0] {
+		//fmt.Fprintln(os.Stdout, diff)
 		if len(prepFields) == 0 {
 			return errors.New("no fields to update")
 		} else if len(prepFields) == 1 {
@@ -386,6 +391,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		golog.Error(err)
 		return err
 	}
+
 	return nil
 }
 
