@@ -97,7 +97,7 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
-func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...multipart.File) (*uploadedPhoto, error) {
+func UploadImageS3(photo *string, bucketName string, existPath *string, rawData ...multipart.File) (*uploadedPhoto, error) {
 	var r io.Reader
 	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
 		var err error
@@ -120,29 +120,39 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...mul
 	if bucketName != "fines" {
 		var x *exif.Exif
 		x, err = exif.Decode(bytes.NewReader(dec))
-		if err != nil {
+		if err != nil && existPath == nil {
 			log.Error("Error decode exif: ", err)
 			return nil, err
 		}
-		thumbnail, err = x.JpegThumbnail()
+		if x != nil {
+			thumbnail, err = x.JpegThumbnail()
+		}
 		if err != nil || len(thumbnail) == 0 {
 			img, _, err := image.Decode(bytes.NewReader(dec))
 			if err != nil {
 				log.Error("Error gen thumbnail: ", err)
 				return nil, err
 			}
-			xTag, err := x.Get("PixelXDimension")
-			if err != nil {
-				log.Error("Error gen thumbnail: ", err)
-				return nil, err
+			var xSize, ySize uint32
+			if x == nil {
+				b := img.Bounds()
+				xSize = uint32(b.Max.X)
+				ySize = uint32(b.Max.Y)
+			} else {
+				xTag, err := x.Get("PixelXDimension")
+				if err != nil {
+					log.Error("Error gen thumbnail: ", err)
+					return nil, err
+				}
+				yTag, err := x.Get("PixelYDimension")
+				if err != nil {
+					log.Error("Error gen thumbnail: ", err)
+					return nil, err
+				}
+				xSize = binary.BigEndian.Uint32(xTag.Val)
+				ySize = binary.BigEndian.Uint32(yTag.Val)
 			}
-			yTag, err := x.Get("PixelYDimension")
-			if err != nil {
-				log.Error("Error gen thumbnail: ", err)
-				return nil, err
-			}
-			xSize := binary.BigEndian.Uint32(xTag.Val)
-			ySize := binary.BigEndian.Uint32(yTag.Val)
+
 			ratio := xSize / ySize
 			var thX, thY uint
 			if ratio > 1 {
@@ -170,6 +180,10 @@ func UploadImageS3(photo *string, bucketName string, dir *string, rawData ...mul
 	file := str.RandomString(10, false)
 	dest := strings.Join(strings.Split(file, ""), "/")
 	path := dest + "/" + file + ".jpg"
+
+	if existPath != nil {
+		path = *existPath
+	}
 
 	regionS3, ok := regionsMap[bucketName]
 	if !ok {
