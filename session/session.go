@@ -31,6 +31,8 @@ var RedisDB *redis.Database
 //Sess is pointer to redis session
 var Sess *sessions.Sessions
 
+var EnvSessDuration int
+
 //Init open connection to database
 func Init() {
 
@@ -47,16 +49,15 @@ func Init() {
 		envPass = DefaultPassword
 	}
 
-	var envSessDuration int
 	envDuration := os.Getenv("REDIS_SESS_DURATION")
 	if envDuration == "" {
-		envSessDuration = SessionDefaultDuration
+		EnvSessDuration = SessionDefaultDuration
 	} else {
 		duration, err := strconv.ParseInt(envDuration, 10, 32)
 		if err != nil {
-			envSessDuration = SessionDefaultDuration
+			EnvSessDuration = SessionDefaultDuration
 		} else {
-			envSessDuration = int(duration)
+			EnvSessDuration = int(duration)
 		}
 	}
 
@@ -87,7 +88,7 @@ func Init() {
 
 	sess := sessions.New(sessions.Config{
 		Cookie:       "2yPuQFFzc4lF1UUK9NQzwsl3PVbslQcf",
-		Expires:      time.Duration(envSessDuration) * time.Minute, // <=0 means unlimited life. Defaults to 0.
+		Expires:      time.Duration(EnvSessDuration) * time.Minute, // <=0 means unlimited life. Defaults to 0.
 		AllowReclaim: true,
 	})
 
