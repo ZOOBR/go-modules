@@ -152,12 +152,16 @@ func NewPublisher(amqpURI, exchange, exchangeType, key, ctag string) (*Consumer,
 	return c, nil
 }
 
-func (consumer *Consumer) Publish(msg []byte) error {
+func (consumer *Consumer) Publish(msg []byte, rKey ...string) error {
 	content := amqp.Publishing{
 		ContentType: "text/plain",
 		Body:        msg,
 	}
-	err := consumer.Channel.Publish(consumer.Exchange, "", false, false, content)
+	routingKey := ""
+	if len(rKey) > 0 {
+		routingKey = rKey[0]
+	}
+	err := consumer.Channel.Publish(consumer.Exchange, routingKey, false, false, content)
 	return err
 }
 
