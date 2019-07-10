@@ -19,12 +19,14 @@ import (
 	"github.com/kataras/golog"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/common/log"
+	amqp "gitlab.com/battler/modules/amqpconnector"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
-const (
+var (
 	//DefaultURI default SQL connection string
-	DefaultURI = "user=postgres password=postgres dbname=csx sslmode=disable"
+	DefaultURI = "host=localhost user=postgres password=FHJdg876h&*^6fd dbname=csx sslmode=disable"
+	amqpURI    = os.Getenv("AMQP_URI")
 )
 
 //DB is pointer to DB connection
@@ -136,6 +138,15 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 		}
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+		}
+		msg := map[string]interface{}{
+			"id":   item,
+			"cmd":  "update",
+			"data": string(diffByte),
+		}
+		msgJSON, err := json.Marshal(msg)
+		if err == nil {
+			amqp.Publish(amqpURI, "csx.updates", "direct", table, string(msgJSON), false)
 		}
 	}
 }
