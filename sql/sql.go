@@ -797,7 +797,7 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	}
 	if val, ok := req["sort"]; ok && val != "" {
 		sortParams := strings.Split(val, "-")
-		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
+		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1] + ` NULLS LAST`
 	}
 	fullReq := r.Replace(newQ + " " + where + " " + orderby + " " + q)
 	// fmt.Println(fullReq)
