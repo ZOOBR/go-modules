@@ -9,7 +9,6 @@ import (
 	"github.com/kataras/iris"
 	"github.com/kataras/iris/sessions"
 	"github.com/kataras/iris/sessions/sessiondb/redis"
-	"github.com/kataras/iris/sessions/sessiondb/redis/service"
 )
 
 const (
@@ -61,14 +60,14 @@ func Init() {
 		}
 	}
 
-	redisDb := redis.New(service.Config{
+	redisDb := redis.New(redis.Config{
 		Network:     "tcp",
 		Addr:        envURI,
 		Password:    envPass,
 		Database:    envDB,
-		MaxIdle:     0,
+		// MaxIdle:     0,
 		MaxActive:   0,
-		IdleTimeout: time.Duration(5) * time.Minute,
+		Timeout: time.Duration(5) * time.Minute,
 		Prefix:      ""}) // optionally configure the bridge between your redis server
 
 	if redisDb == nil {
