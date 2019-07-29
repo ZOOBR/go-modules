@@ -61,14 +61,15 @@ func Init() {
 	}
 
 	redisDb := redis.New(redis.Config{
-		Network:     "tcp",
-		Addr:        envURI,
-		Password:    envPass,
-		Database:    envDB,
+		Network:  "tcp",
+		Addr:     envURI,
+		Password: envPass,
+		Database: envDB,
 		// MaxIdle:     0,
-		MaxActive:   0,
-		Timeout: time.Duration(5) * time.Minute,
-		Prefix:      ""}) // optionally configure the bridge between your redis server
+		MaxActive: 0,
+		Timeout:   time.Duration(5) * time.Minute,
+		Prefix:    "",
+		Delim:     "_"}) // optionally configure the bridge between your redis server
 
 	if redisDb == nil {
 		golog.Error("error connect to redis:" + envURI)
