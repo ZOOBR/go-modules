@@ -786,6 +786,14 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					}
 				case "select":
 					where += field + ` = '` + v + "'"
+				case "lte":
+					where += field + ` <= '` + v + "'"
+				case "gte":
+					where += field + ` >= '` + v + "'"
+				case "lt":
+					where += field + ` < '` + v + "'"
+				case "gt":
+					where += field + ` > '` + v + "'"
 				case "is":
 					where += field + ` IS ` + v
 				}
