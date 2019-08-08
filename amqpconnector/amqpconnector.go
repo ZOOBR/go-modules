@@ -31,6 +31,7 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, o
 	}
 	queueAutoDelete := false
 	queueDurable := true
+	var queueKeys []string
 	if len(options) > 0 {
 		optionsQueue := options[0]
 		if val, ok := optionsQueue["queueAutoDelete"]; ok {
@@ -38,6 +39,9 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, o
 		}
 		if val, ok := optionsQueue["queueDurable"]; ok {
 			queueDurable = val.(bool)
+		}
+		if val, ok := optionsQueue["queueKeys"]; ok {
+			queueKeys = val.([]string)
 		}
 	}
 
@@ -88,14 +92,28 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, o
 	log.Printf("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
 		queue.Name, queue.Messages, queue.Consumers, key)
 
-	if err = c.Channel.QueueBind(
-		queue.Name, // name of the queue
-		key,        // bindingKey
-		exchange,   // sourceExchange
-		false,      // noWait
-		nil,        // arguments
-	); err != nil {
-		return nil, fmt.Errorf("Queue Bind: %s", err)
+	if len(queueKeys) > 0 {
+		for _, key := range queueKeys {
+			if err = c.Channel.QueueBind(
+				queue.Name, // name of the queue
+				key,        // bindingKey
+				exchange,   // sourceExchange
+				false,      // noWait
+				nil,        // arguments
+			); err != nil {
+				return nil, fmt.Errorf("Queue Bind: %s", err)
+			}
+		}
+	} else {
+		if err = c.Channel.QueueBind(
+			queue.Name, // name of the queue
+			key,        // bindingKey
+			exchange,   // sourceExchange
+			false,      // noWait
+			nil,        // arguments
+		); err != nil {
+			return nil, fmt.Errorf("Queue Bind: %s", err)
+		}
 	}
 
 	log.Printf("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
