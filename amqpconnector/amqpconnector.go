@@ -22,12 +22,23 @@ type Consumer struct {
 }
 
 //NewConsumer create simple consumer for read messages with ack
-func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (*Consumer, error) {
+func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, options ...map[string]interface{}) (*Consumer, error) {
 	c := &Consumer{
 		conn:    nil,
 		Channel: nil,
 		tag:     ctag,
 		Done:    make(chan error),
+	}
+	queueAutoDelete := false
+	queueDurable := true
+	if len(options) > 0 {
+		optionsQueue := options[0]
+		if val, ok := optionsQueue["queueAutoDelete"]; ok {
+			queueAutoDelete = val.(bool)
+		}
+		if val, ok := optionsQueue["queueDurable"]; ok {
+			queueDurable = val.(bool)
+		}
 	}
 
 	var err error
@@ -63,12 +74,12 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string) (
 
 	log.Printf("declared Exchange, declaring Queue %q", queueName)
 	queue, err := c.Channel.QueueDeclare(
-		queueName, // name of the queue
-		true,      // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // noWait
-		nil,       // arguments
+		queueName,       // name of the queue
+		queueDurable,    // durable
+		queueAutoDelete, // delete when unused
+		false,           // exclusive
+		false,           // noWait
+		nil,             // arguments
 	)
 	if err != nil {
 		return nil, fmt.Errorf("Queue Declare: %s", err)
