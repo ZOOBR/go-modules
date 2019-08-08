@@ -19,8 +19,10 @@ var mapParamsPrecision = map[uint16]float64{
 }
 
 var telemetryParams = map[uint16]string{
-	1: "ParamTime",
-	2: "ParamEvent",
+	1:  "ParamTime",
+	10: "FuelTime1",
+	11: "FuelTime2",
+	2:  "ParamEvent",
 
 	// System parameters
 	1020: "ParamDataStatus",
@@ -105,6 +107,7 @@ const (
 	binaryFloat32      = 0x24
 	binaryFloat64      = 0x28
 	binaryArray        = 0x40
+	paramEvent         = 2
 	//struct type
 	structInt16     = 0
 	structUint32    = 1
@@ -361,6 +364,110 @@ func (r *BinaryReader) ReadFloat64() float64 {
 	return float
 }
 
+func float64ToByte(f float64) []byte {
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
+	return buf[:]
+}
+
+func float32ToByte(f float32) []byte {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], math.Float32bits(f))
+	return buf[:]
+}
+
+func int16ToByte(f int16) []byte {
+	var buf [2]byte
+	binary.BigEndian.PutUint16(buf[:], uint16(f))
+	return buf[:]
+}
+
+func int32ToByte(f int32) []byte {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], uint32(f))
+	return buf[:]
+}
+
+func uint16ToByte(f uint16) []byte {
+	var buf [2]byte
+	binary.BigEndian.PutUint16(buf[:], uint16(f))
+	return buf[:]
+}
+
+func uint32ToByte(f uint32) []byte {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], uint32(f))
+	return buf[:]
+}
+
+// func float64ToByte(f float64) []byte {
+// 	var buf [8]byte
+// 	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
+// 	return buf[:]
+// }
+
+func getNumberKind(value float64) int {
+	if value == float64(int64(value)) {
+		if value == 0 {
+			return binaryZero
+		}
+		if value < 0 {
+			if value >= -128 {
+				return binaryInt8
+			}
+			if value >= -32768 {
+				return binaryInt16
+			}
+			return binaryInt32
+		}
+		if value < 0xff {
+			return binaryUint8
+		}
+		if value < 0xffff {
+			return binaryUint16
+		}
+		if value < 0xffffffff {
+			return binaryUint32
+		}
+		return binaryFloat64
+	}
+	if value > 10000000 {
+		return binaryFloat64
+	}
+	return binaryFloat32
+}
+
+func writeNumber(value float64, bytes *[]byte) {
+
+	kind := getNumberKind(value)
+
+	var res []byte
+	switch kind {
+	case binaryInt8:
+		res = []byte{byte(int8(value))}
+	case binaryInt16:
+		res = int16ToByte(int16(value))
+	case binaryInt32:
+		res = int32ToByte(int32(value))
+	case binaryUint8:
+		res = []byte{byte(uint8(value))}
+	case binaryUint16:
+		res = uint16ToByte(uint16(value))
+	case binaryUint32:
+		res = uint32ToByte(uint32(value))
+	case binaryFloat32:
+		res = float32ToByte(float32(value))
+	case binaryFloat64:
+		res = float64ToByte(value)
+	}
+
+	*bytes = append(*bytes, byte(kind))
+	if len(res) > 0 {
+		*bytes = append(*bytes, res...)
+	}
+
+}
+
 func (r *BinaryReader) ReadLen() uint32 {
 	v := ReadUint32(r.Buf[r.offset : r.offset+4])
 	r.offset += 4
@@ -487,7 +594,10 @@ func (reader *BinaryReader) ReadFlatValue(kind uint8, key uint16) int16 {
 		}
 	case binaryFloat32:
 		if mapParamsPrecision[key] > 0 {
-			reader.flatPos.P[key] = math.Round(float64(reader.ReadFloat32())*mapParamsPrecision[key]) / mapParamsPrecision[key]
+			p := reader.ReadFloat32()
+			// log.Debug("old:", p)
+			reader.flatPos.P[key] = math.Round(float64(p)*mapParamsPrecision[key]) / mapParamsPrecision[key]
+			// log.Debug("new", reader.flatPos.P[key])
 		} else {
 			reader.flatPos.P[key] = float64(reader.ReadFloat32())
 		}
@@ -554,8 +664,37 @@ func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
 	return 0, posArr
 }
 
+func FlatPositionToBinary(pos *FlatPosition) (res []byte) {
+
+	// position structure
+	// 2 byte sign + 2 byte version + 4 bytes length + 8 bytes time + params and events
+	sign := []byte{98, 116, 0, 0}
+	res = append(res, sign...)
+	var data []byte
+	for p := range pos.P {
+		data = append(data, uint16ToByte(uint16(p))...)
+		writeNumber(pos.P[p], &data)
+	}
+	if len(pos.E) > 0 {
+		data = append(data, uint16ToByte(uint16(paramEvent))...)
+		data = append(data, byte(binaryArray|binaryUint16))
+		data = append(data, uint16ToByte(uint16(len(pos.E)))...)
+		for e := range pos.E {
+			data = append(data, uint16ToByte(uint16(pos.E[e]))...)
+		}
+	}
+
+	res = append(res, uint32ToByte(uint32(len(data)+8))...)
+	res = append(res, float64ToByte(pos.Time)...)
+	res = append(res, data...)
+
+	return res
+}
+
 func (reader *BinaryReader) readPosition() int16 {
 
+	// position structure
+	// 2 byte sign + 2 byte version + 4 bytes length + 8 bytes time + params and events
 	reader.pass = false
 	//check size
 	if reader.Size < reader.offset+8 {
