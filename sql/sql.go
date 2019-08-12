@@ -139,15 +139,7 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
-		msg := map[string]interface{}{
-			"id":   item,
-			"cmd":  "update",
-			"data": string(diffByte),
-		}
-		msgJSON, err := json.Marshal(msg)
-		if err == nil {
-			amqp.Publish(amqpURI, "csx.updates", "direct", table, string(msgJSON), false)
-		}
+		amqp.SendUpdate(amqpURI, table, *id, "update", diff)
 	}
 }
 
