@@ -16,10 +16,14 @@ type Sender struct {
 }
 
 type TerminalResponse struct {
-	Id        string                 `json:"id"`
-	Result    int32                  `json:"result"`
-	Errors    []CommandError         `json:"errors"`
-	Telemetry map[string]interface{} `json:"telemetry"`
+	Id          string                 `json:"id"`
+	Result      int32                  `json:"result"`
+	Errors      []CommandError         `json:"errors"`
+	Telemetry   map[string]interface{} `json:"telemetry"`
+	Driver      string                 `json:"driver"`
+	Device      string                 `json:"device"`
+	VersionSoft int                    `json:"version_soft"`
+	VersionHard int                    `json:"version_hard"`
 }
 
 type CommandAction struct {
