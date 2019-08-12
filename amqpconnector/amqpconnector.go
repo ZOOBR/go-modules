@@ -229,13 +229,13 @@ func SendUpdate(amqpURI, table, id, method string, data interface{}) error {
 }
 
 // OnUpdates Listener to get models events update, create and delete
-func OnUpdates(cb func(consumer *Consumer), options map[string]interface{}) {
+func OnUpdates(cb func(consumer *Consumer), queue string, options map[string]interface{}) {
 	for {
 		updateExch := os.Getenv("EXCHANGE_UPDATES")
 		if updateExch == "" {
 			updateExch = "csx.updates"
 		}
-		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", "csx.saver.updates.queue", "", "csx.rent.updates", options)
+		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", queue, "", "csx.rent.updates", options)
 		if err != nil {
 			log.Printf("error init consumer: %s", err)
 			log.Printf("try reconnect to rabbitmq after %s", reconTime)
