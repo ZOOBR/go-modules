@@ -235,7 +235,7 @@ func OnUpdates(cb func(consumer *Consumer), queue string, options map[string]int
 		if updateExch == "" {
 			updateExch = "csx.updates"
 		}
-		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", queue, "", "csx.rent.updates", options)
+		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", queue, "", "csx.updates", options)
 		if err != nil {
 			log.Printf("error init consumer: %s", err)
 			log.Printf("try reconnect to rabbitmq after %s", reconTime)
