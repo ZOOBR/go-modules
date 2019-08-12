@@ -3,11 +3,21 @@
 package amqpconnector
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"github.com/streadway/amqp"
 )
+
+// Update struc for send updates msg to services
+type Update struct {
+	Id   string
+	Cmd  string
+	Data string
+}
 
 //Consumer structure for NewConsumer result
 type Consumer struct {
@@ -20,6 +30,12 @@ type Consumer struct {
 	ExchangeType string
 	Uri          string
 }
+
+// TODO:: Get from env
+var (
+	reconTime = time.Second * 20
+	lifetime  = time.Duration(0)
+)
 
 //NewConsumer create simple consumer for read messages with ack
 func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, options ...map[string]interface{}) (*Consumer, error) {
@@ -192,6 +208,59 @@ func (consumer *Consumer) Publish(msg []byte, rKey ...string) error {
 	}
 	err := consumer.Channel.Publish(consumer.Exchange, routingKey, false, false, content)
 	return err
+}
+
+// SendUpdate Send rpc update command to services
+func SendUpdate(amqpURI, table, id, method string, data interface{}) error {
+	objectJSON, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	msg := Update{
+		Id:   id,
+		Cmd:  method,
+		Data: string(objectJSON),
+	}
+	msgJSON, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return Publish(amqpURI, "csx.updates", "direct", table, string(msgJSON), false)
+}
+
+// OnUpdates Listener to get models events update, create and delete
+func OnUpdates(cb func(consumer *Consumer), options map[string]interface{}) {
+	for {
+		updateExch := os.Getenv("EXCHANGE_UPDATES")
+		if updateExch == "" {
+			updateExch = "csx.updates"
+		}
+		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", "csx.saver.updates.queue", "", "csx.rent.updates", options)
+		if err != nil {
+			log.Printf("error init consumer: %s", err)
+			log.Printf("try reconnect to rabbitmq after %s", reconTime)
+			time.Sleep(reconTime)
+			continue
+		}
+		go cb(cUpdates)
+		if lifetime > 0 {
+			log.Printf("running for %s", lifetime)
+			time.Sleep(lifetime)
+		} else {
+			log.Printf("running forever")
+			select {
+			case <-cUpdates.Done:
+				log.Printf("try reconnect to rabbitmq after %s", reconTime)
+				time.Sleep(reconTime)
+				continue
+			}
+		}
+
+		log.Printf("shutting down")
+		if err := cUpdates.Shutdown(); err != nil {
+			log.Fatalf("error during shutdown: %s", err)
+		}
+	}
 }
 
 func Publish(amqpURI, exchange, exchangeType, routingKey, body string, reliable bool) error {
