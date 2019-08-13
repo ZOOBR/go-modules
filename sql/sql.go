@@ -139,7 +139,7 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
-		amqp.SendUpdate(amqpURI, table, *id, "update", diff)
+		go amqp.SendUpdate(amqpURI, table, *id, "update", diff)
 	}
 }
 
@@ -504,7 +504,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			case time.Time:
 				oldMap[tag] = val.Format(time.RFC3339)
 			default:
-				continue
+				valJSON, _ := json.Marshal(val)
+				oldMap[tag] = valJSON
 			}
 		}
 	}
@@ -551,7 +552,9 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			resultMap[tag] = val.Format(time.RFC3339)
 			updV = resultMap[tag].(string)
 		default:
-			continue
+			valJSON, _ := json.Marshal(val)
+			resultMap[tag] = val
+			updV = string(valJSON)
 		}
 
 		if oldMap[tag] != resultMap[tag] {
