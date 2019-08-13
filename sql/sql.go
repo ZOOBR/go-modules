@@ -322,7 +322,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 				}
 				tag := typ.Field(i).Tag.Get("db")
 				tagWrite := typ.Field(i).Tag.Get("dbField")
-				if tagWrite == "-" {
+				if tagWrite == "-" || tag == "-" ||
+					(tag == "" && tagWrite == "") {
 					continue
 				} else if tagWrite != "" {
 					tag = tagWrite
@@ -364,7 +365,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		tagWrite := typ.Field(i).Tag.Get("dbField")
-		if tagWrite == "-" {
+		if tagWrite == "-" || tag == "-" ||
+			(tag == "" && tagWrite == "") {
 			continue
 		} else if tagWrite != "" {
 			tag = tagWrite
@@ -482,7 +484,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			}
 			tag := typ.Field(i).Tag.Get("db")
 			tagWrite := typ.Field(i).Tag.Get("dbField")
-			if tagWrite == "-" || tag == "-" {
+			if tagWrite == "-" || tag == "-" ||
+				(tag == "" && tagWrite == "") {
 				continue
 			} else if tagWrite != "" {
 				tag = tagWrite
@@ -522,7 +525,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		tagWrite := typ.Field(i).Tag.Get("dbField")
-		if tagWrite == "-" || tag == "-" {
+		if tagWrite == "-" || tag == "-" ||
+			(tag == "" && tagWrite == "") {
 			continue
 		} else if tagWrite != "" {
 			tag = tagWrite
@@ -629,7 +633,8 @@ func (this *Query) InsertStructValues(query string, structVal interface{}) error
 			continue
 		}
 		tagWrite := typ.Field(i).Tag.Get("dbField")
-		if tagWrite == "-" {
+		if tagWrite == "-" || tag == "-" ||
+			(tag == "" && tagWrite == "") {
 			continue
 		} else if tagWrite != "" {
 			tag = tagWrite
