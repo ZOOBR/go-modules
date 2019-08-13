@@ -263,6 +263,7 @@ func OnUpdates(cb func(consumer *Consumer), queue string, options map[string]int
 	}
 }
 
+// TODO:: NOT USE THIS!!! Need seng msg in one connect. Use NewPublisher
 func Publish(amqpURI, exchange, exchangeType, routingKey, body string, reliable bool) error {
 
 	// This function dials, connects, declares, publishes, and tears down,
