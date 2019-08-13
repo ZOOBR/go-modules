@@ -139,7 +139,7 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
-		go amqp.SendUpdate(amqpURI, table, *id, "update", diff)
+		go amqp.SendUpdate(amqpURI, table, item, "update", diff)
 	}
 }
 
