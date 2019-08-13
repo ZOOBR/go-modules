@@ -508,7 +508,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 				oldMap[tag] = val.Format(time.RFC3339)
 			default:
 				valJSON, _ := json.Marshal(val)
-				oldMap[tag] = valJSON
+				oldMap[tag] = string(valJSON)
 			}
 		}
 	}
@@ -557,7 +557,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			updV = resultMap[tag].(string)
 		default:
 			valJSON, _ := json.Marshal(val)
-			resultMap[tag] = val
+			resultMap[tag] = string(valJSON)
 			updV = string(valJSON)
 		}
 
