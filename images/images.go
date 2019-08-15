@@ -97,6 +97,56 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
+func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		log.Error("Error gen thumbnail: ", err)
+		return nil, err
+	}
+	var xSize, ySize uint32
+	if x == nil {
+		b := img.Bounds()
+		xSize = uint32(b.Max.X)
+		ySize = uint32(b.Max.Y)
+	} else {
+		xTag, err := x.Get("PixelXDimension")
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		yTag, err := x.Get("PixelYDimension")
+		if err != nil {
+			log.Error("Error gen thumbnail: ", err)
+			return nil, err
+		}
+		xSize = binary.BigEndian.Uint32(xTag.Val)
+		ySize = binary.BigEndian.Uint32(yTag.Val)
+	}
+
+	ratio := xSize / ySize
+	var thX, thY uint
+	if ratio > 1 {
+		thX = 176
+		// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
+		thY = 0
+	} else {
+		thY = 176
+		// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
+		thX = 0
+	}
+	// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
+	// thumbnail = dstThumb.Pix
+	dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
+	w := bytes.NewBuffer([]byte{})
+	err = jpeg.Encode(w, dstThumb, nil)
+	if err != nil {
+		log.Error("Error gen thumbnail: ", err)
+		return nil, err
+	}
+	res := w.Bytes()
+	return &res, nil
+}
+
 func UploadImageS3(photo *string, bucketName string, existPath *string, rawData ...multipart.File) (*uploadedPhoto, error) {
 	var r io.Reader
 	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
@@ -128,52 +178,13 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 			thumbnail, err = x.JpegThumbnail()
 		}
 		if err != nil || len(thumbnail) == 0 {
-			img, _, err := image.Decode(bytes.NewReader(dec))
+			newThumbnail, err := MakeThumbnail(dec, x)
 			if err != nil {
-				log.Error("Error gen thumbnail: ", err)
 				return nil, err
+			} else if newThumbnail == nil {
+				return nil, errors.New("Empty thumbnail")
 			}
-			var xSize, ySize uint32
-			if x == nil {
-				b := img.Bounds()
-				xSize = uint32(b.Max.X)
-				ySize = uint32(b.Max.Y)
-			} else {
-				xTag, err := x.Get("PixelXDimension")
-				if err != nil {
-					log.Error("Error gen thumbnail: ", err)
-					return nil, err
-				}
-				yTag, err := x.Get("PixelYDimension")
-				if err != nil {
-					log.Error("Error gen thumbnail: ", err)
-					return nil, err
-				}
-				xSize = binary.BigEndian.Uint32(xTag.Val)
-				ySize = binary.BigEndian.Uint32(yTag.Val)
-			}
-
-			ratio := xSize / ySize
-			var thX, thY uint
-			if ratio > 1 {
-				thX = 176
-				// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
-				thY = 0
-			} else {
-				thY = 176
-				// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
-				thX = 0
-			}
-			// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
-			// thumbnail = dstThumb.Pix
-			dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
-			w := bytes.NewBuffer([]byte{})
-			err = jpeg.Encode(w, dstThumb, nil)
-			if err != nil {
-				log.Error("Error gen thumbnail: ", err)
-				return nil, err
-			}
-			thumbnail = w.Bytes()
+			thumbnail = *newThumbnail
 		}
 	}
 
