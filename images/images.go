@@ -231,29 +231,10 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 	}
 
 	if bucketName != "fines" {
-		th, err := session.NewSession(&aws.Config{
-			Region:      aws.String("nl-ams"),
-			Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
-			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-		})
+		err := UploadThumbnail(thumbnail, path)
 		if err != nil {
-			log.Error("Error create s3 session", err)
+			log.Error("Error upload thumbnail: ", err)
 			return nil, err
-		}
-		if len(thumbnail) > 0 {
-			_, err = s3.New(th).PutObject(&s3.PutObjectInput{
-				Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
-				Key:                aws.String(path),
-				ACL:                aws.String("private"),
-				Body:               bytes.NewReader(thumbnail),
-				ContentLength:      aws.Int64(int64(len(thumbnail))),
-				ContentType:        aws.String(http.DetectContentType(thumbnail)),
-				ContentDisposition: aws.String("attachment"),
-			})
-			if err != nil {
-				log.Error("Error upload file to s3", err)
-				return nil, err
-			}
 		}
 	}
 
@@ -262,6 +243,32 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 		File: file + ".jpg"}
 
 	return &res, nil
+}
+
+func UploadThumbnail(thumbnail []byte, path string) error {
+	th, err := session.NewSession(&aws.Config{
+		Region:      aws.String("nl-ams"),
+		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		return err
+	}
+	if len(thumbnail) > 0 {
+		_, err = s3.New(th).PutObject(&s3.PutObjectInput{
+			Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
+			Key:                aws.String(path),
+			ACL:                aws.String("private"),
+			Body:               bytes.NewReader(thumbnail),
+			ContentLength:      aws.Int64(int64(len(thumbnail))),
+			ContentType:        aws.String(http.DetectContentType(thumbnail)),
+			ContentDisposition: aws.String("attachment"),
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, error) {
