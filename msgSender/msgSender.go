@@ -8,7 +8,13 @@ import (
 	amqp "gitlab.com/battler/modules/amqpconnector"
 )
 
-//Mail is basic email struct
+//SMS is a basic SMS struct
+type SMS struct {
+	Phone string `json:"phone"`
+	Msg   string `json:"msg"`
+}
+
+//Mail is a basic email struct
 type Mail struct {
 	From        string   `json:"from"`
 	To          string   `json:"to"`
@@ -27,7 +33,7 @@ type Mail struct {
 // images - array of paths to images (nil if without images)
 // bucket - optional for email with images
 func SendEmail(to, subject, mail string, contentType string, images *[]string, bucket ...string) {
-	log.Info("[SendNotification] ", "Try send notification to: ", to)
+	log.Info("[msgSender-SendEmail] ", "Try send notification to: ", to)
 
 	newMail := Mail{
 		From:        os.Getenv("EMAIL_SENDER"),
@@ -48,5 +54,20 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 		log.Warn("msgSender-sendEmail error json marshal: ", err)
 	}
 	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "email", string(m), false)
-	log.Info("[SendNotification] ", "Success sended notification to: ", to)
+	log.Info("[msgSender-SendEmail] ", "Success sended notification to: ", to)
+}
+
+// SendSMS is using for sending SMS messages
+// phone - recepient phone
+// msg - message body
+func SendSMS(phone, msg string) {
+	log.Info("[msgSender-SendSMS] ", "Try send SMS to: ", phone)
+	newSms := SMS{phone, msg}
+	m, err := json.Marshal(newSms)
+	if err != nil {
+		log.Error("[msgSender-SendSMS] ", "Error create sms for client: "+phone, err)
+		return
+	}
+	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "sms", string(m), false)
+	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", phone)
 }
