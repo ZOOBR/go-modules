@@ -739,7 +739,6 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	if len(extConditions) > 0 {
 		where += extConditions[0]
 	}
-	orderby := ""
 	q := "LIMIT " + limit + " OFFSET " + offset
 	if filtered, ok := req["filter"]; ok {
 		filters := strings.Split(filtered, "$")
@@ -803,14 +802,27 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	if where != "" {
 		where = "WHERE " + where
 	}
+	groupby := ""
+	if val, ok := req["group"]; ok && val != "" {
+		groupby += "GROUP BY " + val
+	}
+	orderby := ""
 	if val, ok := req["sort"]; ok && val != "" {
 		sortParams := strings.Split(val, "-")
-		orderby += `ORDER BY "` + sortParams[0] + `" ` + sortParams[1]
+		orderby += "ORDER BY "
+		if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
+			orderby += sortParams[0]
+		} else {
+			orderby += `"` + sortParams[0] + `"`
+		}
+		if len(sortParams) > 1 {
+			orderby += " " + sortParams[1]
+		}
 		if v, o := req["nulls"]; o && v != "" {
 			orderby += ` NULLS ` + v
 		}
 	}
-	fullReq := r.Replace(newQ + " " + where + " " + orderby + " " + q)
+	fullReq := r.Replace(newQ + " " + where + " " + groupby + " " + orderby + " " + q)
 	// fmt.Println(fullReq)
 	return fullReq
 }
