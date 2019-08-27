@@ -578,20 +578,41 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
 	}
 	if len(options) > 0 {
+		var id, user string
+		withLog := true
+		table := lowerFirst(typ.Name())
 		opts, ok := options[0].([]string)
 		if !ok {
-			log.Error("err get info for log model info:", options)
-		} else {
+			optsMap, okMap := options[0].(map[string]string)
+			if okMap {
+				id = optsMap["id"]
+				user = optsMap["user"]
+				if optsMap["table"] != "" {
+					table = optsMap["table"]
+				}
+				if optsMap["withLog"] == "false" || optsMap["withLog"] == "0" {
+					withLog = false
+				}
+			} else {
+				log.Error("err get info for log model info:", options)
+			}
+		} else if len(opts) > 1 {
 			// 0 - id
 			// 1 - user
 			// 2 - table name
-			table := lowerFirst(typ.Name())
 			if len(opts) > 2 {
 				table = opts[2]
 			}
-			id := opts[0]
-			user := opts[1]
-			this.saveLog(table, id, user, oldMap, diff)
+			id = opts[0]
+			user = opts[1]
+		}
+
+		if withLog {
+			if table != "" && id != "" {
+				this.saveLog(table, id, user, oldMap, diff)
+			} else {
+				log.Error("missing table or id for save log", options)
+			}
 		}
 	}
 
@@ -613,7 +634,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) InsertStructValues(query string, structVal interface{}) error {
+func (this *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
@@ -674,6 +695,18 @@ func (this *Query) InsertStructValues(query string, structVal interface{}) error
 		golog.Error(query)
 		golog.Error(err)
 		return err
+	}
+	if len(options) > 0 {
+		settings, ok := options[0].(map[string]string)
+		if !ok {
+			golog.Error("err parse opt:", options)
+			return nil
+		}
+		if len(settings) < 2 {
+			golog.Error("amqp updates, invalid args:", settings)
+			return nil
+		}
+		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", resultMap)
 	}
 	return nil
 }
