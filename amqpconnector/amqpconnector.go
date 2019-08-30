@@ -14,9 +14,11 @@ import (
 
 // Update struc for send updates msg to services
 type Update struct {
-	Id   string `json:"id"`
-	Cmd  string `json:"cmd"`
-	Data string `json:"data"`
+	Id      string      `json:"id"`
+	ExtId   string      `json:"extId"`
+	Cmd     string      `json:"cmd"`
+	Data    string      `json:"data"`
+	ExtData interface{} `json:"extData"`
 }
 
 //Consumer structure for NewConsumer result
