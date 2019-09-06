@@ -18,6 +18,7 @@ type Update struct {
 	ExtId   string      `json:"extId"`
 	Cmd     string      `json:"cmd"`
 	Data    string      `json:"data"`
+	Groups  []string    `json:"groups"`
 	ExtData interface{} `json:"extData"`
 }
 
