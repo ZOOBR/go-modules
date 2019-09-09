@@ -10,8 +10,9 @@ import (
 
 //SMS is a basic SMS struct
 type SMS struct {
-	Phone string `json:"phone"`
-	Msg   string `json:"msg"`
+	Phone string  `json:"phone"`
+	Msg   string  `json:"msg"`
+	MsgID *string `json:"msgId"`
 }
 
 //Mail is a basic email struct
@@ -60,9 +61,12 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 // SendSMS is using for sending SMS messages
 // phone - recepient phone
 // msg - message body
-func SendSMS(phone, msg string) {
+func SendSMS(phone, msg string, msgId ...string) {
 	log.Info("[msgSender-SendSMS] ", "Try send SMS to: ", phone)
-	newSms := SMS{phone, msg}
+	newSms := SMS{Phone: phone, Msg: msg}
+	if len(msgId) > 0 {
+		newSms.MsgID = &msgId[0]
+	}
 	m, err := json.Marshal(newSms)
 	if err != nil {
 		log.Error("[msgSender-SendSMS] ", "Error create sms for client: "+phone, err)
