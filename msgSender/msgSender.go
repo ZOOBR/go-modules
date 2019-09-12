@@ -26,6 +26,14 @@ type Mail struct {
 	ContentType string   `json:"contentType"`
 }
 
+//Push is a basic push struct
+type Push struct {
+	Msg     string   `json:"msg"`
+	Title   string   `json:"title"`
+	Tokens  []string `json:"tokens"`
+	IsTopic bool     `json:"isTopic"`
+}
+
 // SendEmail is using for sending email messages
 // to - recepient email
 // subject - email subject
@@ -74,4 +82,24 @@ func SendSMS(phone, msg string, msgId ...string) {
 	}
 	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "sms", string(m), false)
 	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", phone)
+}
+
+// SendPush is using for sending push messages
+// msg - message body
+// title - message title
+// tokens - recipient tokens, array of deviceToken
+// isTopic - is topic message
+func SendPush(msg, title string, tokens []string, isTopic ...bool) {
+	log.Info("[msgSender-SendPush] ", "Try send push to: ", tokens)
+	newPush := Push{Msg: msg, Title: title, Tokens: tokens}
+	if len(isTopic) > 0 {
+		newPush.IsTopic = isTopic[0]
+	}
+	m, err := json.Marshal(newPush)
+	if err != nil {
+		log.Error("[msgSender-SendPush] ", "Error create push: ", err)
+		return
+	}
+	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "push", string(m), false)
+	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", tokens)
 }
