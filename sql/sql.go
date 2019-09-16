@@ -832,6 +832,8 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					where += field + ` > '` + v + "'"
 				case "is":
 					where += field + ` IS ` + v
+				case "in":
+					where += field + ` IN (` + v + `)`
 				}
 			}
 		}
