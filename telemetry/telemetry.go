@@ -801,3 +801,21 @@ func NewReader() *BinaryReader {
 	reader.Reset()
 	return &reader
 }
+
+func (pos *FlatPosition) CopyTo(newPos *FlatPosition) *FlatPosition {
+	if newPos == nil {
+		newPos = new(FlatPosition)
+	}
+	newPos.Time = pos.Time
+	newPos.P = make(map[uint16]float64)
+	for key, val := range pos.P {
+		newPos.P[key] = val
+	}
+	newPos.E = make([]uint16, len(pos.E))
+	copy(newPos.E, pos.E)
+	return newPos
+}
+
+func (pos *FlatPosition) Copy() *FlatPosition {
+	return pos.CopyTo(nil)
+}
