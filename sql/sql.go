@@ -518,11 +518,10 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	typ := iVal.Type()
 	for i := 0; i < iVal.NumField(); i++ {
 		f := iVal.Field(i)
+		isPointer := false
 		if f.Kind() == reflect.Ptr {
 			f = reflect.Indirect(f)
-		}
-		if !f.IsValid() {
-			continue
+			isPointer = true
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		tagWrite := typ.Field(i).Tag.Get("dbField")
@@ -531,6 +530,15 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			continue
 		} else if tagWrite != "" {
 			tag = tagWrite
+		}
+		if !f.IsValid() {
+			if isPointer && oldMap[tag] != nil {
+				resultMap[tag] = nil
+				diff[tag] = nil
+				prepFields = append(prepFields, `"`+tag+`"`)
+				prepValues = append(prepValues, "NULL")
+			}
+			continue
 		}
 		var updV string
 		switch val := f.Interface().(type) {
