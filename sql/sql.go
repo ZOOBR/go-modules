@@ -17,6 +17,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/kataras/golog"
+	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/common/log"
 	amqp "gitlab.com/battler/modules/amqpconnector"
@@ -889,3 +890,209 @@ func Init() {
 	DB = db
 	Q, err = NewQuery(false)
 }
+
+//---------------------------------------------------------------------------
+// Database schemas defenitions
+
+// SchemaField is definition of sql field
+type SchemaField struct {
+	Name    string
+	Type    string
+	Length  int
+	Key     bool
+	checked bool
+}
+
+// SchemaTable is definition of sql table
+type SchemaTable struct {
+	Name       string
+	Fields     []*SchemaField
+	initalized bool
+	err        error
+	sqlSelect  string
+}
+
+// CreateSchemaField create SchemaTable definition
+func CreateSchemaField(name, typ string, args ...interface{}) *SchemaField {
+	field := new(SchemaField)
+	field.Name = name
+	field.Type = typ
+	ofs := 2
+	obj := reflect.ValueOf(field).Elem()
+	for index, arg := range args {
+		f := obj.Field(index + ofs)
+		v := reflect.ValueOf(arg)
+		f.Set(v)
+	}
+	return field
+}
+
+// CreateSchemaTable create SchemaTable definition
+func CreateSchemaTable(name string, fieldsInfo ...*SchemaField) SchemaTable {
+	fields := make([]*SchemaField, len(fieldsInfo))
+	for index, field := range fieldsInfo {
+		fields[index] = field
+	}
+	return SchemaTable{name, fields, false, nil, ""}
+}
+
+func (table *SchemaTable) create() error {
+	var keys string
+	sql := `CREATE TABLE "` + table.Name + `"(`
+	for index, field := range table.Fields {
+		if index > 0 {
+			sql += ", "
+		}
+		sql += `"` + field.Name + `" ` + field.Type
+		if field.Length > 0 {
+			sql += "(" + strconv.Itoa(field.Length) + ")"
+		}
+		if field.Key {
+			if len(keys) > 0 {
+				keys += ","
+			}
+			keys += field.Name
+		}
+	}
+	sql += `)`
+	_, err := DB.Exec(sql)
+	if err == nil && len(keys) > 0 {
+		_, err = DB.Exec(`ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`)
+	}
+	return err
+}
+
+func (table *SchemaTable) alter(cols []string) error {
+	for _, name := range cols {
+		_, field := table.FindField(name)
+		if field != nil {
+			field.checked = true
+		}
+	}
+	var err error
+	for _, field := range table.Fields {
+		if !field.checked {
+			sql := `ALTER TABLE "` + table.Name + `" ADD COLUMN "` + field.Name + `" ` + field.Type
+			if field.Length > 0 {
+				sql += "(" + strconv.Itoa(field.Length) + ")"
+			}
+			_, err = DB.Exec(sql)
+			if err != nil {
+				break
+			}
+			field.checked = true
+		}
+	}
+	return err
+}
+
+// Prepare check scheme initializing and and create or alter table
+func (table *SchemaTable) Prepare() error {
+	if table.initalized {
+		return table.err
+	}
+	table.initalized = true
+
+	table.sqlSelect = "SELECT "
+	for index, field := range table.Fields {
+		if index > 0 {
+			table.sqlSelect += ", "
+		}
+		table.sqlSelect += `"` + field.Name + `" `
+	}
+	table.sqlSelect += ` FROM "` + table.Name + `"`
+
+	rows, err := DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
+	if err == nil {
+		cols, err := rows.Columns()
+		if err == nil {
+			err = table.alter(cols)
+		}
+	} else {
+		pqErr := err.(*pq.Error)
+		code := pqErr.Code
+		if code == "42P01" { // not exists
+			err = table.create()
+		}
+	}
+	table.err = err
+	return err
+}
+
+// FindField search field by name
+func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
+	for index, field := range table.Fields {
+		if field.Name == name {
+			return index, field
+		}
+	}
+	return -1, nil
+}
+
+// Select execute select sql string
+func (table *SchemaTable) Select(recs interface{}, where string, args ...interface{}) error {
+	err := table.Prepare()
+	if err != nil {
+		return err
+	}
+	sql := table.sqlSelect
+	if len(where) > 0 {
+		sql += " WHERE " + where
+	}
+	return DB.Select(recs, sql, args...)
+}
+
+// Get execute select sql string and return first record
+func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}) error {
+	err := table.Prepare()
+	if err != nil {
+		return err
+	}
+	sql := table.sqlSelect
+	if len(where) > 0 {
+		sql += " WHERE " + where
+	}
+	return DB.Get(rec, sql, args...)
+}
+
+// Insert execute insert sql string (not worked)
+func (table *SchemaTable) Insert(rec interface{}) error {
+	err := table.Prepare()
+	if err != nil {
+		return err
+	}
+	var args = map[string]interface{}{}
+	var fields, values string
+	cnt := 0
+	info := reflect.ValueOf(rec)
+	typ := info.Type()
+	for i := 0; i < info.NumField(); i++ {
+		f := typ.Field(i)
+		name := f.Tag.Get("db")
+		if len(name) == 0 {
+			continue
+		}
+		/*
+			_, field := table.FindField(name)
+			if field == nil {
+				continue
+			}
+		*/
+		if cnt > 0 {
+			fields += ","
+			values += ","
+		}
+		cnt++
+		fields += `"` + name + `"`
+		// values += "$" + strconv.Itoa(cnt)
+		// args[name] = reflect.ValueOf(f)
+		values += ":" + name
+		args[name] = info.Index(i).Interface()
+	}
+
+	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
+	_, err = DB.NamedExec(sql, args)
+	return err
+}
+
+//---------------------------------------------------------------------------
