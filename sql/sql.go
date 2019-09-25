@@ -312,44 +312,46 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		}
 		if oldModel != nil {
 			iVal := oldModel.(reflect.Value).Elem()
-			typ := iVal.Type()
-			for i := 0; i < iVal.NumField(); i++ {
-				f := iVal.Field(i)
-				if f.Kind() == reflect.Ptr {
-					f = reflect.Indirect(f)
-				}
-				if !f.IsValid() {
-					continue
-				}
-				tag := typ.Field(i).Tag.Get("db")
-				tagWrite := typ.Field(i).Tag.Get("dbField")
-				if tagWrite == "-" || tag == "-" ||
-					(tag == "" && tagWrite == "") {
-					continue
-				} else if tagWrite != "" {
-					tag = tagWrite
-				}
-				switch val := f.Interface().(type) {
-				case bool:
-					oldMap[tag] = f.Bool()
-				case int, int8, int16, int32, int64:
-					oldMap[tag] = f.Int()
-				case uint, uint8, uint16, uint32, uint64:
-					oldMap[tag] = f.Uint()
-				case float32, float64:
-					oldMap[tag] = f.Float()
-				case []byte:
-					v := string(f.Bytes())
-					oldMap[tag] = v
-				case string:
-					oldMap[tag] = f.String()
-				case time.Time:
-					oldMap[tag] = val.Format(time.RFC3339)
-				case []string:
-					jsonArray, _ := json.Marshal(val)
-					oldMap[tag] = jsonArray
-				default:
-					continue
+			if iVal.IsValid() {
+				typ := iVal.Type()
+				for i := 0; i < iVal.NumField(); i++ {
+					f := iVal.Field(i)
+					if f.Kind() == reflect.Ptr {
+						f = reflect.Indirect(f)
+					}
+					if !f.IsValid() {
+						continue
+					}
+					tag := typ.Field(i).Tag.Get("db")
+					tagWrite := typ.Field(i).Tag.Get("dbField")
+					if tagWrite == "-" || tag == "-" ||
+						(tag == "" && tagWrite == "") {
+						continue
+					} else if tagWrite != "" {
+						tag = tagWrite
+					}
+					switch val := f.Interface().(type) {
+					case bool:
+						oldMap[tag] = f.Bool()
+					case int, int8, int16, int32, int64:
+						oldMap[tag] = f.Int()
+					case uint, uint8, uint16, uint32, uint64:
+						oldMap[tag] = f.Uint()
+					case float32, float64:
+						oldMap[tag] = f.Float()
+					case []byte:
+						v := string(f.Bytes())
+						oldMap[tag] = v
+					case string:
+						oldMap[tag] = f.String()
+					case time.Time:
+						oldMap[tag] = val.Format(time.RFC3339)
+					case []string:
+						jsonArray, _ := json.Marshal(val)
+						oldMap[tag] = jsonArray
+					default:
+						continue
+					}
 				}
 			}
 		}
@@ -474,42 +476,44 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	}
 	if oldModel != nil {
 		iVal := oldModel.(reflect.Value).Elem()
-		typ := iVal.Type()
-		for i := 0; i < iVal.NumField(); i++ {
-			f := iVal.Field(i)
-			if f.Kind() == reflect.Ptr {
-				f = reflect.Indirect(f)
-			}
-			if !f.IsValid() {
-				continue
-			}
-			tag := typ.Field(i).Tag.Get("db")
-			tagWrite := typ.Field(i).Tag.Get("dbField")
-			if tagWrite == "-" || tag == "-" ||
-				(tag == "" && tagWrite == "") {
-				continue
-			} else if tagWrite != "" {
-				tag = tagWrite
-			}
-			switch val := f.Interface().(type) {
-			case bool:
-				oldMap[tag] = f.Bool()
-			case int, int8, int16, int32, int64:
-				oldMap[tag] = f.Int()
-			case uint, uint8, uint16, uint32, uint64:
-				oldMap[tag] = f.Uint()
-			case float32, float64:
-				oldMap[tag] = f.Float()
-			case []byte:
-				v := string(f.Bytes())
-				oldMap[tag] = v
-			case string:
-				oldMap[tag] = f.String()
-			case time.Time:
-				oldMap[tag] = val.Format(time.RFC3339)
-			default:
-				valJSON, _ := json.Marshal(val)
-				oldMap[tag] = string(valJSON)
+		if iVal.IsValid() {
+			typ := iVal.Type()
+			for i := 0; i < iVal.NumField(); i++ {
+				f := iVal.Field(i)
+				if f.Kind() == reflect.Ptr {
+					f = reflect.Indirect(f)
+				}
+				if !f.IsValid() {
+					continue
+				}
+				tag := typ.Field(i).Tag.Get("db")
+				tagWrite := typ.Field(i).Tag.Get("dbField")
+				if tagWrite == "-" || tag == "-" ||
+					(tag == "" && tagWrite == "") {
+					continue
+				} else if tagWrite != "" {
+					tag = tagWrite
+				}
+				switch val := f.Interface().(type) {
+				case bool:
+					oldMap[tag] = f.Bool()
+				case int, int8, int16, int32, int64:
+					oldMap[tag] = f.Int()
+				case uint, uint8, uint16, uint32, uint64:
+					oldMap[tag] = f.Uint()
+				case float32, float64:
+					oldMap[tag] = f.Float()
+				case []byte:
+					v := string(f.Bytes())
+					oldMap[tag] = v
+				case string:
+					oldMap[tag] = f.String()
+				case time.Time:
+					oldMap[tag] = val.Format(time.RFC3339)
+				default:
+					valJSON, _ := json.Marshal(val)
+					oldMap[tag] = string(valJSON)
+				}
 			}
 		}
 	}
@@ -518,11 +522,10 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	typ := iVal.Type()
 	for i := 0; i < iVal.NumField(); i++ {
 		f := iVal.Field(i)
+		isPointer := false
 		if f.Kind() == reflect.Ptr {
 			f = reflect.Indirect(f)
-		}
-		if !f.IsValid() {
-			continue
+			isPointer = true
 		}
 		tag := typ.Field(i).Tag.Get("db")
 		tagWrite := typ.Field(i).Tag.Get("dbField")
@@ -531,6 +534,15 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			continue
 		} else if tagWrite != "" {
 			tag = tagWrite
+		}
+		if !f.IsValid() {
+			if isPointer && oldMap[tag] != nil {
+				resultMap[tag] = nil
+				diff[tag] = nil
+				prepFields = append(prepFields, `"`+tag+`"`)
+				prepValues = append(prepValues, "NULL")
+			}
+			continue
 		}
 		var updV string
 		switch val := f.Interface().(type) {
