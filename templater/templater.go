@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
@@ -21,10 +22,10 @@ type MsgTemplate struct {
 
 var msgTemplates = make(map[string]*MsgTemplate)
 
-var msgTemplate = dbc.CreateSchemaTable("msgTemplate",
-	dbc.CreateSchemaField("id", "varchar", 50, true),
-	dbc.CreateSchemaField("name", "varchar", 50),
-	dbc.CreateSchemaField("template", "jsonb"),
+var msgTemplate = dbc.NewSchemaTable("msgTemplate",
+	dbc.NewSchemaField("id", "varchar", 50, true),
+	dbc.NewSchemaField("name", "varchar", 50),
+	dbc.NewSchemaField("template", "jsonb"),
 )
 
 func prepareTemplate(id string) *MsgTemplate {
@@ -37,6 +38,7 @@ func prepareTemplate(id string) *MsgTemplate {
 	msgTemplates[id] = mt
 	err := msgTemplate.Get(mt, `id = '`+id+`'`)
 	if err != nil {
+		mt.ID = id
 		if err != sql.ErrNoRows {
 			log.Error("MsgTemplateFailed", "[prepareTemplate]", "Error load '"+id+"' ", err)
 		} else {
@@ -69,20 +71,41 @@ func prepareTemplate(id string) *MsgTemplate {
 }
 
 func (mt *MsgTemplate) format(lang string, data interface{}) (string, error) {
-	t := mt.templates[lang]
+	var err error
+	var text string
+	var t *template.Template
+	if len(lang) > 0 {
+		t = mt.templates[lang]
+	}
 	if t == nil && lang != "en" {
 		t = mt.templates["en"]
 	}
 	if t == nil {
-		return "", errors.New("template not found")
+		err = errors.New("template not found")
+	} else {
+		var gen bytes.Buffer
+		err = t.Execute(&gen, data)
+		text = gen.String()
 	}
-	var gen bytes.Buffer
-	err := t.Execute(&gen, data)
-	return gen.String(), err
+	if len(text) == 0 {
+		text = "[" + mt.ID + "]"
+	}
+	return text, err
 }
 
-// Format message by template id
+// Format message by template id with map or struct data
+// Template string: "Hello <b>{{.Name}}</b> {{.Caption}}"
 func Format(id, lang string, data interface{}) (string, error) {
+	return prepareTemplate(id).format(lang, data)
+}
+
+// FormatParams message by template id with unnamed parameters
+// Template string: "Hello <b>{{.p0}}</b> {{.p1}}"
+func FormatParams(id, lang string, params ...interface{}) (string, error) {
+	data := map[string]interface{}{}
+	for index, param := range params {
+		data["p"+strconv.Itoa(index)] = param
+	}
 	return prepareTemplate(id).format(lang, data)
 }
 
@@ -94,21 +117,26 @@ func GenTextTemplate(tpl *string, data interface{}) string {
 	return gen.String()
 }
 
-type test struct {
-	Name, Gift string
-	Attended   bool
-}
-
-// Init is module initialiser
+// Init is module initialization
 func Init() {
 	/* test formats
-	msg, err := Format("test", "en", test{
-		"name", "test", false,
+
+	// structure data
+	msg, err := Format("test", "en", struct{ Name, Gift string }{
+		"name", "test",
 	})
 	log.Debug(msg, err)
-	msg, err = Format("test", "en", test{
-		"name2", "test2", false,
+
+	// map data
+	msg, err = Format("test", "en", map[string]interface{}{
+		"Name": "name2",
+		"Gift": "test2",
 	})
 	log.Debug(msg, err)
+
+	// unamed parameters
+	msg, err = FormatParams("auth.code.message", "en", 121343)
+	log.Debug(msg, err)
+
 	//*/
 }

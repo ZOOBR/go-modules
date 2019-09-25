@@ -3,19 +3,42 @@ package msgsender
 import (
 	"encoding/json"
 	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/templater"
 )
 
-//SMS is a basic SMS struct
+const (
+	// MessageModeSMS is sms mode of message
+	MessageModeSMS = 1
+	// MessageModePush is phone push mode of message
+	MessageModePush = 2
+	// MessageModeMail is e-mail mode of message
+	MessageModeMail = 4
+)
+
+// Message is a common simple message struct
+type Message struct {
+	Mode    int      `json:"mode"`
+	ID      string   `json:"msg"`
+	TitleID string   `json:"title"`
+	Lang    string   `json:"lang"`
+	Phones  []string `json:"phones"`
+	Tokens  []string `json:"tokens"`
+	Addrs   []string `json:"addrs"`
+	Sender  string   `json:"sender"`
+}
+
+// SMS is a basic SMS struct
 type SMS struct {
 	Phone string  `json:"phone"`
 	Msg   string  `json:"msg"`
 	MsgID *string `json:"msgId"`
 }
 
-//Mail is a basic email struct
+// Mail is a basic email struct
 type Mail struct {
 	From        string   `json:"from"`
 	To          string   `json:"to"`
@@ -26,7 +49,7 @@ type Mail struct {
 	ContentType string   `json:"contentType"`
 }
 
-//Push is a basic push struct
+// Push is a basic push struct
 type Push struct {
 	Msg     string   `json:"msg"`
 	Title   string   `json:"title"`
@@ -102,4 +125,61 @@ func SendPush(msg, title string, tokens []string, isTopic ...bool) {
 	}
 	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "push", string(m), false)
 	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", tokens)
+}
+
+// SendMessage format and send universal message by SMS, Push, Mail
+func SendMessage(msg *Message, data interface{}) {
+	var title, info string
+	text, _ := templater.Format(msg.ID, msg.Lang, data)
+	if len(msg.TitleID) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
+		title, _ = templater.Format(msg.TitleID, msg.Lang, data)
+	}
+	for _, phone := range msg.Phones {
+		if len(info) > 0 {
+			info += ","
+		}
+		info += phone
+		SendSMS(phone, text)
+	}
+	if len(msg.Tokens) > 0 {
+		if len(info) > 0 {
+			info += ","
+		}
+		info += strings.Join(msg.Tokens[:], ",")
+		SendPush(text, title, msg.Tokens)
+	}
+	for _, addr := range msg.Addrs {
+		if len(info) > 0 {
+			info += ","
+		}
+		info += addr
+		SendEmail(addr, title, text, "text/plain", nil)
+	}
+	log.Debug("Message", " [Send] ", info+": ", text)
+}
+
+// NewMessage create new message structure
+func NewMessage(lang, id, title string, phones, tokens, mails []string) *Message {
+	mode := MessageModeSMS | MessageModePush | MessageModeMail
+	return &Message{mode, id, title, lang, phones, tokens, mails, ""}
+}
+
+// SendMessageBy format and send universal message by SMS, Push, Mail
+func SendMessageBy(lang, id, title string, phones, tokens, mails []string, data interface{}) {
+	SendMessage(NewMessage(lang, id, title, phones, tokens, mails), data)
+}
+
+// SendMessageSMS format and send universal message by SMS
+func SendMessageSMS(lang, id, title, phone string, data interface{}) {
+	SendMessage(NewMessage(lang, id, title, []string{phone}, nil, nil), data)
+}
+
+// SendMessagePush format and send universal message by phone push
+func SendMessagePush(lang, id, title, token string, data interface{}) {
+	SendMessage(NewMessage(lang, id, title, nil, []string{token}, nil), data)
+}
+
+// SendMessageMail format and send universal message by e-mail
+func SendMessageMail(lang, id, title, addr string, data interface{}) {
+	SendMessage(NewMessage(lang, id, title, nil, nil, []string{addr}), data)
 }

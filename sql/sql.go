@@ -912,8 +912,8 @@ type SchemaTable struct {
 	sqlSelect  string
 }
 
-// CreateSchemaField create SchemaTable definition
-func CreateSchemaField(name, typ string, args ...interface{}) *SchemaField {
+// NewSchemaField create SchemaTable definition
+func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	field := new(SchemaField)
 	field.Name = name
 	field.Type = typ
@@ -927,8 +927,8 @@ func CreateSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	return field
 }
 
-// CreateSchemaTable create SchemaTable definition
-func CreateSchemaTable(name string, fieldsInfo ...*SchemaField) SchemaTable {
+// NewSchemaTable create SchemaTable definition
+func NewSchemaTable(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	fields := make([]*SchemaField, len(fieldsInfo))
 	for index, field := range fieldsInfo {
 		fields[index] = field
