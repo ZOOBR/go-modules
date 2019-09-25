@@ -36,6 +36,9 @@ func prepareTemplate(id string) *MsgTemplate {
 	mt = &MsgTemplate{}
 	mt.templates = make(map[string]*template.Template)
 	msgTemplates[id] = mt
+	if id[0] == '#' {
+		id = id[1:]
+	}
 	err := msgTemplate.Get(mt, `id = '`+id+`'`)
 	if err != nil {
 		mt.ID = id
@@ -93,10 +96,23 @@ func (mt *MsgTemplate) format(lang string, data interface{}) (string, error) {
 	return text, err
 }
 
+func format(id, lang string, data interface{}) (string, error) {
+	var text string
+	var err error
+	if len(id) == 0 {
+		text = ""
+	} else if id[0] != '#' {
+		text = id
+	} else {
+		text, err = prepareTemplate(id).format(lang, data)
+	}
+	return text, err
+}
+
 // Format message by template id with map or struct data
 // Template string: "Hello <b>{{.Name}}</b> {{.Caption}}"
 func Format(id, lang string, data interface{}) (string, error) {
-	return prepareTemplate(id).format(lang, data)
+	return format(id, lang, data)
 }
 
 // FormatParams message by template id with unnamed parameters
@@ -106,7 +122,7 @@ func FormatParams(id, lang string, params ...interface{}) (string, error) {
 	for index, param := range params {
 		data["p"+strconv.Itoa(index)] = param
 	}
-	return prepareTemplate(id).format(lang, data)
+	return format(id, lang, data)
 }
 
 // GenTextTemplate generate message from template string
@@ -122,20 +138,20 @@ func Init() {
 	/* test formats
 
 	// structure data
-	msg, err := Format("test", "en", struct{ Name, Gift string }{
+	msg, err := Format("#test", "en", struct{ Name, Gift string }{
 		"name", "test",
 	})
 	log.Debug(msg, err)
 
 	// map data
-	msg, err = Format("test", "en", map[string]interface{}{
+	msg, err = Format("#test", "en", map[string]interface{}{
 		"Name": "name2",
 		"Gift": "test2",
 	})
 	log.Debug(msg, err)
 
 	// unamed parameters
-	msg, err = FormatParams("auth.code.message", "en", 121343)
+	msg, err = FormatParams("#auth.code.message", "en", 121343)
 	log.Debug(msg, err)
 
 	//*/

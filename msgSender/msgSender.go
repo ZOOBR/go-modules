@@ -21,14 +21,14 @@ const (
 
 // Message is a common simple message struct
 type Message struct {
-	Mode    int      `json:"mode"`
-	ID      string   `json:"msg"`
-	TitleID string   `json:"title"`
-	Lang    string   `json:"lang"`
-	Phones  []string `json:"phones"`
-	Tokens  []string `json:"tokens"`
-	Addrs   []string `json:"addrs"`
-	Sender  string   `json:"sender"`
+	Mode   int      `json:"mode"`
+	Msg    string   `json:"msg"`
+	Title  string   `json:"title"`
+	Lang   string   `json:"lang"`
+	Phones []string `json:"phones"`
+	Tokens []string `json:"tokens"`
+	Addrs  []string `json:"addrs"`
+	Sender string   `json:"sender"`
 }
 
 // SMS is a basic SMS struct
@@ -124,36 +124,42 @@ func SendPush(msg, title string, tokens []string, isTopic ...bool) {
 		return
 	}
 	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "push", string(m), false)
-	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", tokens)
+	log.Info("[msgSender-SendPush] ", "Success sended notification to: ", tokens)
 }
 
-// SendMessage format and send universal message by SMS, Push, Mail
-func SendMessage(msg *Message, data interface{}) {
+// Send format and send universal message by SMS, Push, Mail
+func (msg *Message) Send(data interface{}) {
 	var title, info string
-	text, _ := templater.Format(msg.ID, msg.Lang, data)
-	if len(msg.TitleID) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
-		title, _ = templater.Format(msg.TitleID, msg.Lang, data)
-	}
-	for _, phone := range msg.Phones {
-		if len(info) > 0 {
-			info += ","
+	text, _ := templater.Format(msg.Msg, msg.Lang, data)
+	if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
+		if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
+			title, _ = templater.Format(msg.Title, msg.Lang, data)
 		}
-		info += phone
-		SendSMS(phone, text)
 	}
-	if len(msg.Tokens) > 0 {
+	if msg.Mode&(MessageModeSMS) != 0 {
+		for _, phone := range msg.Phones {
+			if len(info) > 0 {
+				info += ","
+			}
+			info += phone
+			SendSMS(phone, text)
+		}
+	}
+	if msg.Mode&(MessageModePush) != 0 && len(msg.Tokens) > 0 {
 		if len(info) > 0 {
 			info += ","
 		}
 		info += strings.Join(msg.Tokens[:], ",")
 		SendPush(text, title, msg.Tokens)
 	}
-	for _, addr := range msg.Addrs {
-		if len(info) > 0 {
-			info += ","
+	if msg.Mode&(MessageModeMail) != 0 {
+		for _, addr := range msg.Addrs {
+			if len(info) > 0 {
+				info += ","
+			}
+			info += addr
+			SendEmail(addr, title, text, "text/plain", nil)
 		}
-		info += addr
-		SendEmail(addr, title, text, "text/plain", nil)
 	}
 	log.Debug("Message", " [Send] ", info+": ", text)
 }
@@ -166,20 +172,20 @@ func NewMessage(lang, id, title string, phones, tokens, mails []string) *Message
 
 // SendMessageBy format and send universal message by SMS, Push, Mail
 func SendMessageBy(lang, id, title string, phones, tokens, mails []string, data interface{}) {
-	SendMessage(NewMessage(lang, id, title, phones, tokens, mails), data)
+	NewMessage(lang, id, title, phones, tokens, mails).Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
 func SendMessageSMS(lang, id, title, phone string, data interface{}) {
-	SendMessage(NewMessage(lang, id, title, []string{phone}, nil, nil), data)
+	NewMessage(lang, id, title, []string{phone}, nil, nil).Send(data)
 }
 
 // SendMessagePush format and send universal message by phone push
 func SendMessagePush(lang, id, title, token string, data interface{}) {
-	SendMessage(NewMessage(lang, id, title, nil, []string{token}, nil), data)
+	NewMessage(lang, id, title, nil, []string{token}, nil).Send(data)
 }
 
 // SendMessageMail format and send universal message by e-mail
 func SendMessageMail(lang, id, title, addr string, data interface{}) {
-	SendMessage(NewMessage(lang, id, title, nil, nil, []string{addr}), data)
+	NewMessage(lang, id, title, nil, nil, []string{addr}).Send(data)
 }
