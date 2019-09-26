@@ -55,7 +55,20 @@ func prepareTemplate(id string) *MsgTemplate {
 				encoder.SetEscapeHTML(false)
 				err := encoder.Encode(val)
 				if err == nil {
-					msg := string(buffer.Bytes())
+					msg := ""
+					bytes := buffer.Bytes()
+					lenBytes := len(bytes)
+					offsetBytes := 0
+					if lenBytes > 0 {
+						if bytes[lenBytes-1] == 10 {
+							lenBytes--
+						}
+						if bytes[0] == 34 && bytes[lenBytes-1] == 34 {
+							offsetBytes = 1
+							lenBytes--
+						}
+						msg = string(bytes[offsetBytes:lenBytes])
+					}
 					t, err := template.New(mt.ID).Parse(msg)
 					if err == nil {
 						mt.templates[key] = t
