@@ -14,19 +14,14 @@ import (
 
 // MsgTemplate structure of record msgTemplate table
 type MsgTemplate struct {
-	ID        string `db:"id" json:"id"`
-	Name      string `db:"name" json:"name"`
-	Template  string `db:"template" json:"template"`
+	ID        string `db:"id" json:"id" len:"50" key:"1"`
+	Name      string `db:"name" json:"name" len:"50"`
+	Template  string `db:"template" json:"template" type:"jsonb"`
 	templates map[string]*template.Template
 }
 
+var msgTemplate = dbc.NewSchemaTable("msgTemplate", MsgTemplate{})
 var msgTemplates = make(map[string]*MsgTemplate)
-
-var msgTemplate = dbc.NewSchemaTable("msgTemplate",
-	dbc.NewSchemaField("id", "varchar", 50, true),
-	dbc.NewSchemaField("name", "varchar", 50),
-	dbc.NewSchemaField("template", "jsonb"),
-)
 
 func prepareTemplate(id string) *MsgTemplate {
 	mt := msgTemplates[id]
@@ -34,6 +29,7 @@ func prepareTemplate(id string) *MsgTemplate {
 		return mt
 	}
 	mt = &MsgTemplate{}
+
 	mt.templates = make(map[string]*template.Template)
 	msgTemplates[id] = mt
 	if id[0] == '#' {
@@ -136,6 +132,13 @@ func GenTextTemplate(tpl *string, data interface{}) string {
 // Init is module initialization
 func Init() {
 	/* test formats
+
+	msgTemplate.Insert(MsgTemplate{
+		"test3",
+		"test2",
+		"{}",
+		nil,
+	})
 
 	// structure data
 	msg, err := Format("#test", "en", struct{ Name, Gift string }{

@@ -911,7 +911,7 @@ type SchemaField struct {
 	Name    string
 	Type    string
 	Length  int
-	Key     bool
+	Key     int
 	checked bool
 }
 
@@ -939,12 +939,49 @@ func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	return field
 }
 
-// NewSchemaTable create SchemaTable definition
-func NewSchemaTable(name string, fieldsInfo ...*SchemaField) SchemaTable {
+// NewSchemaTableFields create SchemaTable definition
+func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	fields := make([]*SchemaField, len(fieldsInfo))
 	for index, field := range fieldsInfo {
 		fields[index] = field
 	}
+	return SchemaTable{name, fields, false, nil, ""}
+}
+
+// NewSchemaTable create SchemaTable definition from record structure
+func NewSchemaTable(name string, info interface{}) SchemaTable {
+	var recType reflect.Type
+	infoType := reflect.TypeOf(info)
+	switch infoType.Kind() {
+	case reflect.Slice:
+		recType = infoType.Elem()
+	case reflect.Array:
+		recType = infoType.Elem()
+	default:
+		recType = infoType
+	}
+
+	fields := make([]*SchemaField, 0)
+	if recType.Kind() == reflect.Struct {
+		fcnt := recType.NumField()
+		for i := 0; i < fcnt; i++ {
+			f := recType.Field(i)
+			name := f.Tag.Get("db")
+			if len(name) == 0 {
+				continue
+			}
+			field := new(SchemaField)
+			field.Name = name
+			field.Type = f.Tag.Get("type")
+			if len(field.Type) == 0 {
+				field.Type = "varchar"
+			}
+			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
+			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
+			fields = append(fields, field)
+		}
+	}
+
 	return SchemaTable{name, fields, false, nil, ""}
 }
 
@@ -959,7 +996,7 @@ func (table *SchemaTable) create() error {
 		if field.Length > 0 {
 			sql += "(" + strconv.Itoa(field.Length) + ")"
 		}
-		if field.Key {
+		if (field.Key & 1) != 0 {
 			if len(keys) > 0 {
 				keys += ","
 			}
@@ -1068,18 +1105,39 @@ func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}
 }
 
 // Insert execute insert sql string (not worked)
-func (table *SchemaTable) Insert(rec interface{}) error {
+func (table *SchemaTable) Insert(data interface{}) error {
 	err := table.Prepare()
 	if err != nil {
 		return err
 	}
-	var args = map[string]interface{}{}
+	rec := reflect.ValueOf(data)
+	recType := reflect.TypeOf(data)
+	/*
+		recCnt := 1
+		switch recType.Kind() {
+		case reflect.Slice:
+			recType = recType.Elem()
+			recCnt = rec.Len()
+		case reflect.Array:
+			recType = recType.Elem()
+			recCnt = rec.Len()
+		}
+	*/
+
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.ValueOf(data).Elem()
+		recType = reflect.TypeOf(data)
+	}
+	if recType.Kind() != reflect.Struct {
+		return errors.New("element must be struct")
+	}
+
+	var args = []interface{}{}
 	var fields, values string
 	cnt := 0
-	info := reflect.ValueOf(rec)
-	typ := info.Type()
-	for i := 0; i < info.NumField(); i++ {
-		f := typ.Field(i)
+	fcnt := recType.NumField()
+	for i := 0; i < fcnt; i++ {
+		f := recType.Field(i)
 		name := f.Tag.Get("db")
 		if len(name) == 0 {
 			continue
@@ -1096,14 +1154,17 @@ func (table *SchemaTable) Insert(rec interface{}) error {
 		}
 		cnt++
 		fields += `"` + name + `"`
-		// values += "$" + strconv.Itoa(cnt)
-		// args[name] = reflect.ValueOf(f)
-		values += ":" + name
-		args[name] = info.Index(i).Interface()
+		fld := rec.FieldByName(f.Name)
+		if fld.IsValid() {
+			values += "$" + strconv.Itoa(cnt)
+			args = append(args, fld.Interface())
+		} else {
+			values += "NULL"
+		}
 	}
 
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
-	_, err = DB.NamedExec(sql, args)
+	_, err = DB.Exec(sql, args...)
 	return err
 }
 
