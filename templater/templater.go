@@ -6,48 +6,69 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"sync"
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
-// MsgTemplate structure of record msgTemplate table
-type MsgTemplate struct {
-	ID        string `db:"id" json:"id" len:"50" key:"1"`
-	Name      string `db:"name" json:"name" len:"50"`
-	Template  string `db:"template" json:"template" type:"jsonb"`
+type msgTemplateReg struct {
+	id        string
 	templates map[string]*template.Template
 }
 
-var msgTemplate = dbc.NewSchemaTable("msgTemplate", MsgTemplate{})
-var msgTemplates = make(map[string]*MsgTemplate)
+var msgTemplates struct {
+	list  map[string]*msgTemplateReg
+	mutex sync.RWMutex
+}
 
-func prepareTemplate(id string) *MsgTemplate {
-	mt := msgTemplates[id]
-	if mt != nil {
-		return mt
+// MsgTemplate structure of record msgTemplate table
+type MsgTemplate struct {
+	ID       string `db:"id" json:"id" len:"50" key:"1"`
+	Name     string `db:"name" json:"name" len:"50"`
+	Template string `db:"template" json:"template" type:"jsonb"`
+}
+
+var msgTemplate = dbc.NewSchemaTable("msgTemplate", MsgTemplate{}, map[string]interface{}{
+	"onUpdate": func(table *dbc.SchemaTable, msg interface{}) {
+		msgTemplates.mutex.Lock()
+		msgTemplates.list = make(map[string]*msgTemplateReg)
+		msgTemplates.mutex.Unlock()
+		log.Debug("MsgTemplate [onUpdate] clear templates")
+	},
+})
+
+func prepareTemplate(id string) *msgTemplateReg {
+	var reg *msgTemplateReg
+	msgTemplates.mutex.RLock()
+	if msgTemplates.list != nil {
+		reg = msgTemplates.list[id]
 	}
-	mt = &MsgTemplate{}
+	msgTemplates.mutex.RUnlock()
+	if reg != nil {
+		return reg
+	}
 
-	mt.templates = make(map[string]*template.Template)
-	msgTemplates[id] = mt
+	reg = &msgTemplateReg{}
+	reg.id = id
+	reg.templates = make(map[string]*template.Template)
 	if id[0] == '#' {
 		id = id[1:]
 	}
-	err := msgTemplate.Get(mt, `id = '`+id+`'`)
+	var mt MsgTemplate
+	err := msgTemplate.Get(&mt, `id = '`+id+`'`)
 	if err != nil {
-		mt.ID = id
 		if err != sql.ErrNoRows {
-			log.Error("MsgTemplateFailed", "[prepareTemplate]", "Error load '"+id+"' ", err)
+			log.Error("MsgTemplate [prepareTemplate] Error load '"+id+"' ", err)
 		} else {
-			log.Error("MsgTemplateFailed", "[prepareTemplate]", "Not found template '"+id+"' ")
+			log.Error("MsgTemplate [prepareTemplate] Not found template '" + id + "' ")
 		}
 	} else {
 		var objmap map[string]*json.RawMessage
 		err := json.Unmarshal([]byte(mt.Template), &objmap)
 		if err != nil {
-			log.Error("MsgTemplateFailed", "[prepareTemplate]", "Error parse '"+id+"' json ", err)
+			log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' json ", err)
 		} else {
 			for key, val := range objmap {
 				buffer := &bytes.Buffer{}
@@ -71,26 +92,33 @@ func prepareTemplate(id string) *MsgTemplate {
 					}
 					t, err := template.New(mt.ID).Parse(msg)
 					if err == nil {
-						mt.templates[key] = t
+						reg.templates[key] = t
 					} else {
-						log.Error("MsgTemplateFailed", "[prepareTemplate]", "Error parse '"+id+"' '"+key+"' ", err)
+						log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
 					}
 				}
 			}
 		}
 	}
-	return mt
+
+	msgTemplates.mutex.Lock()
+	if msgTemplates.list == nil {
+		msgTemplates.list = make(map[string]*msgTemplateReg)
+	}
+	msgTemplates.list[id] = reg
+	msgTemplates.mutex.Unlock()
+	return reg
 }
 
-func (mt *MsgTemplate) format(lang string, data interface{}) (string, error) {
+func (reg *msgTemplateReg) format(lang string, data interface{}) (string, error) {
 	var err error
 	var text string
 	var t *template.Template
 	if len(lang) > 0 {
-		t = mt.templates[lang]
+		t = reg.templates[lang]
 	}
 	if t == nil && lang != "en" {
-		t = mt.templates["en"]
+		t = reg.templates["en"]
 	}
 	if t == nil {
 		err = errors.New("template not found")
@@ -100,7 +128,7 @@ func (mt *MsgTemplate) format(lang string, data interface{}) (string, error) {
 		text = gen.String()
 	}
 	if len(text) == 0 {
-		text = "[" + mt.ID + "]"
+		text = "[" + reg.id + "]"
 	}
 	return text, err
 }
@@ -144,14 +172,14 @@ func GenTextTemplate(tpl *string, data interface{}) string {
 
 // Init is module initialization
 func Init() {
-	/* test formats
+	//* test formats
 
-	msgTemplate.Insert(MsgTemplate{
-		"test3",
-		"test2",
-		"{}",
-		nil,
-	})
+	// insert test template
+	// msgTemplate.Insert(MsgTemplate{
+	// 	"test",
+	// 	"test message",
+	// 	`{"en": "Hello <b>{{.Name}}</b> {{.Gift}}", "ru": "Привет <b>{{.Name}}</b>"}`,
+	// })
 
 	// structure data
 	msg, err := Format("#test", "en", struct{ Name, Gift string }{

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 	"unicode"
@@ -21,6 +22,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/prometheus/common/log"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	connector "gitlab.com/battler/modules/amqpconnector"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
@@ -906,6 +908,8 @@ func Init() {
 //---------------------------------------------------------------------------
 // Database schemas defenitions
 
+var syncSchemaMutex sync.Mutex
+
 // SchemaField is definition of sql field
 type SchemaField struct {
 	Name    string
@@ -922,6 +926,21 @@ type SchemaTable struct {
 	initalized bool
 	err        error
 	sqlSelect  string
+	onUpdate   schemaTableUpdateCallback
+}
+
+type schemaTablePrepareCallback func(table *SchemaTable, event string)
+type schemaTableUpdateCallback func(table *SchemaTable, msg interface{})
+type schemaTableReg struct {
+	table       *SchemaTable
+	callbacks   []schemaTableUpdateCallback
+	isConnector bool
+}
+type schemaTableMap map[string]*schemaTableReg
+
+var registerSchema struct {
+	mutex  sync.RWMutex
+	tables schemaTableMap
 }
 
 // NewSchemaField create SchemaTable definition
@@ -945,11 +964,11 @@ func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	for index, field := range fieldsInfo {
 		fields[index] = field
 	}
-	return SchemaTable{name, fields, false, nil, ""}
+	return SchemaTable{name, fields, false, nil, "", nil}
 }
 
 // NewSchemaTable create SchemaTable definition from record structure
-func NewSchemaTable(name string, info interface{}) SchemaTable {
+func NewSchemaTable(name string, info interface{}, options map[string]interface{}) SchemaTable {
 	var recType reflect.Type
 	infoType := reflect.TypeOf(info)
 	switch infoType.Kind() {
@@ -982,7 +1001,16 @@ func NewSchemaTable(name string, info interface{}) SchemaTable {
 		}
 	}
 
-	return SchemaTable{name, fields, false, nil, ""}
+	var onUpdate schemaTableUpdateCallback
+	for key, val := range options {
+		if key == "onUpdate" {
+			if reflect.TypeOf(val).Kind() == reflect.Func {
+				onUpdate = val.(func(table *SchemaTable, msg interface{}))
+			}
+		}
+	}
+
+	return SchemaTable{name, fields, false, nil, "", onUpdate}
 }
 
 func (table *SchemaTable) create() error {
@@ -1040,6 +1068,11 @@ func (table *SchemaTable) Prepare() error {
 	if table.initalized {
 		return table.err
 	}
+	syncSchemaMutex.Lock()
+	defer syncSchemaMutex.Unlock()
+	if table.initalized {
+		return table.err
+	}
 	table.initalized = true
 
 	table.sqlSelect = "SELECT "
@@ -1065,6 +1098,9 @@ func (table *SchemaTable) Prepare() error {
 		}
 	}
 	table.err = err
+	if err == nil && table.onUpdate != nil {
+		table.OnUpdate(table.onUpdate)
+	}
 	return err
 }
 
@@ -1166,6 +1202,56 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
 	_, err = DB.Exec(sql, args...)
 	return err
+}
+
+// OnUpdate init and set callback on table external update event
+func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
+	registerSchema.mutex.Lock()
+	if registerSchema.tables == nil {
+		registerSchema.tables = make(schemaTableMap)
+	}
+	reg, ok := registerSchema.tables[table.Name]
+	if !ok {
+		reg = &schemaTableReg{table, []schemaTableUpdateCallback{cb}, false}
+		registerSchema.tables[table.Name] = reg
+	} else {
+		reg.callbacks = append(reg.callbacks, cb)
+	}
+	registerSchema.mutex.Unlock()
+	if !reg.isConnector {
+		reg.isConnector = true
+		go connector.OnUpdates(registerSchemaUpdates, "csx.api."+table.Name, map[string]interface{}{
+			"queueAutoDelete": true,
+			"queueDurable":    false,
+			"queueKeys":       []string{table.Name},
+		})
+	}
+}
+
+func registerSchemaUpdates(consumer *connector.Consumer) {
+	deliveries := consumer.Deliveries
+	done := consumer.Done
+	log.Debug("HandleUpdates: deliveries channel open")
+	for d := range deliveries {
+		msg := connector.Update{}
+		err := json.Unmarshal(d.Body, &msg)
+		if err != nil {
+			log.Error("HandleUpdates", "Error parse json: ", err)
+			continue
+		}
+		registerSchema.mutex.RLock()
+		name := d.RoutingKey
+		reg, ok := registerSchema.tables[name]
+		if ok {
+			for _, cb := range reg.callbacks {
+				cb(reg.table, msg)
+			}
+		}
+		registerSchema.mutex.RUnlock()
+		d.Ack(false)
+	}
+	log.Debug("HandleUpdates: deliveries channel closed")
+	done <- nil
 }
 
 //---------------------------------------------------------------------------
