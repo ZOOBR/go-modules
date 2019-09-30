@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"text/template"
 
@@ -90,7 +92,7 @@ func prepareTemplate(id string) *msgTemplateReg {
 						}
 						msg = string(bytes[offsetBytes:lenBytes])
 					}
-					t, err := template.New(mt.ID).Parse(msg)
+					t, err := template.New(mt.ID).Option("missingkey=zero").Parse(msg)
 					if err == nil {
 						reg.templates[key] = t
 					} else {
@@ -110,6 +112,29 @@ func prepareTemplate(id string) *msgTemplateReg {
 	return reg
 }
 
+// correctDataForExec convert struct to map, needed for zero on not found
+func correctDataForExec(data interface{}) interface{} {
+	rec := reflect.ValueOf(data)
+	recType := reflect.TypeOf(data)
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.ValueOf(data).Elem()
+		recType = reflect.TypeOf(data)
+	}
+	if recType.Kind() != reflect.Struct {
+		return data
+	}
+	m := map[string]interface{}{}
+	fcnt := recType.NumField()
+	for i := 0; i < fcnt; i++ {
+		f := recType.Field(i)
+		v := reflect.Indirect(rec.FieldByName(f.Name))
+		if v.IsValid() {
+			m[f.Name] = reflect.Indirect(rec.FieldByName(f.Name))
+		}
+	}
+	return m
+}
+
 func (reg *msgTemplateReg) format(lang string, data interface{}) (string, error) {
 	var err error
 	var text string
@@ -124,8 +149,9 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, error)
 		err = errors.New("template not found")
 	} else {
 		var gen bytes.Buffer
-		err = t.Execute(&gen, data)
+		err = t.Execute(&gen, correctDataForExec(data))
 		text = gen.String()
+		text = strings.Replace(text, "<no value>", "[no value]", -1)
 	}
 	if len(text) == 0 {
 		text = "[" + reg.id + "]"
