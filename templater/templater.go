@@ -172,7 +172,7 @@ func GenTextTemplate(tpl *string, data interface{}) string {
 
 // Init is module initialization
 func Init() {
-	//* test formats
+	/* test formats
 
 	// insert test template
 	// msgTemplate.Insert(MsgTemplate{

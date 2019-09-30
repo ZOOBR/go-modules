@@ -158,34 +158,34 @@ func (msg *Message) Send(data interface{}) {
 				info += ","
 			}
 			info += addr
-			SendEmail(addr, title, text, "text/plain", nil)
+			SendEmail(addr, title, text, "text/html", nil)
 		}
 	}
 	log.Debug("Message", " [Send] ", info+": ", text)
 }
 
 // NewMessage create new message structure
-func NewMessage(lang, id, title string, phones, tokens, mails []string) *Message {
+func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
-	return &Message{mode, id, title, lang, phones, tokens, mails, ""}
+	return &Message{mode, msg, title, lang, phones, tokens, mails, ""}
 }
 
-// SendMessageBy format and send universal message by SMS, Push, Mail
-func SendMessageBy(lang, id, title string, phones, tokens, mails []string, data interface{}) {
-	NewMessage(lang, id, title, phones, tokens, mails).Send(data)
+// SendMessage format and send universal message by SMS, Push, Mail
+func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}) {
+	NewMessage(lang, msg, title, phones, tokens, mails).Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
-func SendMessageSMS(lang, id, title, phone string, data interface{}) {
-	NewMessage(lang, id, title, []string{phone}, nil, nil).Send(data)
+func SendMessageSMS(lang, msg, title, phone string, data interface{}) {
+	NewMessage(lang, msg, title, []string{phone}, nil, nil).Send(data)
 }
 
 // SendMessagePush format and send universal message by phone push
-func SendMessagePush(lang, id, title, token string, data interface{}) {
-	NewMessage(lang, id, title, nil, []string{token}, nil).Send(data)
+func SendMessagePush(lang, msg, title, token string, data interface{}) {
+	NewMessage(lang, msg, title, nil, []string{token}, nil).Send(data)
 }
 
 // SendMessageMail format and send universal message by e-mail
-func SendMessageMail(lang, id, title, addr string, data interface{}) {
-	NewMessage(lang, id, title, nil, nil, []string{addr}).Send(data)
+func SendMessageMail(lang, msg, title, addr string, data interface{}) {
+	NewMessage(lang, msg, title, nil, nil, []string{addr}).Send(data)
 }
