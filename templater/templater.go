@@ -17,6 +17,7 @@ import (
 
 type msgTemplateReg struct {
 	id        string
+	typ       string
 	templates map[string]*template.Template
 }
 
@@ -77,22 +78,29 @@ func prepareTemplate(id string) *msgTemplateReg {
 				encoder := json.NewEncoder(buffer)
 				encoder.SetEscapeHTML(false)
 				err := encoder.Encode(val)
-				if err == nil {
-					msg := ""
-					bytes := buffer.Bytes()
-					lenBytes := len(bytes)
-					offsetBytes := 0
-					if lenBytes > 0 {
-						if bytes[lenBytes-1] == 10 {
-							lenBytes--
-						}
-						if bytes[0] == 34 && bytes[lenBytes-1] == 34 {
-							offsetBytes = 1
-							lenBytes--
-						}
-						msg = string(bytes[offsetBytes:lenBytes])
+				if err != nil {
+					log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
+					continue
+				}
+				var str string
+				bytes := buffer.Bytes()
+				lenBytes := len(bytes)
+				if lenBytes > 0 {
+					if bytes[lenBytes-1] == 10 {
+						lenBytes--
 					}
-					t, err := template.New(mt.ID).Option("missingkey=zero").Parse(msg)
+					str = string(bytes[0:lenBytes])
+					uqstr, err := strconv.Unquote(str)
+					if err == nil {
+						str = uqstr
+					} else if bytes[0] == 34 && bytes[lenBytes-1] == 34 {
+						str = string(bytes[1 : lenBytes-1])
+					}
+				}
+				if key == "type" {
+					reg.typ = str
+				} else {
+					t, err := template.New(mt.ID).Option("missingkey=zero").Parse(str)
 					if err == nil {
 						reg.templates[key] = t
 					} else {
@@ -135,9 +143,9 @@ func correctDataForExec(data interface{}) interface{} {
 	return m
 }
 
-func (reg *msgTemplateReg) format(lang string, data interface{}) (string, error) {
+func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string, error) {
 	var err error
-	var text string
+	var text, typ string
 	var t *template.Template
 	if len(lang) > 0 {
 		t = reg.templates[lang]
@@ -151,36 +159,39 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, error)
 		var gen bytes.Buffer
 		err = t.Execute(&gen, correctDataForExec(data))
 		text = gen.String()
-		text = strings.Replace(text, "<no value>", "[no value]", -1)
+		typ = reg.typ
+		if typ == "html" {
+			text = strings.Replace(text, "<no value>", "[no value]", -1)
+		}
 	}
 	if len(text) == 0 {
 		text = "[" + reg.id + "]"
 	}
-	return text, err
+	return text, typ, err
 }
 
-func format(id, lang string, data interface{}) (string, error) {
-	var text string
+func format(id, lang string, data interface{}) (string, string, error) {
+	var text, typ string
 	var err error
 	if len(id) == 0 {
 		text = ""
 	} else if id[0] != '#' {
 		text = id
 	} else {
-		text, err = prepareTemplate(id).format(lang, data)
+		text, typ, err = prepareTemplate(id).format(lang, data)
 	}
-	return text, err
+	return text, typ, err
 }
 
 // Format message by template id with map or struct data
 // Template string: "Hello <b>{{.Name}}</b> {{.Caption}}"
-func Format(id, lang string, data interface{}) (string, error) {
+func Format(id, lang string, data interface{}) (string, string, error) {
 	return format(id, lang, data)
 }
 
 // FormatParams message by template id with unnamed parameters
 // Template string: "Hello <b>{{.p0}}</b> {{.p1}}"
-func FormatParams(id, lang string, params ...interface{}) (string, error) {
+func FormatParams(id, lang string, params ...interface{}) (string, string, error) {
 	data := map[string]interface{}{}
 	for index, param := range params {
 		data["p"+strconv.Itoa(index)] = param
@@ -208,20 +219,20 @@ func Init() {
 	// })
 
 	// structure data
-	msg, err := Format("#test", "en", struct{ Name, Gift string }{
+	msg, typ, err := Format("#test", "en", struct{ Name, Gift string }{
 		"name", "test",
 	})
 	log.Debug(msg, err)
 
 	// map data
-	msg, err = Format("#test", "en", map[string]interface{}{
+	msg, typ, err = Format("#test", "en", map[string]interface{}{
 		"Name": "name2",
 		"Gift": "test2",
 	})
 	log.Debug(msg, err)
 
 	// unamed parameters
-	msg, err = FormatParams("#auth.code.message", "en", 121343)
+	msg, typ, err = FormatParams("#auth.code.message", "en", 121343)
 	log.Debug(msg, err)
 
 	//*/
