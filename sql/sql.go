@@ -2,6 +2,7 @@ package sql
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -165,6 +166,9 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	}
 	if params.From != nil {
 		from = *params.From
+		if from[0:1] != `"` {
+			from = `"` + from + `"`
+		}
 	}
 	if params.Where != nil {
 		where = " WHERE " + prepareFields(params.Where)
@@ -903,6 +907,7 @@ func Init() {
 	golog.Info("success connect to database:", envURI)
 	DB = db
 	Q, err = NewQuery(false)
+	RegisterSchema()
 }
 
 //---------------------------------------------------------------------------
@@ -917,6 +922,7 @@ type SchemaField struct {
 	Length  int
 	Key     int
 	checked bool
+	isNull  bool
 }
 
 // SchemaTable is definition of sql table
@@ -926,6 +932,7 @@ type SchemaTable struct {
 	initalized bool
 	err        error
 	sqlSelect  string
+	sqlFields  []string
 	onUpdate   schemaTableUpdateCallback
 }
 
@@ -941,6 +948,13 @@ type schemaTableMap map[string]*schemaTableReg
 var registerSchema struct {
 	mutex  sync.RWMutex
 	tables schemaTableMap
+}
+
+// RegisterSchema prepares schemas
+func RegisterSchema() {
+	for _, schema := range registerSchema.tables {
+		schema.table.Prepare()
+	}
 }
 
 // NewSchemaField create SchemaTable definition
@@ -964,7 +978,7 @@ func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	for index, field := range fieldsInfo {
 		fields[index] = field
 	}
-	return SchemaTable{name, fields, false, nil, "", nil}
+	return SchemaTable{name, fields, false, nil, "", nil, nil}
 }
 
 // NewSchemaTable create SchemaTable definition from record structure
@@ -995,6 +1009,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			if len(field.Type) == 0 {
 				field.Type = "varchar"
 			}
+			if f.Type.Kind() == reflect.Ptr {
+				field.isNull = true
+			}
 			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
 			fields = append(fields, field)
@@ -1009,8 +1026,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			}
 		}
 	}
-
-	return SchemaTable{name, fields, false, nil, "", onUpdate}
+	newSchemaTable := SchemaTable{name, fields, false, nil, "", nil, onUpdate}
+	newSchemaTable.register()
+	return newSchemaTable
 }
 
 func (table *SchemaTable) create() error {
@@ -1023,6 +1041,9 @@ func (table *SchemaTable) create() error {
 		sql += `"` + field.Name + `" ` + field.Type
 		if field.Length > 0 {
 			sql += "(" + strconv.Itoa(field.Length) + ")"
+		}
+		if !field.isNull {
+			sql += " NOT NULL"
 		}
 		if (field.Key & 1) != 0 {
 			if len(keys) > 0 {
@@ -1053,6 +1074,9 @@ func (table *SchemaTable) alter(cols []string) error {
 			if field.Length > 0 {
 				sql += "(" + strconv.Itoa(field.Length) + ")"
 			}
+			if !field.isNull {
+				sql += " NOT NULL"
+			}
 			_, err = DB.Exec(sql)
 			if err != nil {
 				break
@@ -1074,13 +1098,14 @@ func (table *SchemaTable) Prepare() error {
 		return table.err
 	}
 	table.initalized = true
-
+	table.sqlFields = []string{}
 	table.sqlSelect = "SELECT "
 	for index, field := range table.Fields {
 		if index > 0 {
 			table.sqlSelect += ", "
 		}
 		table.sqlSelect += `"` + field.Name + `" `
+		table.sqlFields = append(table.sqlFields, field.Name)
 	}
 	table.sqlSelect += ` FROM "` + table.Name + `"`
 
@@ -1112,6 +1137,45 @@ func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
 		}
 	}
 	return -1, nil
+}
+
+// QueryParams execute  sql query with params
+func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) error {
+	var fields, where, order *[]string
+
+	if len(params) > 0 {
+		where = &params[0]
+	}
+	if len(params) > 1 {
+		order = &params[1]
+	}
+	if len(params) > 2 {
+		fields = &params[2]
+	} else {
+		fields = &table.sqlFields
+	}
+
+	return table.Query(recs, fields, where, order)
+}
+
+// Query execute  sql query with params
+func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string, args ...interface{}) error {
+	err := table.Prepare()
+	if err != nil {
+		return err
+	}
+	qparams := &QueryParams{
+		Select: fields,
+		From:   &table.Name,
+		Where:  where,
+		Order:  order,
+	}
+
+	query, err := MakeQuery(qparams)
+	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	return nil
 }
 
 // Select execute select sql string
@@ -1202,6 +1266,20 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
 	_, err = DB.Exec(sql, args...)
 	return err
+}
+
+// register save table in registerSchema.tables
+func (table *SchemaTable) register() {
+	registerSchema.mutex.Lock()
+	if registerSchema.tables == nil {
+		registerSchema.tables = make(schemaTableMap)
+	}
+	reg, ok := registerSchema.tables[table.Name]
+	if !ok {
+		reg = &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
+		registerSchema.tables[table.Name] = reg
+	}
+	registerSchema.mutex.Unlock()
 }
 
 // OnUpdate init and set callback on table external update event
