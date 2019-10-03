@@ -166,7 +166,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	}
 	if params.From != nil {
 		from = *params.From
-		if from[0:1] != `"` {
+		if from[0] != '"' && !strings.Contains(from, " ") {
 			from = `"` + from + `"`
 		}
 	}
