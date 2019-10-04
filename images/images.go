@@ -34,31 +34,34 @@ type uploadedPhoto struct {
 }
 
 const (
-	S3_BUCKET_THUMBNAILS = "csx-docs-tn"
-	S3_CLIENT_DOCS       = "csx-docs"
-	S3_FINES             = "csx-fines"
-	S3_OBJECT_DAMAGES    = "csx-photo-damages"
-	S3_PUBLIC            = "csx-public"
-	S3_SELFIE            = "csx-selfie"
-	S3_REGION            = "nl-ams"
-	S3_API_ACCESS_KEY    = "SCWPT293A2FEE4NJZEW2"
-	S3_API_SECRET_KEY    = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
-	S3_API_TOKEN         = "79bb5344-f2e9-4aa3-9c7a-9ad2f41ef9e5"
+	S3_BUCKET_THUMBNAILS    = "csx-docs-tn"
+	S3_CLIENT_DOCS_04102019 = "csx-docs041019"
+	S3_CLIENT_DOCS          = "csx-docs"
+	S3_FINES                = "csx-fines"
+	S3_OBJECT_DAMAGES       = "csx-photo-damages"
+	S3_PUBLIC               = "csx-public"
+	S3_SELFIE               = "csx-selfie"
+	S3_REGION               = "nl-ams"
+	S3_API_ACCESS_KEY       = "SCWPT293A2FEE4NJZEW2"
+	S3_API_SECRET_KEY       = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
+	S3_API_TOKEN            = "79bb5344-f2e9-4aa3-9c7a-9ad2f41ef9e5"
 )
 
 var bucketsMap = map[string]string{
-	"docs":    S3_CLIENT_DOCS,
-	"fines":   S3_FINES,
-	"damages": S3_OBJECT_DAMAGES,
-	"public":  S3_PUBLIC,
-	"selfie":  S3_SELFIE,
+	"docs":          S3_CLIENT_DOCS,
+	"docs-04102019": S3_CLIENT_DOCS_04102019,
+	"fines":         S3_FINES,
+	"damages":       S3_OBJECT_DAMAGES,
+	"public":        S3_PUBLIC,
+	"selfie":        S3_SELFIE,
 }
 var regionsMap = map[string]string{
-	"docs":    "nl-ams",
-	"fines":   "fr-par",
-	"damages": "fr-par",
-	"public":  "nl-ams",
-	"selfie":  "fr-par",
+	"docs":          "nl-ams",
+	"docs-04102019": "fr-par",
+	"fines":         "fr-par",
+	"damages":       "fr-par",
+	"public":        "nl-ams",
+	"selfie":        "fr-par",
 }
 
 func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
@@ -215,16 +218,33 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 	if !ok {
 		return nil, errors.New("Bucket not found")
 	}
-
-	_, err = s3.New(s).PutObject(&s3.PutObjectInput{
-		Bucket:             aws.String(bucket),
-		Key:                aws.String(path),
-		ACL:                aws.String("private"),
-		Body:               bytes.NewReader(dec),
-		ContentLength:      aws.Int64(int64(len(dec))),
-		ContentType:        aws.String(http.DetectContentType(dec)),
-		ContentDisposition: aws.String("attachment"),
-	})
+	if bucketName == "docs" {
+		bucket, ok = bucketsMap["docs-04102019"]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+		_, err = s3.New(s).PutObject(&s3.PutObjectInput{
+			Bucket:             aws.String(bucket),
+			Key:                aws.String(path),
+			ACL:                aws.String("private"),
+			Body:               bytes.NewReader(dec),
+			ContentLength:      aws.Int64(int64(len(dec))),
+			ContentType:        aws.String(http.DetectContentType(dec)),
+			ContentDisposition: aws.String("attachment"),
+		})
+	}
+	// if err != nil {
+	// 	bucket, ok = bucketsMap["docs"]
+	// 	_, err = s3.New(s).PutObject(&s3.PutObjectInput{
+	// 		Bucket:             aws.String(bucket),
+	// 		Key:                aws.String(path),
+	// 		ACL:                aws.String("private"),
+	// 		Body:               bytes.NewReader(dec),
+	// 		ContentLength:      aws.Int64(int64(len(dec))),
+	// 		ContentType:        aws.String(http.DetectContentType(dec)),
+	// 		ContentDisposition: aws.String("attachment"),
+	// 	})
+	// }
 	if err != nil {
 		log.Error("Error upload file to s3", err)
 		return nil, err
@@ -297,6 +317,16 @@ func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, err
 		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
 	})
+	if err != nil && bucketName == "docs" {
+		bucket, ok = bucketsMap["docs-04102019"]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+		res, err = s3.New(s).GetObject(&s3.GetObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(path),
+		})
+	}
 	if err != nil {
 		log.Error(err)
 		return nil, err
