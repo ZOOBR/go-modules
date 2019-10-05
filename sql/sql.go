@@ -45,6 +45,7 @@ type QueryParams struct {
 	From      *string
 	Where     *[]string
 	Order     *[]string
+	Group     *[]string
 }
 
 type QueryStringParams struct {
@@ -172,6 +173,9 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	}
 	if params.Where != nil {
 		where = " WHERE " + prepareFields(params.Where)
+	}
+	if params.Group != nil {
+		order = " GROUP BY " + prepareFields(params.Group)
 	}
 	if params.Order != nil {
 		order = " ORDER BY " + prepareFields(params.Order)
