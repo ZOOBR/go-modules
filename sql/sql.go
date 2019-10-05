@@ -53,6 +53,7 @@ type QueryStringParams struct {
 	From   *string
 	Where  *string
 	Order  *string
+	Group  *string
 }
 
 type QueryResult struct {
@@ -82,7 +83,8 @@ func (this *Query) Rollback() (err error) {
 }
 
 var (
-	baseQuery = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Order}}`
+	baseQuery    = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Group}} {{.Order}}`
+	baseTemplate = template.Must(template.New("").Parse(baseQuery))
 )
 
 // func (s *QueryResult) MarshalJSON() ([]byte, error) {
@@ -157,9 +159,8 @@ func lowerFirst(s string) string {
 }
 
 func MakeQuery(params *QueryParams) (*string, error) {
-	query := baseQuery
 	fields := "*"
-	var from, where, order string
+	var from, where, group, order string
 	if params.BaseTable != "" {
 		fields = prepareBaseFields(params.BaseTable, params.Select)
 	} else if params.Select != nil {
@@ -174,20 +175,19 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	if params.Where != nil {
 		where = " WHERE " + prepareFields(params.Where)
 	}
-	if params.Group != nil {
-		order = " GROUP BY " + prepareFields(params.Group)
-	}
 	if params.Order != nil {
 		order = " ORDER BY " + prepareFields(params.Order)
 	}
-	pStruct := QueryStringParams{&fields, &from, &where, &order}
-	template := template.Must(template.New("").Parse(query))
+	if params.Group != nil {
+		group = " GROUP BY " + prepareFields(params.Group)
+	}
+	pStruct := QueryStringParams{&fields, &from, &where, &order, &group}
 	var tpl bytes.Buffer
-	err := template.Execute(&tpl, pStruct)
+	err := baseTemplate.Execute(&tpl, pStruct)
 	if err != nil {
 		return nil, err
 	}
-	query = tpl.String()
+	query := tpl.String()
 	return &query, nil
 }
 
