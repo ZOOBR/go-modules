@@ -907,22 +907,21 @@ func Init() {
 	golog.Info("success connect to database:", envURI)
 	DB = db
 	Q, err = NewQuery(false)
-	RegisterSchema()
+	registerSchemaPrepare()
 }
 
 //---------------------------------------------------------------------------
 // Database schemas defenitions
-
-var syncSchemaMutex sync.Mutex
 
 // SchemaField is definition of sql field
 type SchemaField struct {
 	Name    string
 	Type    string
 	Length  int
+	IsNull  bool
+	Default string
 	Key     int
 	checked bool
-	isNull  bool
 }
 
 // SchemaTable is definition of sql table
@@ -930,7 +929,6 @@ type SchemaTable struct {
 	Name       string
 	Fields     []*SchemaField
 	initalized bool
-	err        error
 	sqlSelect  string
 	sqlFields  []string
 	onUpdate   schemaTableUpdateCallback
@@ -946,15 +944,83 @@ type schemaTableReg struct {
 type schemaTableMap map[string]*schemaTableReg
 
 var registerSchema struct {
-	mutex  sync.RWMutex
+	sync.RWMutex
 	tables schemaTableMap
 }
 
-// RegisterSchema prepares schemas
-func RegisterSchema() {
-	for _, schema := range registerSchema.tables {
-		schema.table.Prepare()
+func schemaLogSQL(sql string, err error) {
+	if err != nil {
+		golog.Error(sql, ": ", err)
+	} else {
+		golog.Info(sql)
 	}
+}
+
+func registerSchemaPrepare() {
+	registerSchema.Lock()
+	defer registerSchema.Unlock()
+	if registerSchema.tables == nil {
+		return
+	}
+	for _, reg := range registerSchema.tables {
+		err := reg.table.prepare()
+		if err != nil {
+			panic(`Table "` + reg.table.Name + `" schema check failed: ` + err.Error())
+		} else {
+			golog.Debug(`Table "` + reg.table.Name + `" schema check successfully`)
+		}
+	}
+	golog.Info(`Database schema check successfully`)
+}
+
+func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallback, internal bool) error {
+	if !internal {
+		registerSchema.Lock()
+		defer registerSchema.Unlock()
+	}
+	if registerSchema.tables == nil {
+		return errors.New("Table not registered")
+	}
+	reg, ok := registerSchema.tables[tableName]
+	if !ok {
+		return errors.New("Table not registered")
+	}
+	reg.callbacks = append(reg.callbacks, cb)
+	if !reg.isConnector {
+		reg.isConnector = true
+		go connector.OnUpdates(registerSchemaOnUpdate, "csx.api."+tableName, map[string]interface{}{
+			"queueAutoDelete": true,
+			"queueDurable":    false,
+			"queueKeys":       []string{tableName},
+		})
+	}
+	return nil
+}
+
+func registerSchemaOnUpdate(consumer *connector.Consumer) {
+	deliveries := consumer.Deliveries
+	done := consumer.Done
+	log.Debug("HandleUpdates: deliveries channel open")
+	for d := range deliveries {
+		msg := connector.Update{}
+		err := json.Unmarshal(d.Body, &msg)
+		if err != nil {
+			log.Error("HandleUpdates", "Error parse json: ", err)
+			continue
+		}
+		registerSchema.RLock()
+		name := d.RoutingKey
+		reg, ok := registerSchema.tables[name]
+		if ok {
+			for _, cb := range reg.callbacks {
+				cb(reg.table, msg)
+			}
+		}
+		registerSchema.RUnlock()
+		d.Ack(false)
+	}
+	log.Debug("HandleUpdates: deliveries channel closed")
+	done <- nil
 }
 
 // NewSchemaField create SchemaTable definition
@@ -978,7 +1044,11 @@ func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	for index, field := range fieldsInfo {
 		fields[index] = field
 	}
-	return SchemaTable{name, fields, false, nil, "", nil, nil}
+	newSchemaTable := SchemaTable{}
+	newSchemaTable.Name = name
+	newSchemaTable.Fields = fields
+	newSchemaTable.register()
+	return newSchemaTable
 }
 
 // NewSchemaTable create SchemaTable definition from record structure
@@ -1007,13 +1077,17 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field.Name = name
 			field.Type = f.Tag.Get("type")
 			if len(field.Type) == 0 {
-				field.Type = "varchar"
-			}
-			if f.Type.Kind() == reflect.Ptr {
-				field.isNull = true
+				field.Type = f.Type.Name()
+				if len(field.Type) == 0 || field.Type == "string" {
+					field.Type = "varchar"
+				}
 			}
 			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
+			field.Default = f.Tag.Get("def")
+			if f.Type.Kind() == reflect.Ptr {
+				field.IsNull = true
+			}
 			fields = append(fields, field)
 		}
 	}
@@ -1026,9 +1100,39 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			}
 		}
 	}
-	newSchemaTable := SchemaTable{name, fields, false, nil, "", nil, onUpdate}
+	newSchemaTable := SchemaTable{}
+	newSchemaTable.Name = name
+	newSchemaTable.Fields = fields
+	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.register()
 	return newSchemaTable
+}
+
+func (table *SchemaTable) register() {
+	registerSchema.Lock()
+	if registerSchema.tables == nil {
+		registerSchema.tables = make(schemaTableMap)
+	}
+	reg, ok := registerSchema.tables[table.Name]
+	if !ok {
+		reg = &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
+		registerSchema.tables[table.Name] = reg
+	}
+	registerSchema.Unlock()
+}
+
+func (field *SchemaField) sql() string {
+	sql := `"` + field.Name + `" ` + field.Type
+	if field.Length > 0 {
+		sql += "(" + strconv.Itoa(field.Length) + ")"
+	}
+	if !field.IsNull {
+		sql += " NOT NULL"
+	}
+	if len(field.Default) > 0 {
+		sql += " DEFAULT " + field.Default
+	}
+	return sql
 }
 
 func (table *SchemaTable) create() error {
@@ -1038,13 +1142,7 @@ func (table *SchemaTable) create() error {
 		if index > 0 {
 			sql += ", "
 		}
-		sql += `"` + field.Name + `" ` + field.Type
-		if field.Length > 0 {
-			sql += "(" + strconv.Itoa(field.Length) + ")"
-		}
-		if !field.isNull {
-			sql += " NOT NULL"
-		}
+		sql += field.sql()
 		if (field.Key & 1) != 0 {
 			if len(keys) > 0 {
 				keys += ","
@@ -1054,8 +1152,11 @@ func (table *SchemaTable) create() error {
 	}
 	sql += `)`
 	_, err := DB.Exec(sql)
+	schemaLogSQL(sql, err)
 	if err == nil && len(keys) > 0 {
-		_, err = DB.Exec(`ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`)
+		sql := `ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`
+		_, err = DB.Exec(sql)
+		schemaLogSQL(sql, err)
 	}
 	return err
 }
@@ -1070,14 +1171,9 @@ func (table *SchemaTable) alter(cols []string) error {
 	var err error
 	for _, field := range table.Fields {
 		if !field.checked {
-			sql := `ALTER TABLE "` + table.Name + `" ADD COLUMN "` + field.Name + `" ` + field.Type
-			if field.Length > 0 {
-				sql += "(" + strconv.Itoa(field.Length) + ")"
-			}
-			if !field.isNull {
-				sql += " NOT NULL"
-			}
+			sql := `ALTER TABLE "` + table.Name + `" ADD COLUMN ` + field.sql()
 			_, err = DB.Exec(sql)
+			schemaLogSQL(sql, err)
 			if err != nil {
 				break
 			}
@@ -1088,15 +1184,7 @@ func (table *SchemaTable) alter(cols []string) error {
 }
 
 // Prepare check scheme initializing and and create or alter table
-func (table *SchemaTable) Prepare() error {
-	if table.initalized {
-		return table.err
-	}
-	syncSchemaMutex.Lock()
-	defer syncSchemaMutex.Unlock()
-	if table.initalized {
-		return table.err
-	}
+func (table *SchemaTable) prepare() error {
 	table.initalized = true
 	table.sqlFields = []string{}
 	table.sqlSelect = "SELECT "
@@ -1111,7 +1199,8 @@ func (table *SchemaTable) Prepare() error {
 
 	rows, err := DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
 	if err == nil {
-		cols, err := rows.Columns()
+		var cols []string
+		cols, err = rows.Columns()
 		if err == nil {
 			err = table.alter(cols)
 		}
@@ -1122,9 +1211,8 @@ func (table *SchemaTable) Prepare() error {
 			err = table.create()
 		}
 	}
-	table.err = err
 	if err == nil && table.onUpdate != nil {
-		table.OnUpdate(table.onUpdate)
+		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
 	return err
 }
@@ -1137,6 +1225,11 @@ func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
 		}
 	}
 	return -1, nil
+}
+
+// OnUpdate init and set callback on table external update event
+func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
+	registerSchemaSetUpdateCallback(table.Name, cb, false)
 }
 
 // QueryParams execute  sql query with params
@@ -1160,10 +1253,6 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 
 // Query execute  sql query with params
 func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string, args ...interface{}) error {
-	err := table.Prepare()
-	if err != nil {
-		return err
-	}
 	qparams := &QueryParams{
 		Select: fields,
 		From:   &table.Name,
@@ -1180,10 +1269,6 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string
 
 // Select execute select sql string
 func (table *SchemaTable) Select(recs interface{}, where string, args ...interface{}) error {
-	err := table.Prepare()
-	if err != nil {
-		return err
-	}
 	sql := table.sqlSelect
 	if len(where) > 0 {
 		sql += " WHERE " + where
@@ -1193,10 +1278,6 @@ func (table *SchemaTable) Select(recs interface{}, where string, args ...interfa
 
 // Get execute select sql string and return first record
 func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}) error {
-	err := table.Prepare()
-	if err != nil {
-		return err
-	}
 	sql := table.sqlSelect
 	if len(where) > 0 {
 		sql += " WHERE " + where
@@ -1206,10 +1287,6 @@ func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}
 
 // Insert execute insert sql string (not worked)
 func (table *SchemaTable) Insert(data interface{}) error {
-	err := table.Prepare()
-	if err != nil {
-		return err
-	}
 	rec := reflect.ValueOf(data)
 	recType := reflect.TypeOf(data)
 	/*
@@ -1264,72 +1341,8 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	}
 
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
-	_, err = DB.Exec(sql, args...)
+	_, err := DB.Exec(sql, args...)
 	return err
-}
-
-// register save table in registerSchema.tables
-func (table *SchemaTable) register() {
-	registerSchema.mutex.Lock()
-	if registerSchema.tables == nil {
-		registerSchema.tables = make(schemaTableMap)
-	}
-	reg, ok := registerSchema.tables[table.Name]
-	if !ok {
-		reg = &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
-		registerSchema.tables[table.Name] = reg
-	}
-	registerSchema.mutex.Unlock()
-}
-
-// OnUpdate init and set callback on table external update event
-func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
-	registerSchema.mutex.Lock()
-	if registerSchema.tables == nil {
-		registerSchema.tables = make(schemaTableMap)
-	}
-	reg, ok := registerSchema.tables[table.Name]
-	if !ok {
-		reg = &schemaTableReg{table, []schemaTableUpdateCallback{cb}, false}
-		registerSchema.tables[table.Name] = reg
-	} else {
-		reg.callbacks = append(reg.callbacks, cb)
-	}
-	registerSchema.mutex.Unlock()
-	if !reg.isConnector {
-		reg.isConnector = true
-		go connector.OnUpdates(registerSchemaUpdates, "csx.api."+table.Name, map[string]interface{}{
-			"queueAutoDelete": true,
-			"queueDurable":    false,
-			"queueKeys":       []string{table.Name},
-		})
-	}
-}
-
-func registerSchemaUpdates(consumer *connector.Consumer) {
-	deliveries := consumer.Deliveries
-	done := consumer.Done
-	log.Debug("HandleUpdates: deliveries channel open")
-	for d := range deliveries {
-		msg := connector.Update{}
-		err := json.Unmarshal(d.Body, &msg)
-		if err != nil {
-			log.Error("HandleUpdates", "Error parse json: ", err)
-			continue
-		}
-		registerSchema.mutex.RLock()
-		name := d.RoutingKey
-		reg, ok := registerSchema.tables[name]
-		if ok {
-			for _, cb := range reg.callbacks {
-				cb(reg.table, msg)
-			}
-		}
-		registerSchema.mutex.RUnlock()
-		d.Ack(false)
-	}
-	log.Debug("HandleUpdates: deliveries channel closed")
-	done <- nil
 }
 
 //---------------------------------------------------------------------------
