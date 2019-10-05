@@ -345,40 +345,42 @@ func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *stri
 		if !ok {
 			return nil, errors.New("Bucket not found")
 		}
-		for bucket, region := range buckets {
-			if isThumbnail {
-				parts := strings.Split(path, "&")
-				if len(parts) > 1 {
-					b := parts[1]
-					path = parts[0]
-					thBucket = &b
-				}
-				if thBucket != nil {
-					bucket = *thBucket
-					region = S3_BUCKET_THUMBNAILS[*thBucket]
-				} else {
-					bucket = "csx-docs-tn"
-					region = "nl-ams"
-				}
+		imgParts := strings.Split(path, "&")
+		if len(imgParts) > 1 {
+			b := imgParts[1]
+			region, ok := buckets[b]
+			if !ok {
+				return nil, errors.New("Region not found")
 			}
-			s, err := session.NewSession(&aws.Config{
-				Region:      aws.String(region),
-				Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
-				Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-			})
+			var err error
+			imageBody, err = getS3Object(imgParts[0], b, region)
 			if err != nil {
-				log.Error("Error create s3 session", err)
 				return nil, err
 			}
-			res, err := s3.New(s).GetObject(&s3.GetObjectInput{
-				Bucket: aws.String(bucket),
-				Key:    aws.String(path),
-			})
-			if err != nil {
-				log.Error(err)
-			} else {
-				imageBody = res.Body
-				break
+		} else {
+			for bucket, region := range buckets {
+				if isThumbnail {
+					parts := strings.Split(path, "&")
+					if len(parts) > 1 {
+						b := parts[1]
+						path = parts[0]
+						thBucket = &b
+					}
+					if thBucket != nil {
+						bucket = *thBucket
+						region = S3_BUCKET_THUMBNAILS[*thBucket]
+					} else {
+						bucket = "csx-docs-tn"
+						region = "nl-ams"
+					}
+				}
+				img, err := getS3Object(path, bucket, region)
+				if err != nil {
+					log.Error(err)
+				} else {
+					imageBody = img
+					break
+				}
 			}
 		}
 	} else {
@@ -399,24 +401,11 @@ func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *stri
 				regionS3 = "nl-ams"
 			}
 		}
-		s, err := session.NewSession(&aws.Config{
-			Region:      aws.String(regionS3),
-			Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
-			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-		})
+		var err error
+		imageBody, err = getS3Object(path, bucket, regionS3)
 		if err != nil {
-			log.Error("Error create s3 session", err)
 			return nil, err
 		}
-		res, err := s3.New(s).GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(path),
-		})
-		if err != nil {
-			log.Error(err)
-			return nil, err
-		}
-		imageBody = res.Body
 	}
 	if imageBody == nil {
 		return nil, errors.New("empty image body")
@@ -431,4 +420,25 @@ func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *stri
 		return nil, err
 	}
 	return &image, nil
+}
+
+func getS3Object(path, bucket, region string) (io.ReadCloser, error) {
+	s, err := session.NewSession(&aws.Config{
+		Region:      aws.String(region),
+		Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		log.Error("Error create s3 session", err)
+		return nil, err
+	}
+	res, err := s3.New(s).GetObject(&s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(path),
+	})
+	if err != nil {
+		log.Error(err)
+		return nil, err
+	}
+	return res.Body, nil
 }
