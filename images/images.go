@@ -346,7 +346,7 @@ func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *stri
 			return nil, errors.New("Bucket not found")
 		}
 		imgParts := strings.Split(path, "&")
-		if len(imgParts) > 1 {
+		if len(imgParts) > 1 && !isThumbnail {
 			b := imgParts[1]
 			region, ok := buckets[b]
 			if !ok {
