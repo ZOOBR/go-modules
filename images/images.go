@@ -339,41 +339,89 @@ func UploadThumbnail(thumbnail []byte, path string) (*string, error) {
 }
 
 func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *string) (*[]byte, error) {
-	regionS3, ok := regionsMap[bucketName]
-	if !ok {
-		return nil, errors.New("Region not found")
-	}
-	bucket, ok := bucketsMap[bucketName]
-	if !ok {
-		return nil, errors.New("Bucket not found")
-	}
-	if isThumbnail {
-		if thBucket != nil {
-			bucket = *thBucket
-			regionS3 = S3_BUCKET_THUMBNAILS[*thBucket]
-		} else {
-			bucket = "csx-docs-tn"
-			regionS3 = "nl-ams"
+	var imageBody io.ReadCloser
+	if bucketName == "docs" || bucketName == "damages" {
+		buckets, ok := bucketsMultiple[bucketName]
+		if !ok {
+			return nil, errors.New("Bucket not found")
 		}
+		for bucket, region := range buckets {
+			if isThumbnail {
+				parts := strings.Split(path, "&")
+				if len(parts) > 1 {
+					b := parts[1]
+					path = parts[0]
+					thBucket = &b
+				}
+				if thBucket != nil {
+					bucket = *thBucket
+					region = S3_BUCKET_THUMBNAILS[*thBucket]
+				} else {
+					bucket = "csx-docs-tn"
+					region = "nl-ams"
+				}
+			}
+			s, err := session.NewSession(&aws.Config{
+				Region:      aws.String(region),
+				Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+				Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+			})
+			if err != nil {
+				log.Error("Error create s3 session", err)
+				return nil, err
+			}
+			res, err := s3.New(s).GetObject(&s3.GetObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(path),
+			})
+			if err != nil {
+				log.Error(err)
+			} else {
+				imageBody = res.Body
+				break
+			}
+		}
+	} else {
+		regionS3, ok := regionsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Region not found")
+		}
+		bucket, ok := bucketsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+		if isThumbnail {
+			if thBucket != nil {
+				bucket = *thBucket
+				regionS3 = S3_BUCKET_THUMBNAILS[*thBucket]
+			} else {
+				bucket = "csx-docs-tn"
+				regionS3 = "nl-ams"
+			}
+		}
+		s, err := session.NewSession(&aws.Config{
+			Region:      aws.String(regionS3),
+			Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
+			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+		})
+		if err != nil {
+			log.Error("Error create s3 session", err)
+			return nil, err
+		}
+		res, err := s3.New(s).GetObject(&s3.GetObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(path),
+		})
+		if err != nil {
+			log.Error(err)
+			return nil, err
+		}
+		imageBody = res.Body
 	}
-	s, err := session.NewSession(&aws.Config{
-		Region:      aws.String(regionS3),
-		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
-		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-	})
-	if err != nil {
-		log.Error("Error create s3 session", err)
-		return nil, err
+	if imageBody == nil {
+		return nil, errors.New("empty image body")
 	}
-	res, err := s3.New(s).GetObject(&s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(path),
-	})
-	if err != nil {
-		log.Error(err)
-		return nil, err
-	}
-	image, err := ioutil.ReadAll(res.Body)
+	image, err := ioutil.ReadAll(imageBody)
 	if err != nil {
 		log.Error(err)
 		return nil, err
