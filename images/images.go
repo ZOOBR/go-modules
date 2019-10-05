@@ -29,32 +29,54 @@ import (
 )
 
 type uploadedPhoto struct {
-	Path string
-	File string
+	Path            string
+	Bucket          *string
+	ThumbnailBucket *string
+	File            string
 }
 
+var (
+	S3_BUCKET_THUMBNAILS = map[string]string{
+		"csx-docs-tn-051019": "fr-par",
+		"csx-docs-tn":        "nl-ams",
+	}
+	S3_CLIENT_DOCS = map[string]string{
+		"csx-docs041019": "fr-par",
+		"csx-docs":       "nl-ams",
+	}
+	S3_OBJECT_DAMAGES = map[string]string{
+		"csx-photo-damages":        "fr-par",
+		"csx-photo-damages-051019": "fr-par",
+	}
+)
+
 const (
-	S3_BUCKET_THUMBNAILS    = "csx-docs-tn"
 	S3_CLIENT_DOCS_04102019 = "csx-docs041019"
-	S3_CLIENT_DOCS          = "csx-docs"
-	S3_FINES                = "csx-fines"
-	S3_OBJECT_DAMAGES       = "csx-photo-damages"
-	S3_PUBLIC               = "csx-public"
-	S3_SELFIE               = "csx-selfie"
-	S3_REGION               = "nl-ams"
-	S3_API_ACCESS_KEY       = "SCWPT293A2FEE4NJZEW2"
-	S3_API_SECRET_KEY       = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
-	S3_API_TOKEN            = "79bb5344-f2e9-4aa3-9c7a-9ad2f41ef9e5"
+	// S3_CLIENT_DOCS          = "csx-docs"
+	S3_FINES = "csx-fines"
+	// S3_OBJECT_DAMAGES = "csx-photo-damages"
+	S3_PUBLIC         = "csx-public"
+	S3_SELFIE         = "csx-selfie"
+	S3_REGION         = "nl-ams"
+	S3_API_ACCESS_KEY = "SCWPT293A2FEE4NJZEW2"
+	S3_API_SECRET_KEY = "3c90bc78-e7d2-4b7a-a815-d64e3eaf7220"
+	S3_API_TOKEN      = "79bb5344-f2e9-4aa3-9c7a-9ad2f41ef9e5"
 )
 
 var bucketsMap = map[string]string{
-	"docs":          S3_CLIENT_DOCS,
+	// "docs":          S3_CLIENT_DOCS,
 	"docs-04102019": S3_CLIENT_DOCS_04102019,
 	"fines":         S3_FINES,
-	"damages":       S3_OBJECT_DAMAGES,
-	"public":        S3_PUBLIC,
-	"selfie":        S3_SELFIE,
+	// "damages":       S3_OBJECT_DAMAGES,
+	"public": S3_PUBLIC,
+	"selfie": S3_SELFIE,
 }
+
+var bucketsMultiple = map[string]map[string]string{
+	"docs":    S3_CLIENT_DOCS,
+	"damages": S3_OBJECT_DAMAGES,
+}
+
 var regionsMap = map[string]string{
 	"docs":          "nl-ams",
 	"docs-04102019": "fr-par",
@@ -198,31 +220,60 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 	if existPath != nil {
 		path = *existPath
 	}
-
-	regionS3, ok := regionsMap[bucketName]
-	if !ok {
-		return nil, errors.New("Region not found")
-	}
-
-	s, err := session.NewSession(&aws.Config{
-		Region:      aws.String(regionS3),
-		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
-		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-	})
-	if err != nil {
-		log.Error("Error create s3 session", err)
-		return nil, err
-	}
-
-	bucket, ok := bucketsMap[bucketName]
-	if !ok {
-		return nil, errors.New("Bucket not found")
-	}
-	if bucketName == "docs" {
-		bucket, ok = bucketsMap["docs-04102019"]
+	var savedBucketName *string
+	if bucketName == "docs" || bucketName == "damages" {
+		buckets, ok := bucketsMultiple[bucketName]
 		if !ok {
 			return nil, errors.New("Bucket not found")
 		}
+		for bucket, region := range buckets {
+			s, err := session.NewSession(&aws.Config{
+				Region:      aws.String(region),
+				Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+				Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+			})
+			if err != nil {
+				log.Error("Error create s3 session", err)
+				return nil, err
+			}
+
+			_, err = s3.New(s).PutObject(&s3.PutObjectInput{
+				Bucket:             aws.String(bucket),
+				Key:                aws.String(path),
+				ACL:                aws.String("private"),
+				Body:               bytes.NewReader(dec),
+				ContentLength:      aws.Int64(int64(len(dec))),
+				ContentType:        aws.String(http.DetectContentType(dec)),
+				ContentDisposition: aws.String("attachment"),
+			})
+			if err != nil {
+				log.Error("Error upload file to s3", err)
+			} else {
+				savedBucketName = &bucket
+				break
+			}
+		}
+	} else {
+		regionS3, ok := regionsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Region not found")
+		}
+
+		s, err := session.NewSession(&aws.Config{
+			Region:      aws.String(regionS3),
+			Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
+			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+		})
+		if err != nil {
+			log.Error("Error create s3 session", err)
+			return nil, err
+		}
+
+		bucket, ok := bucketsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+
 		_, err = s3.New(s).PutObject(&s3.PutObjectInput{
 			Bucket:             aws.String(bucket),
 			Key:                aws.String(path),
@@ -232,26 +283,15 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 			ContentType:        aws.String(http.DetectContentType(dec)),
 			ContentDisposition: aws.String("attachment"),
 		})
-	}
-	// if err != nil {
-	// 	bucket, ok = bucketsMap["docs"]
-	// 	_, err = s3.New(s).PutObject(&s3.PutObjectInput{
-	// 		Bucket:             aws.String(bucket),
-	// 		Key:                aws.String(path),
-	// 		ACL:                aws.String("private"),
-	// 		Body:               bytes.NewReader(dec),
-	// 		ContentLength:      aws.Int64(int64(len(dec))),
-	// 		ContentType:        aws.String(http.DetectContentType(dec)),
-	// 		ContentDisposition: aws.String("attachment"),
-	// 	})
-	// }
-	if err != nil {
-		log.Error("Error upload file to s3", err)
-		return nil, err
+		if err != nil {
+			log.Error("Error upload file to s3", err)
+			return nil, err
+		}
 	}
 
+	var thBucket *string
 	if bucketName != "fines" {
-		err := UploadThumbnail(thumbnail, path)
+		thBucket, err = UploadThumbnail(thumbnail, path)
 		if err != nil {
 			log.Error("Error upload thumbnail: ", err)
 			return nil, err
@@ -259,39 +299,46 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 	}
 
 	res := uploadedPhoto{
-		Path: path,
-		File: file + ".jpg"}
+		Path:            path,
+		Bucket:          savedBucketName,
+		ThumbnailBucket: thBucket,
+		File:            file + ".jpg"}
 
 	return &res, nil
 }
 
-func UploadThumbnail(thumbnail []byte, path string) error {
-	th, err := session.NewSession(&aws.Config{
-		Region:      aws.String("nl-ams"),
-		Endpoint:    aws.String("https://s3.nl-ams.scw.cloud"),
-		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-	})
-	if err != nil {
-		return err
-	}
-	if len(thumbnail) > 0 {
-		_, err = s3.New(th).PutObject(&s3.PutObjectInput{
-			Bucket:             aws.String(S3_BUCKET_THUMBNAILS),
-			Key:                aws.String(path),
-			ACL:                aws.String("private"),
-			Body:               bytes.NewReader(thumbnail),
-			ContentLength:      aws.Int64(int64(len(thumbnail))),
-			ContentType:        aws.String(http.DetectContentType(thumbnail)),
-			ContentDisposition: aws.String("attachment"),
+func UploadThumbnail(thumbnail []byte, path string) (*string, error) {
+	var err error
+	for bucket, region := range S3_BUCKET_THUMBNAILS {
+		th, err := session.NewSession(&aws.Config{
+			Region:      aws.String(region),
+			Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 		})
 		if err != nil {
-			return err
+			return nil, err
+		}
+		if len(thumbnail) > 0 {
+			_, err = s3.New(th).PutObject(&s3.PutObjectInput{
+				Bucket:             aws.String(bucket),
+				Key:                aws.String(path),
+				ACL:                aws.String("private"),
+				Body:               bytes.NewReader(thumbnail),
+				ContentLength:      aws.Int64(int64(len(thumbnail))),
+				ContentType:        aws.String(http.DetectContentType(thumbnail)),
+				ContentDisposition: aws.String("attachment"),
+			})
+			if err != nil {
+				log.Error("Error upload thumbnail to: ", bucket)
+			} else {
+				return &bucket, nil
+			}
 		}
 	}
-	return nil
+	return nil, err
 }
 
-func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, error) {
+func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *string) (*[]byte, error) {
 	regionS3, ok := regionsMap[bucketName]
 	if !ok {
 		return nil, errors.New("Region not found")
@@ -300,9 +347,14 @@ func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, err
 	if !ok {
 		return nil, errors.New("Bucket not found")
 	}
-	if len(thumbnail) > 0 && thumbnail[0] {
-		bucket = S3_BUCKET_THUMBNAILS
-		regionS3 = "nl-ams"
+	if isThumbnail {
+		if thBucket != nil {
+			bucket = *thBucket
+			regionS3 = S3_BUCKET_THUMBNAILS[*thBucket]
+		} else {
+			bucket = "csx-docs-tn"
+			regionS3 = "nl-ams"
+		}
 	}
 	s, err := session.NewSession(&aws.Config{
 		Region:      aws.String(regionS3),
@@ -317,16 +369,6 @@ func GetImageS3(path string, bucketName string, thumbnail ...bool) (*[]byte, err
 		Bucket: aws.String(bucket),
 		Key:    aws.String(path),
 	})
-	if err != nil && bucketName == "docs" {
-		bucket, ok = bucketsMap["docs-04102019"]
-		if !ok {
-			return nil, errors.New("Bucket not found")
-		}
-		res, err = s3.New(s).GetObject(&s3.GetObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(path),
-		})
-	}
 	if err != nil {
 		log.Error(err)
 		return nil, err
