@@ -59,6 +59,7 @@ type QueryStringParams struct {
 type QueryResult struct {
 	Result []map[string]interface{}
 	Error  error
+	Query  string
 }
 
 type Query struct {
@@ -192,7 +193,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 }
 
 func ExecQuery(q *string) QueryResult {
-	results := QueryResult{}
+	results := QueryResult{Query: *q}
 	rows, err := DB.Queryx(*q)
 	if err != nil {
 		return QueryResult{Error: err}
@@ -219,7 +220,7 @@ func ExecQuery(q *string) QueryResult {
 
 func Find(params *QueryParams) QueryResult {
 	query, err := MakeQuery(params)
-	golog.Info(*query)
+	//golog.Info(*query)
 	if err != nil {
 		return QueryResult{Error: err}
 	}
