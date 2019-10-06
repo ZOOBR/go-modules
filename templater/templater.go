@@ -52,13 +52,9 @@ func prepareTemplate(id string) *msgTemplateReg {
 	if reg != nil {
 		return reg
 	}
-
 	reg = &msgTemplateReg{}
 	reg.id = id
 	reg.templates = make(map[string]*template.Template)
-	if id[0] == '#' {
-		id = id[1:]
-	}
 	var mt MsgTemplate
 	err := msgTemplate.Get(&mt, `id = '`+id+`'`)
 	if err != nil {
@@ -173,11 +169,7 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 func format(id, lang string, data interface{}) (string, string, error) {
 	var text, typ string
 	var err error
-	if len(id) == 0 {
-		text = ""
-	} else if id[0] != '#' {
-		text = id
-	} else {
+	if len(id) > 0 {
 		text, typ, err = prepareTemplate(id).format(lang, data)
 	}
 	return text, typ, err
@@ -209,7 +201,7 @@ func GenTextTemplate(tpl *string, data interface{}) string {
 
 // Init is module initialization
 func Init() {
-	/* test formats
+	//* test formats
 
 	// insert test template
 	// msgTemplate.Insert(MsgTemplate{
@@ -219,20 +211,20 @@ func Init() {
 	// })
 
 	// structure data
-	msg, typ, err := Format("#test", "en", struct{ Name, Gift string }{
+	msg, _, err := Format("#test", "en", struct{ Name, Gift string }{
 		"name", "test",
 	})
 	log.Debug(msg, err)
 
 	// map data
-	msg, typ, err = Format("#test", "en", map[string]interface{}{
+	msg, _, err = Format("#test", "en", map[string]interface{}{
 		"Name": "name2",
 		"Gift": "test2",
 	})
 	log.Debug(msg, err)
 
 	// unamed parameters
-	msg, typ, err = FormatParams("#auth.code.message", "en", 121343)
+	msg, _, err = FormatParams("#auth.code.message", "en", 121343)
 	log.Debug(msg, err)
 
 	//*/

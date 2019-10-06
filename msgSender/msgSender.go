@@ -129,13 +129,21 @@ func SendPush(msg, title string, tokens []string, isTopic ...bool) {
 
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
-	var title, info string
-	text, typ, _ := templater.Format(msg.Msg, msg.Lang, data)
+	var typ, title, info string
+
+	text := msg.Msg
+	if len(text) > 0 && text[0] == '#' {
+		text, typ, _ = templater.Format(text[1:], msg.Lang, data)
+	}
 	if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
 		if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
-			title, _, _ = templater.Format(msg.Title, msg.Lang, data)
+			title = msg.Title
+			if title[0] == '#' {
+				title, _, _ = templater.Format(title[1:], msg.Lang, data)
+			}
 		}
 	}
+
 	if msg.Mode&(MessageModeSMS) != 0 {
 		for _, phone := range msg.Phones {
 			if len(info) > 0 {

@@ -1043,7 +1043,7 @@ func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 }
 
 // NewSchemaTableFields create SchemaTable definition
-func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
+func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) *SchemaTable {
 	fields := make([]*SchemaField, len(fieldsInfo))
 	for index, field := range fieldsInfo {
 		fields[index] = field
@@ -1052,11 +1052,11 @@ func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) SchemaTable {
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
 	newSchemaTable.register()
-	return newSchemaTable
+	return &newSchemaTable
 }
 
 // NewSchemaTable create SchemaTable definition from record structure
-func NewSchemaTable(name string, info interface{}, options map[string]interface{}) SchemaTable {
+func NewSchemaTable(name string, info interface{}, options map[string]interface{}) *SchemaTable {
 	var recType reflect.Type
 	infoType := reflect.TypeOf(info)
 	switch infoType.Kind() {
@@ -1109,7 +1109,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable.Fields = fields
 	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.register()
-	return newSchemaTable
+	return &newSchemaTable
 }
 
 func (table *SchemaTable) register() {
