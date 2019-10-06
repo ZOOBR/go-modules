@@ -219,7 +219,7 @@ func ExecQuery(q *string) QueryResult {
 
 func Find(params *QueryParams) QueryResult {
 	query, err := MakeQuery(params)
-	// golog.Debug(*query)
+	golog.Info(*query)
 	if err != nil {
 		return QueryResult{Error: err}
 	}
