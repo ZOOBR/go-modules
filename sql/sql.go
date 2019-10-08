@@ -1290,7 +1290,27 @@ func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}
 	return DB.Get(rec, sql, args...)
 }
 
-// Insert execute insert sql string (not worked)
+// Count records with where sql string
+func (table *SchemaTable) Count(where string, args ...interface{}) (int, error) {
+	sql := `SELECT COUNT(*) FROM "` + table.Name + `"`
+	if len(where) > 0 {
+		sql += " WHERE " + where
+	}
+	rec := struct{ Count int }{}
+	err := DB.Get(&rec, sql, args...)
+	if err == nil {
+		return rec.Count, err
+	}
+	return -1, err
+}
+
+// Exists test records exists with where sql string
+func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error) {
+	cnt, err := table.Count(where, args...)
+	return cnt > 0, err
+}
+
+// Insert execute insert sql string
 func (table *SchemaTable) Insert(data interface{}) error {
 	rec := reflect.ValueOf(data)
 	recType := reflect.TypeOf(data)
