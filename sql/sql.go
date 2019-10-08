@@ -1313,7 +1313,7 @@ func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error
 // Insert execute insert sql string
 func (table *SchemaTable) Insert(data interface{}) error {
 	rec := reflect.ValueOf(data)
-	recType := reflect.TypeOf(data)
+	recType := rec.Type()
 	/*
 		recCnt := 1
 		switch recType.Kind() {
@@ -1327,8 +1327,8 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	*/
 
 	if recType.Kind() == reflect.Ptr {
-		rec = reflect.ValueOf(data).Elem()
-		recType = reflect.TypeOf(data)
+		rec = reflect.Indirect(rec)
+		recType = rec.Type()
 	}
 	if recType.Kind() != reflect.Struct {
 		return errors.New("element must be struct")
