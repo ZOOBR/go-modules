@@ -970,7 +970,7 @@ func registerSchemaPrepare() {
 	for _, reg := range registerSchema.tables {
 		err := reg.table.prepare()
 		if err != nil {
-			panic(`Table "` + reg.table.Name + `" schema check failed: ` + err.Error())
+			golog.Error(`Table "` + reg.table.Name + `" schema check failed: ` + err.Error())
 		} else {
 			golog.Debug(`Table "` + reg.table.Name + `" schema check successfully`)
 		}
@@ -1197,8 +1197,9 @@ func (table *SchemaTable) prepare() error {
 		if index > 0 {
 			table.sqlSelect += ", "
 		}
-		table.sqlSelect += `"` + field.Name + `" `
-		table.sqlFields = append(table.sqlFields, field.Name)
+		fieldName := `"` + field.Name + `" `
+		table.sqlSelect += fieldName
+		table.sqlFields = append(table.sqlFields, fieldName)
 	}
 	table.sqlSelect += ` FROM "` + table.Name + `"`
 
