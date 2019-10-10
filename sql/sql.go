@@ -1176,7 +1176,7 @@ func (table *SchemaTable) create() error {
 }
 
 func (table *SchemaTable) createIndex(fieldName string) error {
-	sql := `CREATE INDEX "` + table.Name + "_" + fieldName + `_idx" ON "` + table.Name + `" USING btree (` + fieldName + `)`
+	sql := `CREATE INDEX "` + table.Name + "_" + fieldName + `_idx" ON "` + table.Name + `" USING btree ("` + fieldName + `")`
 	_, err := DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	return err
@@ -1199,7 +1199,7 @@ func (table *SchemaTable) alter(cols []string) error {
 				break
 			}
 			if (field.Key & 2) != 0 {
-				err = table.createIndex(field.Name)
+				table.createIndex(field.Name)
 			}
 			field.checked = true
 		}
