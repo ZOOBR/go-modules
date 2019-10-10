@@ -1292,15 +1292,15 @@ func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}
 }
 
 // Count records with where sql string
-func (table *SchemaTable) Count(where string, args ...interface{}) (int, error) {
+func (table *SchemaTable) Count(where string, args ...interface{}) (int64, error) {
 	sql := `SELECT COUNT(*) FROM "` + table.Name + `"`
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
-	rec := struct{ Count int }{}
+	rec := struct{ count int64 }{}
 	err := DB.Get(&rec, sql, args...)
 	if err == nil {
-		return rec.Count, err
+		return rec.count, err
 	}
 	return -1, err
 }
@@ -1369,6 +1369,19 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
 	_, err := DB.Exec(sql, args...)
 	return err
+}
+
+// Delete records with where sql string
+func (table *SchemaTable) Delete(where string, args ...interface{}) (int64, error) {
+	sql := `DELETE FROM "` + table.Name + `"`
+	if len(where) > 0 {
+		sql += " WHERE " + where
+	}
+	ret, err := DB.Exec(sql, args...)
+	if err == nil {
+		return ret.RowsAffected()
+	}
+	return -1, err
 }
 
 //---------------------------------------------------------------------------
