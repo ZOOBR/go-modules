@@ -1142,6 +1142,7 @@ func (field *SchemaField) sql() string {
 
 func (table *SchemaTable) create() error {
 	var keys string
+	skeys := []string{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
 	for index, field := range table.Fields {
 		if index > 0 {
@@ -1154,6 +1155,9 @@ func (table *SchemaTable) create() error {
 			}
 			keys += field.Name
 		}
+		if (field.Key & 2) != 0 {
+			skeys = append(skeys, field.Name)
+		}
 	}
 	sql += `)`
 	_, err := DB.Exec(sql)
@@ -1163,6 +1167,18 @@ func (table *SchemaTable) create() error {
 		_, err = DB.Exec(sql)
 		schemaLogSQL(sql, err)
 	}
+	if err == nil && len(skeys) > 0 {
+		for _, fieldName := range skeys {
+			table.createIndex(fieldName)
+		}
+	}
+	return err
+}
+
+func (table *SchemaTable) createIndex(fieldName string) error {
+	sql := `CREATE INDEX "` + table.Name + "_" + fieldName + `_idx" ON "` + table.Name + `" USING btree (` + fieldName + `)`
+	_, err := DB.Exec(sql)
+	schemaLogSQL(sql, err)
 	return err
 }
 
@@ -1181,6 +1197,9 @@ func (table *SchemaTable) alter(cols []string) error {
 			schemaLogSQL(sql, err)
 			if err != nil {
 				break
+			}
+			if (field.Key & 2) != 0 {
+				err = table.createIndex(field.Name)
 			}
 			field.checked = true
 		}
