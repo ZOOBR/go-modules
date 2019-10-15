@@ -206,6 +206,7 @@ func ExecQuery(q *string) QueryResult {
 	if err != nil {
 		return QueryResult{Error: err}
 	}
+	defer rows.Close()
 	for rows.Next() {
 		row := make(map[string]interface{})
 		err = rows.MapScan(row)
@@ -917,6 +918,11 @@ func Init() {
 			connected = true
 		}
 	}
+
+	//db.DB.SetMaxIdleConns(10)  // The default is defaultMaxIdleConns (= 2)
+	//db.DB.SetMaxOpenConns(100)  // The default is 0 (unlimited)
+	//db.DB.SetConnMaxLifetime(3600 * time.Second)  // The default is 0 (connections reused forever)
+
 	golog.Info("success connect to database:", envURI)
 	DB = db
 	Q, err = NewQuery(false)
@@ -1232,6 +1238,7 @@ func (table *SchemaTable) prepare() error {
 
 	rows, err := DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
 	if err == nil {
+		defer rows.Close()
 		var cols []string
 		cols, err = rows.Columns()
 		if err == nil {
