@@ -119,7 +119,11 @@ func prepareTemplate(id string) *msgTemplateReg {
 // correctDataForExec convert struct to map, needed for zero on not found
 func correctDataForExec(data interface{}) interface{} {
 	rec := reflect.ValueOf(data)
+	if !rec.IsValid() {
+		return data
+	}
 	recType := reflect.TypeOf(data)
+
 	if recType.Kind() == reflect.Ptr {
 		rec = reflect.ValueOf(data).Elem()
 		recType = reflect.TypeOf(data)
