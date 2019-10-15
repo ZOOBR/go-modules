@@ -83,6 +83,14 @@ func (this *Query) Rollback() (err error) {
 	return this.tx.Rollback()
 }
 
+func (this *Query) ExecWithArg(arg interface{}, query string) (err error) {
+	return this.tx.Get(arg, query)
+}
+
+func (this *Query) Exec(query string) (res sql.Result, err error) {
+	return this.tx.Exec(query)
+}
+
 var (
 	baseQuery    = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Group}} {{.Order}}`
 	baseTemplate = template.Must(template.New("").Parse(baseQuery))
