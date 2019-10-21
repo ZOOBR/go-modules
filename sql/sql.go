@@ -443,7 +443,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	if len(isUpdate) > 0 && isUpdate[0] {
 		//fmt.Fprintln(os.Stdout, diff)
 		if len(prepFields) == 0 {
-			return errors.New("no fields to update")
+			return nil //errors.New("no fields to update")
 		} else if len(prepFields) == 1 {
 			prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
 		} else {
