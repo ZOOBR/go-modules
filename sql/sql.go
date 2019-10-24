@@ -60,6 +60,7 @@ type QueryResult struct {
 	Result []map[string]interface{}
 	Error  error
 	Query  string
+	Xlsx   []byte
 }
 
 type Query struct {
@@ -200,13 +201,16 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	return &query, nil
 }
 
-func ExecQuery(q *string) QueryResult {
+func ExecQuery(q *string, cb ...func(rows *sqlx.Rows)) QueryResult {
 	results := QueryResult{Query: *q}
 	rows, err := DB.Queryx(*q)
 	if err != nil {
 		return QueryResult{Error: err}
 	}
 	defer rows.Close()
+	if len(cb) > 0 {
+		cb[0](rows)
+	}
 	for rows.Next() {
 		row := make(map[string]interface{})
 		err = rows.MapScan(row)
