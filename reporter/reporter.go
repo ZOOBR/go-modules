@@ -1,14 +1,15 @@
 package reporter
 
 import (
-	"database/sql"
+	"bytes"
 	"fmt"
 	"time"
 
+	"github.com/jmoiron/sqlx"
 	"github.com/tealeg/xlsx"
 )
 
-func GenerateXLSXFromRows(rows *sql.Rows, outf string) error {
+func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
 
 	var err error
 
@@ -74,10 +75,13 @@ func GenerateXLSXFromRows(rows *sql.Rows, outf string) error {
 	}
 
 	// Save the excel file to the provided output file
-	err = xfile.Save(outf)
+	// err = xfile.Save(outf)
+	// if err != nil {
+	// 	return fmt.Errorf("error writing to output file %s, %s\n", outf, err)
+	// }
+	err = xfile.Write(buf)
 	if err != nil {
-		return fmt.Errorf("error writing to output file %s, %s\n", outf, err)
+		return err
 	}
-
 	return nil
 }
