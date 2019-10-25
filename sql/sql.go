@@ -953,7 +953,7 @@ type SchemaTable struct {
 	Fields     []*SchemaField
 	initalized bool
 	sqlSelect  string
-	sqlFields  []string
+	SQLFields  []string
 	onUpdate   schemaTableUpdateCallback
 }
 
@@ -1228,7 +1228,7 @@ func (table *SchemaTable) alter(cols []string) error {
 // Prepare check scheme initializing and and create or alter table
 func (table *SchemaTable) prepare() error {
 	table.initalized = true
-	table.sqlFields = []string{}
+	table.SQLFields = []string{}
 	table.sqlSelect = "SELECT "
 	for index, field := range table.Fields {
 		if index > 0 {
@@ -1236,7 +1236,7 @@ func (table *SchemaTable) prepare() error {
 		}
 		fieldName := `"` + field.Name + `" `
 		table.sqlSelect += fieldName
-		table.sqlFields = append(table.sqlFields, fieldName)
+		table.SQLFields = append(table.SQLFields, fieldName)
 	}
 	table.sqlSelect += ` FROM "` + table.Name + `"`
 
@@ -1289,7 +1289,7 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	if len(params) > 2 {
 		fields = &params[2]
 	} else {
-		fields = &table.sqlFields
+		fields = &table.SQLFields
 	}
 
 	return table.Query(recs, fields, where, order)
