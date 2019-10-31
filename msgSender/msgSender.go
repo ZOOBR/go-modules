@@ -21,14 +21,15 @@ const (
 
 // Message is a common simple message struct
 type Message struct {
-	Mode   int      `json:"mode"`
-	Msg    string   `json:"msg"`
-	Title  string   `json:"title"`
-	Lang   string   `json:"lang"`
-	Phones []string `json:"phones"`
-	Tokens []string `json:"tokens"`
-	Addrs  []string `json:"addrs"`
-	Sender string   `json:"sender"`
+	Mode    int         `json:"mode"`
+	Msg     string      `json:"msg"`
+	Title   string      `json:"title"`
+	Lang    string      `json:"lang"`
+	Phones  []string    `json:"phones"`
+	Tokens  []string    `json:"tokens"`
+	Addrs   []string    `json:"addrs"`
+	Sender  string      `json:"sender"`
+	Payload interface{} `json:"payload"`
 }
 
 // SMS is a basic SMS struct
@@ -51,10 +52,11 @@ type Mail struct {
 
 // Push is a basic push struct
 type Push struct {
-	Msg     string   `json:"msg"`
-	Title   string   `json:"title"`
-	Tokens  []string `json:"tokens"`
-	IsTopic bool     `json:"isTopic"`
+	Msg     string      `json:"msg"`
+	Data    interface{} `json:"data"`
+	Title   string      `json:"title"`
+	Tokens  []string    `json:"tokens"`
+	IsTopic bool        `json:"isTopic"`
 }
 
 // SendEmail is using for sending email messages
@@ -112,12 +114,11 @@ func SendSMS(phone, msg string, msgId ...string) {
 // title - message title
 // tokens - recipient tokens, array of deviceToken
 // isTopic - is topic message
-func SendPush(msg, title string, tokens []string, isTopic ...bool) {
+func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool) {
 	log.Info("[msgSender-SendPush] ", "Try send push to: ", tokens)
-	newPush := Push{Msg: msg, Title: title, Tokens: tokens}
-	if len(isTopic) > 0 {
-		newPush.IsTopic = isTopic[0]
-	}
+	newPush := Push{Msg: msg, Title: title, Tokens: tokens, Data: data}
+	newPush.IsTopic = isTopic
+
 	m, err := json.Marshal(newPush)
 	if err != nil {
 		log.Error("[msgSender-SendPush] ", "Error create push: ", err)
@@ -158,7 +159,7 @@ func (msg *Message) Send(data interface{}) {
 			info += ","
 		}
 		info += strings.Join(msg.Tokens[:], ",")
-		SendPush(text, title, msg.Tokens)
+		SendPush(text, title, msg.Tokens, msg.Payload, false)
 	}
 	if msg.Mode&(MessageModeMail) != 0 {
 		var contentType string
@@ -181,7 +182,7 @@ func (msg *Message) Send(data interface{}) {
 // NewMessage create new message structure
 func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
-	return &Message{mode, msg, title, lang, phones, tokens, mails, ""}
+	return &Message{mode, msg, title, lang, phones, tokens, mails, "", nil}
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
@@ -195,8 +196,10 @@ func SendMessageSMS(lang, msg, title, phone string, data interface{}) {
 }
 
 // SendMessagePush format and send universal message by phone push
-func SendMessagePush(lang, msg, title, token string, data interface{}) {
-	NewMessage(lang, msg, title, nil, []string{token}, nil).Send(data)
+func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}) {
+	message := NewMessage(lang, msg, title, nil, []string{token}, nil)
+	message.Payload = payload
+	message.Send(data)
 }
 
 // SendMessageMail format and send universal message by e-mail
