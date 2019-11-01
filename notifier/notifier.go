@@ -71,25 +71,45 @@ func LoadOpenNotifications() error {
 		if n.Count >= n.RepeatCount {
 			continue
 		}
-		newTimerNotify := timers.SetInterval(func() {
-			client, err := models.GetClient(&n.Recipient)
-			if err != nil {
-				return
-			}
-			phones, tokens, mails := []string{}, []string{}, []string{}
-			if client.Phone != nil {
-				phones = append(phones, *client.Phone)
-			}
-			if client.DeviceToken != nil {
-				tokens = append(tokens, *client.DeviceToken)
-			}
-			if client.Email != nil {
-				mails = append(mails, *client.Email)
-			}
-			newMessage := sender.NewMessage(n.Lang, n.RepeatTemplate, "", phones, tokens, mails)
-			newMessage.Send(n.Data)
-		}, int(n.RepeatTime), false)
-		clientNotifications.Store(n.Recipient, newTimerNotify)
+		client, err := models.GetClient(&n.Recipient)
+		if err != nil {
+			logrus.Error("load open notifications, error get client: ", err)
+			continue
+		}
+		phones, tokens, mails := []string{}, []string{}, []string{}
+		if client.Phone != nil {
+			phones = append(phones, *client.Phone)
+		}
+		if client.DeviceToken != nil {
+			tokens = append(tokens, *client.DeviceToken)
+		}
+		if client.Email != nil {
+			mails = append(mails, *client.Email)
+		}
+		notificationInfo := models.Notification{
+			Id:             n.NotificationID,
+			TriggerInit:    n.TriggerInit,
+			TriggerClose:   n.TriggerClose,
+			Mask:           n.Mask,
+			Firm:           n.Firm,
+			Template:       n.Template,
+			TitleTemplate:  n.TitleTemplate,
+			RepeatTemplate: n.RepeatTemplate,
+			RepeatTime:     uint64(n.RepeatTime),
+			RepeatCount:    uint64(n.RepeatCount),
+		}
+		if n.Count >= n.RepeatCount {
+			continue
+		}
+		lastEventTimeDiff := float64(n.RepeatTime) - time.Now().UTC().Sub(n.LastUpdate).Seconds()
+		if lastEventTimeDiff > 0 {
+			go func() {
+				time.Sleep(time.Second * time.Duration(lastEventTimeDiff))
+				startNotifyTimer(notificationInfo, n.Id, n.Lang, client.Id, phones, tokens, mails, n.Data)
+			}()
+		} else {
+			startNotifyTimer(notificationInfo, n.Id, n.Lang, client.Id, phones, tokens, mails, n.Data)
+		}
 	}
 	return nil
 }
@@ -108,33 +128,58 @@ func startNotify(n models.Notification, lang string, clientID string, phones, to
 	if n.RepeatCount <= 1 || n.RepeatTime == 0 {
 		return
 	}
-	time.Sleep(time.Second * time.Duration(n.RepeatTime*1000)) //sleep until repeat notification
+	time.Sleep(time.Second * time.Duration(n.RepeatTime)) //sleep until repeat notification
 	isNotificationOpen, err := models.GetOpenNotification(newOpenNotification.Id)
 	if err != nil {
 		logrus.Error("error get open notification: ", err)
 		return
 	}
-	if isNotificationOpen != nil {
+	if isNotificationOpen == nil {
 		return
 	}
-	newTimerNotify := timers.SetInterval(func() {
-		newMessage := sender.NewMessage(lang, n.RepeatTemplate, n.TitleTemplate, phones, tokens, mails)
-		newMessage.Mode = n.Mask
-		newMessage.Send(data)
-	}, int(n.RepeatTime)*1000, false)
-	var clientNotificationsMap *sync.Map
-	clientNotificationsMapInt, ok := clientNotifications.Load(clientID)
-	if !ok {
-		clientNotificationsMap = &sync.Map{}
-	} else {
-		clientNotificationsMap, ok = clientNotificationsMapInt.(*sync.Map)
-		if !ok {
-			logrus.Error("client notification map conversion err")
-			return
-		}
-	}
-	clientNotificationsMap.Store(n.Id, newTimerNotify)
-	clientNotifications.Store(clientID, clientNotificationsMap)
+	startNotifyTimer(n, newOpenNotification.Id, lang, clientID, phones, tokens, mails, data)
+	// newTimerNotify := timers.SetInterval(func() {
+	// 	curNotification, err := models.GetOpenNotification(newOpenNotification.Id)
+	// 	if err != nil {
+	// 		logrus.Error("error get open notification: ", err)
+	// 		return
+	// 	}
+	// 	if curNotification == nil {
+	// 		logrus.Error("open notification not found")
+	// 		return
+	// 	}
+	// 	if curNotification.Count == int(n.RepeatCount) {
+	// 		//stop notificate if count notifications has reached limit
+	// 		go stopNotify(clientID, n.Id)
+	// 		return
+	// 	}
+	// 	newMessage := sender.NewMessage(lang, n.RepeatTemplate, n.TitleTemplate, phones, tokens, mails)
+	// 	newMessage.Mode = n.Mask
+	// 	newMessage.Send(data)
+	// 	curNotification.Count++
+	// 	curNotification.LastUpdate = time.Now().UTC()
+	// 	err = curNotification.Update(&dbc.Q) //update repeat notification count
+	// 	if err != nil {
+	// 		logrus.Error("error update open notification: ", err)
+	// 	}
+	// 	err = logNotify(clientID, n.Id, n.TriggerInit)
+	// 	if err != nil {
+	// 		logrus.Error("error save notification log: ", err)
+	// 	}
+	// }, int(n.RepeatTime)*1000, false)
+	// var clientNotificationsMap *sync.Map
+	// clientNotificationsMapInt, ok := clientNotifications.Load(clientID)
+	// if !ok {
+	// 	clientNotificationsMap = &sync.Map{}
+	// } else {
+	// 	clientNotificationsMap, ok = clientNotificationsMapInt.(*sync.Map)
+	// 	if !ok {
+	// 		logrus.Error("client notification map conversion err")
+	// 		return
+	// 	}
+	// }
+	// clientNotificationsMap.Store(n.Id, newTimerNotify)
+	// clientNotifications.Store(clientID, clientNotificationsMap)
 }
 
 // stopNotify stops repeatable interval notifications for client, remove them from DB and sync.Map
@@ -188,6 +233,51 @@ func closeNotify(clientID, notificationID string) error {
 		}
 	}
 	return nil
+}
+
+func startNotifyTimer(n models.Notification, openNotificationID, lang, clientID string, phones, tokens, mails []string, data interface{}) {
+	newTimerNotify := timers.SetInterval(func() {
+		curNotification, err := models.GetOpenNotification(openNotificationID)
+		if err != nil {
+			logrus.Error("error get open notification: ", err)
+			return
+		}
+		if curNotification == nil {
+			logrus.Error("open notification not found")
+			return
+		}
+		if curNotification.Count == int(n.RepeatCount) {
+			//stop notificate if count notifications has reached limit
+			go stopNotify(clientID, n.Id)
+			return
+		}
+		newMessage := sender.NewMessage(lang, n.RepeatTemplate, n.TitleTemplate, phones, tokens, mails)
+		newMessage.Mode = n.Mask
+		newMessage.Send(data)
+		curNotification.Count++
+		curNotification.LastUpdate = time.Now().UTC()
+		err = curNotification.Update(&dbc.Q) //update repeat notification count
+		if err != nil {
+			logrus.Error("error update open notification: ", err)
+		}
+		err = logNotify(clientID, n.Id, n.TriggerInit)
+		if err != nil {
+			logrus.Error("error save notification log: ", err)
+		}
+	}, int(n.RepeatTime)*1000, false)
+	var clientNotificationsMap *sync.Map
+	clientNotificationsMapInt, ok := clientNotifications.Load(clientID)
+	if !ok {
+		clientNotificationsMap = &sync.Map{}
+	} else {
+		clientNotificationsMap, ok = clientNotificationsMapInt.(*sync.Map)
+		if !ok {
+			logrus.Error("client notification map conversion err")
+			return
+		}
+	}
+	clientNotificationsMap.Store(n.Id, newTimerNotify)
+	clientNotifications.Store(clientID, clientNotificationsMap)
 }
 
 func logNotify(recipient, notification, trigger string) error {
