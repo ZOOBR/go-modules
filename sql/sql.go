@@ -1409,6 +1409,82 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	return err
 }
 
+// Update execute update sql string
+func (table *SchemaTable) Update(oldData, data interface{}, where string) error {
+	diff := make(map[string]interface{})
+	itemID := ""
+	rec := reflect.ValueOf(data)
+	recType := rec.Type()
+	oldRec := reflect.ValueOf(oldData)
+	oldRecType := oldRec.Type()
+
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.Indirect(rec)
+		recType = rec.Type()
+	}
+	if recType.Kind() != reflect.Struct {
+		return errors.New("element must be struct")
+	}
+
+	if oldRecType.Kind() == reflect.Ptr {
+		oldRec = reflect.Indirect(oldRec)
+		oldRecType = oldRec.Type()
+	}
+	if oldRecType.Kind() != reflect.Struct {
+		return errors.New("oldData element must be struct")
+	}
+
+	var args = []interface{}{}
+	var fields, values string
+	cnt := 0
+	fcnt := recType.NumField()
+	for i := 0; i < fcnt; i++ {
+		f := recType.Field(i)
+		name := f.Tag.Get("db")
+		if len(name) == 0 {
+			continue
+		}
+
+		newFld := rec.FieldByName(f.Name)
+		oldFld := oldRec.FieldByName(f.Name)
+
+		if oldFld.IsValid() && newFld.IsValid() && oldFld.Interface() == newFld.Interface() {
+			if name == "id" {
+				itemID = newFld.String()
+			}
+			continue
+		}
+
+		if cnt > 0 {
+			fields += ","
+			values += ","
+		}
+		cnt++
+		fields += `"` + name + `"`
+
+		if newFld.IsValid() {
+			values += "$" + strconv.Itoa(cnt)
+			v := newFld.Interface()
+			diff[name] = v
+			args = append(args, v)
+		} else {
+			values += "NULL"
+		}
+
+	}
+	var sql string
+	if cnt == 1 {
+		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
+	} else {
+		sql = `UPDATE "` + table.Name + `" (` + fields + `) VALUES (` + values + `) WHERE ` + where
+	}
+	_, err := DB.Exec(sql, args...)
+	if err == nil && itemID != "" {
+		go amqp.SendUpdate(amqpURI, table.Name, itemID, "update", diff)
+	}
+	return err
+}
+
 // Delete records with where sql string
 func (table *SchemaTable) Delete(where string, args ...interface{}) (int, error) {
 	sql := `DELETE FROM "` + table.Name + `"`
