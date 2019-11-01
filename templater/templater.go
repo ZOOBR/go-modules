@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -25,6 +26,8 @@ var msgTemplates struct {
 	list  map[string]*msgTemplateReg
 	mutex sync.RWMutex
 }
+
+var defaultLocale = os.Getenv("CLIENT_DEFAULT_LOCALE")
 
 // MsgTemplate structure of record msgTemplate table
 type MsgTemplate struct {
@@ -147,9 +150,12 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	var err error
 	var text, typ string
 	var t *template.Template
-	if len(lang) > 0 {
-		t = reg.templates[lang]
+
+	if lang == "" {
+		lang = defaultLocale
 	}
+
+	t = reg.templates[lang]
 	if t == nil && lang != "en" {
 		t = reg.templates["en"]
 	}
