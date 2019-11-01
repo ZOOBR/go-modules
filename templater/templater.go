@@ -33,7 +33,7 @@ type MsgTemplate struct {
 	Template string `db:"template" json:"template" type:"jsonb"`
 }
 
-var msgTemplate = dbc.NewSchemaTable("msgTemplate", MsgTemplate{}, map[string]interface{}{
+var MsgTemplateSchema = dbc.NewSchemaTable("msgTemplate", MsgTemplate{}, map[string]interface{}{
 	"onUpdate": func(table *dbc.SchemaTable, msg interface{}) {
 		msgTemplates.mutex.Lock()
 		msgTemplates.list = make(map[string]*msgTemplateReg)
@@ -56,7 +56,7 @@ func prepareTemplate(id string) *msgTemplateReg {
 	reg.id = id
 	reg.templates = make(map[string]*template.Template)
 	var mt MsgTemplate
-	err := msgTemplate.Get(&mt, `id = '`+id+`'`)
+	err := MsgTemplateSchema.Get(&mt, `id = '`+id+`'`)
 	if err != nil {
 		if err != sql.ErrNoRows {
 			log.Error("MsgTemplate [prepareTemplate] Error load '"+id+"' ", err)
