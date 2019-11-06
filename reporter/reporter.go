@@ -10,21 +10,12 @@ import (
 )
 
 func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
-
 	var err error
 
 	// Get column names from query result
 	colNames, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("error fetching column names, %s\n", err)
-	}
-	length := len(colNames)
-
-	// Create a interface slice filled with pointers to interface{}'s
-	pointers := make([]interface{}, length)
-	container := make([]interface{}, length)
-	for i := range pointers {
-		pointers[i] = &container[i]
 	}
 
 	// Create output xlsx workbook
@@ -40,9 +31,8 @@ func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
 
 	// Process sql rows
 	for rows.Next() {
-
 		// Scan the sql rows into the interface{} slice
-		err = rows.Scan(pointers...)
+		container, err := rows.SliceScan()
 		if err != nil {
 			return fmt.Errorf("error scanning sql row, %s\n", err)
 		}
@@ -69,16 +59,10 @@ func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
 			default:
 				xcell.SetValue(v)
 			}
-
 		}
-
 	}
 
 	// Save the excel file to the provided output file
-	// err = xfile.Save(outf)
-	// if err != nil {
-	// 	return fmt.Errorf("error writing to output file %s, %s\n", outf, err)
-	// }
 	err = xfile.Write(buf)
 	if err != nil {
 		return err
