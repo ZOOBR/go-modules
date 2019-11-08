@@ -19,6 +19,19 @@ const (
 	MessageModeMail = 4
 )
 
+var (
+	amqpURI          = os.Getenv("AMQP_URI")
+	mailingsExchange = initMailingsExchange()
+)
+
+func initMailingsExchange() string {
+	mExch := os.Getenv("MAILINGS_EXCHANGE")
+	if mExch == "" {
+		mExch = "csx.mailings"
+	}
+	return mExch
+}
+
 // Message is a common simple message struct
 type Message struct {
 	Mode    int         `json:"mode"`
@@ -87,7 +100,7 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 	if err != nil {
 		log.Warn("msgSender-sendEmail error json marshal: ", err)
 	}
-	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "email", string(m), false)
+	amqp.Publish(amqpURI, mailingsExchange, "direct", "email", string(m), false)
 	log.Info("[msgSender-SendEmail] ", "Success sended notification to: ", to)
 }
 
@@ -105,7 +118,7 @@ func SendSMS(phone, msg string, msgId ...string) {
 		log.Error("[msgSender-SendSMS] ", "Error create sms for client: "+phone, err)
 		return
 	}
-	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "sms", string(m), false)
+	amqp.Publish(amqpURI, mailingsExchange, "direct", "sms", string(m), false)
 	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", phone)
 }
 
@@ -124,7 +137,7 @@ func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool
 		log.Error("[msgSender-SendPush] ", "Error create push: ", err)
 		return
 	}
-	amqp.Publish(os.Getenv("AMQP_URI"), "csx.mailings", "direct", "push", string(m), false)
+	amqp.Publish(amqpURI, mailingsExchange, "direct", "push", string(m), false)
 	log.Info("[msgSender-SendPush] ", "Success sended notification to: ", tokens)
 }
 
