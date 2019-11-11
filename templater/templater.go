@@ -45,7 +45,7 @@ var MsgTemplateSchema = dbc.NewSchemaTable("msgTemplate", MsgTemplate{}, map[str
 	},
 })
 
-func prepareTemplate(id string) *msgTemplateReg {
+func prepareTemplate(id string, isTemplate bool) *msgTemplateReg {
 	var reg *msgTemplateReg
 	msgTemplates.mutex.RLock()
 	if msgTemplates.list != nil {
@@ -56,55 +56,58 @@ func prepareTemplate(id string) *msgTemplateReg {
 		return reg
 	}
 	reg = &msgTemplateReg{}
-	reg.id = id
-	reg.templates = make(map[string]*template.Template)
 	var mt MsgTemplate
-	err := MsgTemplateSchema.Get(&mt, `id = '`+id+`'`)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			log.Error("MsgTemplate [prepareTemplate] Error load '"+id+"' ", err)
-		} else {
-			log.Error("MsgTemplate [prepareTemplate] Not found template '" + id + "' ")
+	reg.templates = make(map[string]*template.Template)
+	if isTemplate {
+		reg.id = id
+		err := MsgTemplateSchema.Get(&mt, `id = '`+id+`'`)
+		if err != nil {
+			if err != sql.ErrNoRows {
+				log.Error("MsgTemplate [prepareTemplate] Error load '"+id+"' ", err)
+			} else {
+				log.Error("MsgTemplate [prepareTemplate] Not found template '" + id + "' ")
+			}
 		}
 	} else {
-		var objmap map[string]*json.RawMessage
-		err := json.Unmarshal([]byte(mt.Template), &objmap)
-		if err != nil {
-			log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' json ", err)
-		} else {
-			for key, val := range objmap {
-				buffer := &bytes.Buffer{}
-				encoder := json.NewEncoder(buffer)
-				encoder.SetEscapeHTML(false)
-				err := encoder.Encode(val)
-				if err != nil {
-					log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
-					continue
+		mt = MsgTemplate{Template: id}
+	}
+	var objmap map[string]*json.RawMessage
+	err := json.Unmarshal([]byte(mt.Template), &objmap)
+	if err != nil {
+		log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' json ", err)
+	} else {
+		for key, val := range objmap {
+			buffer := &bytes.Buffer{}
+			encoder := json.NewEncoder(buffer)
+			encoder.SetEscapeHTML(false)
+			err := encoder.Encode(val)
+			if err != nil {
+				log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
+				continue
+			}
+			var str string
+			bytes := buffer.Bytes()
+			lenBytes := len(bytes)
+			if lenBytes > 0 {
+				if bytes[lenBytes-1] == 10 {
+					lenBytes--
 				}
-				var str string
-				bytes := buffer.Bytes()
-				lenBytes := len(bytes)
-				if lenBytes > 0 {
-					if bytes[lenBytes-1] == 10 {
-						lenBytes--
-					}
-					str = string(bytes[0:lenBytes])
-					uqstr, err := strconv.Unquote(str)
-					if err == nil {
-						str = uqstr
-					} else if bytes[0] == 34 && bytes[lenBytes-1] == 34 {
-						str = string(bytes[1 : lenBytes-1])
-					}
+				str = string(bytes[0:lenBytes])
+				uqstr, err := strconv.Unquote(str)
+				if err == nil {
+					str = uqstr
+				} else if bytes[0] == 34 && bytes[lenBytes-1] == 34 {
+					str = string(bytes[1 : lenBytes-1])
 				}
-				if key == "type" {
-					reg.typ = str
+			}
+			if key == "type" {
+				reg.typ = str
+			} else {
+				t, err := template.New(mt.ID).Option("missingkey=zero").Parse(str)
+				if err == nil {
+					reg.templates[key] = t
 				} else {
-					t, err := template.New(mt.ID).Option("missingkey=zero").Parse(str)
-					if err == nil {
-						reg.templates[key] = t
-					} else {
-						log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
-					}
+					log.Error("MsgTemplate [prepareTemplate] Error parse '"+id+"' '"+key+"' ", err)
 				}
 			}
 		}
@@ -114,7 +117,9 @@ func prepareTemplate(id string) *msgTemplateReg {
 	if msgTemplates.list == nil {
 		msgTemplates.list = make(map[string]*msgTemplateReg)
 	}
-	msgTemplates.list[id] = reg
+	if isTemplate {
+		msgTemplates.list[id] = reg
+	}
 	msgTemplates.mutex.Unlock()
 	return reg
 }
@@ -176,19 +181,29 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	return text, typ, err
 }
 
-func format(id, lang string, data interface{}) (string, string, error) {
+func format(id, lang string, isTemplate bool, data interface{}) (string, string, error) {
 	var text, typ string
 	var err error
 	if len(id) > 0 {
-		text, typ, err = prepareTemplate(id).format(lang, data)
+		text, typ, err = prepareTemplate(id, isTemplate).format(lang, data)
 	}
 	return text, typ, err
 }
 
 // Format message by template id with map or struct data
 // Template string: "Hello <b>{{.Name}}</b> {{.Caption}}"
-func Format(id, lang string, data interface{}) (string, string, error) {
-	return format(id, lang, data)
+func Format(id, lang string, data interface{}, options ...map[string]interface{}) (string, string, error) {
+	isTemplate := true
+	if len(options) > 0 {
+		if tmplOption, ok := options[0]["isTemplate"]; ok {
+			if tmpl, ok := tmplOption.(bool); ok {
+				isTemplate = tmpl
+			} else {
+				log.Error("Error format isTemplate: " + id)
+			}
+		}
+	}
+	return format(id, lang, isTemplate, data)
 }
 
 // FormatParams message by template id with unnamed parameters
@@ -198,14 +213,14 @@ func FormatParams(id, lang string, params ...interface{}) (string, string, error
 	for index, param := range params {
 		data["p"+strconv.Itoa(index)] = param
 	}
-	return format(id, lang, data)
+	return format(id, lang, true, data)
 }
 
 // GenTextTemplate generate message from template string
 func GenTextTemplate(tpl *string, data interface{}) string {
 	var gen bytes.Buffer
 	t := template.Must(template.New("").Parse(*tpl))
-	t.Execute(&gen, data)
+	t.Execute(&gen, correctDataForExec(data))
 	return gen.String()
 }
 

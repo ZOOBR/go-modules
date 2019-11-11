@@ -147,14 +147,20 @@ func (msg *Message) Send(data interface{}) {
 
 	text := msg.Msg
 	if len(text) > 0 && text[0] == '#' {
-		text, typ, _ = templater.Format(text[1:], msg.Lang, data)
+		text = text[1:]
 	}
+	text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
+		"isTemplate": false,
+	})
 	if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
 		if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
 			title = msg.Title
 			if title[0] == '#' {
-				title, _, _ = templater.Format(title[1:], msg.Lang, data)
+				title = title[1:]
 			}
+			title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
+				"isTemplate": false,
+			})
 		}
 	}
 

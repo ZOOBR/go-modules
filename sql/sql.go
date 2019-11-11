@@ -712,7 +712,8 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 		case time.Time:
 			resultMap[tag] = val.Format(time.RFC3339)
 		default:
-			continue
+			valJSON, _ := json.Marshal(val)
+			resultMap[tag] = string(valJSON)
 		}
 		prepFields = append(prepFields, `"`+tag+`"`)
 		prepValues = append(prepValues, ":"+tag)
@@ -1306,6 +1307,7 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string
 
 	query, err := MakeQuery(qparams)
 	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
+		fmt.Println(err)
 		return err
 	}
 	return nil
