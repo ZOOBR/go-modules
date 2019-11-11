@@ -69,3 +69,48 @@ func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
 	}
 	return nil
 }
+
+// GenerateXLSXFromTable creates XLSX file from two-dimensional array
+// zero row of array (`table[0]`) contains column headings,
+// the remaining rows contains data
+func GenerateXLSXFromTable(table *[][]interface{}, buf *bytes.Buffer) error {
+	var err error
+
+	// Create output xlsx workbook
+	xfile := xlsx.NewFile()
+	xsheet, err := xfile.AddSheet("Sheet1")
+	if err != nil {
+		return fmt.Errorf("error adding sheet to xlsx file, %s\n", err)
+	}
+
+	for _, r := range *table {
+		xrow := xsheet.AddRow()
+		for _, c := range r {
+			xcell := xrow.AddCell()
+			switch v := c.(type) {
+			case string:
+				xcell.SetString(v)
+			case []byte:
+				xcell.SetString(string(v))
+			case int64:
+				xcell.SetInt64(v)
+			case float64:
+				xcell.SetFloat(v)
+			case bool:
+				xcell.SetBool(v)
+			case time.Time:
+				xcell.SetDateTime(v)
+			default:
+				xcell.SetValue(v)
+			}
+		}
+	}
+
+	// Save the excel file to the provided output file
+	err = xfile.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
