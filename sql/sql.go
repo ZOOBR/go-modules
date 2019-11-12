@@ -791,26 +791,35 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	r := strings.NewReplacer("create ", "", "insert ", "", " set ", "", "drop ", "", "alter ", "", "update ", "", "delete ", "", "CREATE ", "", "INSERT ", "", " SET ", "", "DROP ", "", "ALTER ", "", "UPDATE ", "", "DELETE ", "")
 	limit := req["limit"]
 	offset := req["offset"]
+	isCount := req["count"] == "1"
 	if limit == "" {
 		limit = "1000"
 	}
 	if offset == "" {
 		offset = "0"
 	}
-	newQ := ""
-	fields, okF := req["fields"]
-	join, okJ := req["join"]
-	table, okT := req["table"]
-	if okF && okT {
-		newQ += `SELECT ` + fields + ` FROM "` + table + `" `
-	} else if okF && okJ {
-		newQ += `SELECT ` + fields + ` FROM ` + join + ` `
+	newQ := `SELECT `
+	if isCount {
+		newQ += `COUNT(*) `
+	} else {
+		fields := req["fields"]
+		if fields == "" {
+			fields = "*"
+		}
+		newQ += fields
 	}
+	if join, ok := req["join"]; ok {
+		newQ += ` FROM ` + join + ` `
+	} else if table, ok := req["table"]; ok {
+		newQ += ` FROM "` + table + `" `
+	} else {
+		newQ += ` FROM ? `
+	}
+
 	where := ""
 	if len(extConditions) > 0 {
 		where += extConditions[0]
 	}
-	q := "LIMIT " + limit + " OFFSET " + offset
 	if filtered, ok := req["filter"]; ok {
 		filters := strings.Split(filtered, "$")
 		for _, kv := range filters {
@@ -884,7 +893,7 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 		groupby += "GROUP BY " + val
 	}
 	orderby := ""
-	if val, ok := req["sort"]; ok && val != "" {
+	if val, ok := req["sort"]; ok && val != "" && !isCount {
 		sortParams := strings.Split(val, "-")
 		orderby += "ORDER BY "
 		if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
@@ -899,7 +908,11 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			orderby += ` NULLS ` + v
 		}
 	}
-	fullReq := r.Replace(newQ + " " + where + " " + groupby + " " + orderby + " " + q)
+	fullReq := r.Replace(newQ + " " + where + " " + groupby + " " + orderby)
+	if !isCount {
+		fullReq += " LIMIT " + limit + " OFFSET " + offset
+	}
+
 	// fmt.Println(fullReq)
 	return fullReq
 }
