@@ -791,6 +791,8 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	r := strings.NewReplacer("create ", "", "insert ", "", " set ", "", "drop ", "", "alter ", "", "update ", "", "delete ", "", "CREATE ", "", "INSERT ", "", " SET ", "", "DROP ", "", "ALTER ", "", "UPDATE ", "", "DELETE ", "")
 	limit := req["limit"]
 	offset := req["offset"]
+	join := req["join"]
+	table := req["table"]
 	isCount := req["count"] == "1"
 	if limit == "" {
 		limit = "1000"
@@ -798,22 +800,24 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	if offset == "" {
 		offset = "0"
 	}
-	newQ := `SELECT `
-	if isCount {
-		newQ += `COUNT(*) `
-	} else {
-		fields := req["fields"]
-		if fields == "" {
-			fields = "*"
+
+	newQ := ""
+	if join != "" || table != "" {
+		newQ = `SELECT `
+		if isCount {
+			newQ += `COUNT(*) `
+		} else {
+			fields := req["fields"]
+			if fields == "" {
+				fields = "*"
+			}
+			newQ += fields
 		}
-		newQ += fields
-	}
-	if join, ok := req["join"]; ok {
-		newQ += ` FROM ` + join + ` `
-	} else if table, ok := req["table"]; ok {
-		newQ += ` FROM "` + table + `" `
-	} else {
-		newQ += ` FROM ? `
+		if join != "" {
+			newQ += ` FROM ` + join + ` `
+		} else {
+			newQ += ` FROM "` + table + `" `
+		}
 	}
 
 	where := ""
