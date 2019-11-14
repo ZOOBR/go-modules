@@ -608,7 +608,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	var prepText string
 
 	if len(prepFields) == 0 {
-		return errors.New("no fields to update")
+		return nil
 	} else if len(prepFields) == 1 {
 		prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
 	} else {
