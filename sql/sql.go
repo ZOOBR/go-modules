@@ -1436,7 +1436,7 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) error {
 			return err
 		}
 	}
-	return table.CheckInsert(data, nil)
+	return table.Insert(data)
 }
 
 // Update execute update sql string
