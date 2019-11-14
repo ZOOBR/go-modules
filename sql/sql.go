@@ -1428,6 +1428,17 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	return err
 }
 
+// CheckInsert execute insert sql string if not exist where expression
+func (table *SchemaTable) CheckInsert(data interface{}, where *string) error {
+	if where != nil {
+		ok, err := table.Exists(*where)
+		if err != nil || ok {
+			return err
+		}
+	}
+	return table.Insert(data)
+}
+
 // Update execute update sql string
 func (table *SchemaTable) Update(oldData, data interface{}, where string) error {
 	diff := make(map[string]interface{})
