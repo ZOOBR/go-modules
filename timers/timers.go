@@ -3,12 +3,12 @@ package timers
 import "time"
 
 // SetTimeout js style
-func SetTimeout(someFunc func(), milliseconds int) {
+func SetTimeout(someFunc func(), milliseconds int) *time.Timer {
 
 	timeout := time.Duration(milliseconds) * time.Millisecond
 
 	// This spawns a goroutine and therefore does not block
-	time.AfterFunc(timeout, someFunc)
+	return time.AfterFunc(timeout, someFunc)
 
 }
 
