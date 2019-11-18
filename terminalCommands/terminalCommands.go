@@ -121,9 +121,6 @@ func (sender *Sender) Run(obj *string, action *CommandAction, timeout ...int) (r
 	b, err := json.Marshal(cmd)
 	if err != nil {
 		log.Error(err)
-	}
-	if err != nil {
-		log.Error(err)
 		response.Result = -1
 	} else {
 		r := bytes.NewReader(b)
