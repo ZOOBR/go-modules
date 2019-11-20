@@ -794,6 +794,9 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	join := req["join"]
 	table := req["table"]
 	isCount := req["count"] == "1"
+	// startDatePagination := req["startDatePagination"]
+	// endDatePagination := req["endDatePagination"]
+	// paginationField := req["paginationField"]
 	if limit == "" {
 		limit = "1000"
 	}
@@ -866,6 +869,8 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 						}
 						tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
 						where += ` AND ` + field + ` <= '` + tmEnd + "'"
+						// startDatePagination = tmBegin
+						// endDatePagination = tmEnd
 					}
 				case "select":
 					where += field + ` = '` + v + "'"
@@ -912,10 +917,18 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			orderby += ` NULLS ` + v
 		}
 	}
+	// paginationQuery := ""
+	// if paginationField != "" {
+	// 	paginationQuery = `"` + paginationField + `" >= '` + startDatePagination + `' AND "` + paginationField + `" < '` + endDatePagination + `'`
+	// }
 	fullReq := r.Replace(newQ + " " + where + " " + groupby + " " + orderby)
 	if !isCount {
 		fullReq += " LIMIT " + limit + " OFFSET " + offset
 	}
+	// if paginationQuery != "" {
+	// 	pagRepl := strings.NewReplacer("{{pagination}}", paginationQuery)
+	// 	fullReq = pagRepl.Replace(fullReq)
+	// }
 
 	// fmt.Println(fullReq)
 	return fullReq
