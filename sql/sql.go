@@ -1519,7 +1519,7 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 	if cnt == 1 {
 		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
 	} else {
-		sql = `UPDATE "` + table.Name + `" (` + fields + `) VALUES (` + values + `) WHERE ` + where
+		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
 	}
 	_, err := DB.Exec(sql, args...)
 	if err == nil && itemID != "" {
