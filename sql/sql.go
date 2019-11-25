@@ -327,15 +327,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 	if len(isUpdate) > 0 && isUpdate[0] {
 		iVal := reflect.ValueOf(structVal).Elem()
-		var oldModel interface{}
-		for i := 0; i < iVal.NumField(); i++ {
-			if iVal.Type().Field(i).Name == "OldModel" {
-				oldModel = iVal.Field(i)
-				break
-			}
-		}
-		if oldModel != nil {
-			iVal := oldModel.(reflect.Value).Elem()
+		oldModel := iVal.FieldByName("OldModel")
+		if oldModel.IsValid() {
+			iVal := oldModel.Elem()
 			if iVal.IsValid() {
 				typ := iVal.Type()
 				for i := 0; i < iVal.NumField(); i++ {
@@ -491,18 +485,12 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	diff := make(map[string]interface{})
 
 	iValOld := reflect.ValueOf(structVal).Elem()
-	var oldModel interface{}
-	for i := 0; i < iValOld.NumField(); i++ {
-		if iValOld.Type().Field(i).Name == "OldModel" {
-			oldModel = iValOld.Field(i)
-			break
-		}
-	}
-	if oldModel != nil {
-		iVal := oldModel.(reflect.Value).Elem()
+	oldModel := iValOld.FieldByName("OldModel")
+	if oldModel.IsValid() {
+		iVal := oldModel.Elem()
 		if iVal.IsValid() {
 			typ := iVal.Type()
-			for i := 0; i < iVal.NumField(); i++ {
+			for i := 0; i < typ.NumField(); i++ {
 				f := iVal.Field(i)
 				if f.Kind() == reflect.Ptr {
 					f = reflect.Indirect(f)
@@ -510,8 +498,9 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 				if !f.IsValid() {
 					continue
 				}
-				tag := typ.Field(i).Tag.Get("db")
-				tagWrite := typ.Field(i).Tag.Get("dbField")
+				ft := typ.Field(i)
+				tag := ft.Tag.Get("db")
+				tagWrite := ft.Tag.Get("dbField")
 				if tagWrite == "-" || tag == "-" ||
 					(tag == "" && tagWrite == "") {
 					continue
@@ -551,8 +540,9 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			f = reflect.Indirect(f)
 			isPointer = true
 		}
-		tag := typ.Field(i).Tag.Get("db")
-		tagWrite := typ.Field(i).Tag.Get("dbField")
+		ft := typ.Field(i)
+		tag := ft.Tag.Get("db")
+		tagWrite := ft.Tag.Get("dbField")
 		if tagWrite == "-" || tag == "-" ||
 			(tag == "" && tagWrite == "") {
 			continue
