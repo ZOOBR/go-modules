@@ -324,8 +324,10 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 	diff := make(map[string]interface{})
+	cntAuto := 0
 
-	if len(isUpdate) > 0 && isUpdate[0] {
+	checkOldModel := len(isUpdate) > 0 && isUpdate[0]
+	if checkOldModel {
 		iVal := reflect.ValueOf(structVal).Elem()
 		oldModel := iVal.FieldByName("OldModel")
 		if oldModel.IsValid() {
@@ -345,7 +347,8 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					if tagWrite == "-" || tag == "-" ||
 						(tag == "" && tagWrite == "") {
 						continue
-					} else if tagWrite != "" {
+					}
+					if tagWrite != "" && tagWrite != "auto" {
 						tag = tagWrite
 					}
 					switch val := f.Interface().(type) {
@@ -389,6 +392,10 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 		if tagWrite == "-" || tag == "-" ||
 			(tag == "" && tagWrite == "") {
 			continue
+		}
+		auto := false
+		if tagWrite == "auto" {
+			auto = true
 		} else if tagWrite != "" {
 			tag = tagWrite
 		}
@@ -425,11 +432,14 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			continue
 		}
 
-		if len(isUpdate) > 0 && isUpdate[0] {
+		if checkOldModel {
 			if oldMap[tag] != resultMap[tag] {
 				prepFields = append(prepFields, `"`+tag+`"`)
 				prepValues = append(prepValues, "'"+updV+"'")
 				diff[tag] = f.Interface()
+				if auto {
+					cntAuto++
+				}
 			}
 		} else {
 			prepFields = append(prepFields, `"`+tag+`"`)
@@ -438,9 +448,9 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	}
 
 	var prepText string
-	if len(isUpdate) > 0 && isUpdate[0] {
+	if checkOldModel {
 		//fmt.Fprintln(os.Stdout, diff)
-		if len(prepFields) == 0 {
+		if len(prepFields) <= cntAuto {
 			return nil //errors.New("no fields to update")
 		} else if len(prepFields) == 1 {
 			prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
@@ -483,6 +493,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 	diff := make(map[string]interface{})
+	cntAuto := 0
 
 	iValOld := reflect.ValueOf(structVal).Elem()
 	oldModel := iValOld.FieldByName("OldModel")
@@ -504,7 +515,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 				if tagWrite == "-" || tag == "-" ||
 					(tag == "" && tagWrite == "") {
 					continue
-				} else if tagWrite != "" {
+				}
+				if tagWrite != "" && tagWrite != "auto" {
 					tag = tagWrite
 				}
 				switch val := f.Interface().(type) {
@@ -546,6 +558,10 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		if tagWrite == "-" || tag == "-" ||
 			(tag == "" && tagWrite == "") {
 			continue
+		}
+		auto := false
+		if tagWrite == "auto" {
+			auto = true
 		} else if tagWrite != "" {
 			tag = tagWrite
 		}
@@ -558,6 +574,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			}
 			continue
 		}
+
 		var updV string
 		switch val := f.Interface().(type) {
 		case bool:
@@ -592,12 +609,14 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			diff[tag] = f.Interface()
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
+			if auto {
+				cntAuto++
+			}
 		}
-
 	}
 	var prepText string
 
-	if len(prepFields) == 0 {
+	if len(prepFields) <= cntAuto {
 		return nil
 	} else if len(prepFields) == 1 {
 		prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
@@ -684,7 +703,8 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 		if tagWrite == "-" || tag == "-" ||
 			(tag == "" && tagWrite == "") {
 			continue
-		} else if tagWrite != "" {
+		}
+		if tagWrite != "" && tagWrite != "auto" {
 			tag = tagWrite
 		}
 		switch val := f.Interface().(type) {
