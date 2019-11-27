@@ -1142,7 +1142,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		for i := 0; i < fcnt; i++ {
 			f := recType.Field(i)
 			name := f.Tag.Get("db")
-			if len(name) == 0 {
+			if len(name) == 0 || name == "-" {
 				continue
 			}
 			field := new(SchemaField)
@@ -1430,7 +1430,7 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
-		if len(name) == 0 {
+		if len(name) == 0 || name == "-" {
 			continue
 		}
 		/*
@@ -1502,7 +1502,7 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
-		if len(name) == 0 {
+		if len(name) == 0 || name == "-" {
 			continue
 		}
 
