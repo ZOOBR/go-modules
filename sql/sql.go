@@ -323,7 +323,6 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
-	diff := make(map[string]interface{})
 	cntAuto := 0
 
 	checkOldModel := len(isUpdate) > 0 && isUpdate[0]
@@ -348,7 +347,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 						(tag == "" && tagWrite == "") {
 						continue
 					}
-					if tagWrite != "" && tagWrite != "auto" {
+					if tagWrite != "" && tagWrite[0] != '-' {
 						tag = tagWrite
 					}
 					switch val := f.Interface().(type) {
@@ -394,10 +393,13 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			continue
 		}
 		auto := false
-		if tagWrite == "auto" {
-			auto = true
-		} else if tagWrite != "" {
-			tag = tagWrite
+		if tagWrite != "" {
+			if tagWrite[0] != '-' {
+				tag = tagWrite
+			} else if tagWrite == "-auto" {
+				auto = true
+			}
+
 		}
 		var updV string
 
@@ -436,7 +438,6 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			if oldMap[tag] != resultMap[tag] {
 				prepFields = append(prepFields, `"`+tag+`"`)
 				prepValues = append(prepValues, "'"+updV+"'")
-				diff[tag] = f.Interface()
 				if auto {
 					cntAuto++
 				}
@@ -449,7 +450,6 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 	var prepText string
 	if checkOldModel {
-		//fmt.Fprintln(os.Stdout, diff)
 		if len(prepFields) <= cntAuto {
 			return nil //errors.New("no fields to update")
 		} else if len(prepFields) == 1 {
@@ -516,7 +516,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 					(tag == "" && tagWrite == "") {
 					continue
 				}
-				if tagWrite != "" && tagWrite != "auto" {
+				if tagWrite != "" && tagWrite[0] != '-' {
 					tag = tagWrite
 				}
 				switch val := f.Interface().(type) {
@@ -560,10 +560,15 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			continue
 		}
 		auto := false
-		if tagWrite == "auto" {
-			auto = true
-		} else if tagWrite != "" {
-			tag = tagWrite
+		log := true
+		if tagWrite != "" {
+			if tagWrite[0] != '-' {
+				tag = tagWrite
+			} else if tagWrite == "-auto" {
+				auto = true
+			} else if tagWrite == "-nolog" {
+				log = false
+			}
 		}
 		if !f.IsValid() {
 			if isPointer && oldMap[tag] != nil {
@@ -606,9 +611,11 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		}
 
 		if oldMap[tag] != resultMap[tag] {
-			diff[tag] = f.Interface()
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
+			if log {
+				diff[tag] = f.Interface()
+			}
 			if auto {
 				cntAuto++
 			}
@@ -704,7 +711,7 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 			(tag == "" && tagWrite == "") {
 			continue
 		}
-		if tagWrite != "" && tagWrite != "auto" {
+		if tagWrite != "" && tagWrite[0] != '-' {
 			tag = tagWrite
 		}
 		switch val := f.Interface().(type) {
@@ -1401,6 +1408,20 @@ func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error
 
 // Insert execute insert sql string
 func (table *SchemaTable) Insert(data interface{}) error {
+	_, err := table.CheckInsert(data, nil)
+	return err
+}
+
+// CheckInsert execute insert sql string if not exist where expression
+func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Result, error) {
+	// if where != nil {
+	// 	ok, err := table.Exists(*where)
+	// 	if err != nil || ok {
+	// 		return err
+	// 	}
+	// }
+	// return table.Insert(data)
+
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 	/*
@@ -1420,7 +1441,7 @@ func (table *SchemaTable) Insert(data interface{}) error {
 		recType = rec.Type()
 	}
 	if recType.Kind() != reflect.Struct {
-		return errors.New("element must be struct")
+		return nil, errors.New("element must be struct")
 	}
 
 	var args = []interface{}{}
@@ -1454,20 +1475,14 @@ func (table *SchemaTable) Insert(data interface{}) error {
 		}
 	}
 
-	sql := `INSERT INTO "` + table.Name + `" (` + fields + `) VALUES (` + values + `)`
-	_, err := DB.Exec(sql, args...)
-	return err
-}
-
-// CheckInsert execute insert sql string if not exist where expression
-func (table *SchemaTable) CheckInsert(data interface{}, where *string) error {
-	if where != nil {
-		ok, err := table.Exists(*where)
-		if err != nil || ok {
-			return err
-		}
+	sql := `INSERT INTO "` + table.Name + `" (` + fields + `)`
+	if where == nil {
+		sql += ` VALUES (` + values + `)`
+	} else {
+		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
-	return table.Insert(data)
+
+	return DB.Exec(sql, args...)
 }
 
 // Update execute update sql string
@@ -1477,7 +1492,7 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 	oldRec := reflect.ValueOf(oldData)
-	oldRecType := oldRec.Type()
+	compareWithOldRec := oldRec.IsValid()
 
 	if recType.Kind() == reflect.Ptr {
 		rec = reflect.Indirect(rec)
@@ -1486,13 +1501,15 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 	if recType.Kind() != reflect.Struct {
 		return errors.New("element must be struct")
 	}
-
-	if oldRecType.Kind() == reflect.Ptr {
-		oldRec = reflect.Indirect(oldRec)
-		oldRecType = oldRec.Type()
-	}
-	if oldRecType.Kind() != reflect.Struct {
-		return errors.New("oldData element must be struct")
+	if compareWithOldRec {
+		oldRecType := oldRec.Type()
+		if oldRecType.Kind() == reflect.Ptr {
+			oldRec = reflect.Indirect(oldRec)
+			oldRecType = oldRec.Type()
+		}
+		if oldRecType.Kind() != reflect.Struct {
+			return errors.New("oldData element must be struct")
+		}
 	}
 
 	var args = []interface{}{}
@@ -1507,13 +1524,14 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 		}
 
 		newFld := rec.FieldByName(f.Name)
-		oldFld := oldRec.FieldByName(f.Name)
-
-		if oldFld.IsValid() && newFld.IsValid() && oldFld.Interface() == newFld.Interface() {
-			if name == "id" {
-				itemID = newFld.String()
+		if compareWithOldRec {
+			oldFld := oldRec.FieldByName(f.Name)
+			if oldFld.IsValid() && newFld.IsValid() && oldFld.Interface() == newFld.Interface() {
+				if name == "id" {
+					itemID = newFld.String()
+				}
+				continue
 			}
-			continue
 		}
 
 		if cnt > 0 {
