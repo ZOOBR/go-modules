@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	amqp "gitlab.com/battler/modules/amqpconnector"
@@ -17,11 +18,15 @@ const (
 	MessageModePush = 2
 	// MessageModeMail is e-mail mode of message
 	MessageModeMail = 4
+	// MessageModeWebPush is web push mode of message
+	MessageModeWebPush = 8
 )
 
 var (
 	amqpURI          = os.Getenv("AMQP_URI")
 	mailingsExchange = initMailingsExchange()
+	publisher        *amqp.Consumer
+	reconTime        = time.Second * 20
 )
 
 func initMailingsExchange() string {
@@ -30,6 +35,30 @@ func initMailingsExchange() string {
 		mExch = "csx.mailings"
 	}
 	return mExch
+}
+
+func initEventsPublisher() {
+	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
+	if amqpURI != "" && amqpTelemetryExchange != "" {
+		var err error
+		for {
+			publisher, err = amqp.NewPublisher(amqpURI, amqpTelemetryExchange, "topic", "csx.events", "csx.events")
+			if err != nil {
+				log.Printf("error init publisher: %s", err)
+				log.Printf("try reconnect to rabbitmq after %s", reconTime)
+				time.Sleep(reconTime)
+				continue
+			}
+
+			log.Printf("running forever")
+			select {
+			case <-publisher.Done:
+				log.Printf("try reconnect to rabbitmq after %s", reconTime)
+				time.Sleep(reconTime)
+				continue
+			}
+		}
+	}
 }
 
 // Message is a common simple message struct
@@ -43,6 +72,7 @@ type Message struct {
 	Addrs   []string    `json:"addrs"`
 	Sender  string      `json:"sender"`
 	Payload interface{} `json:"payload"`
+	Trigger string      `json:"trigger"`
 }
 
 // SMS is a basic SMS struct
@@ -184,6 +214,9 @@ func (msg *Message) Send(data interface{}) {
 		info += strings.Join(msg.Tokens[:], ",")
 		SendPush(text, title, msg.Tokens, msg.Payload, false)
 	}
+	if msg.Mode&(MessageModeWebPush) != 0 {
+		publisher.Publish(msg.Payload.([]byte), msg.Trigger)
+	}
 	if msg.Mode&(MessageModeMail) != 0 {
 		var contentType string
 		if typ == "html" {
@@ -205,7 +238,7 @@ func (msg *Message) Send(data interface{}) {
 // NewMessage create new message structure
 func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
-	return &Message{mode, msg, title, lang, phones, tokens, mails, "", nil}
+	return &Message{mode, msg, title, lang, phones, tokens, mails, "", nil, ""}
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
@@ -228,4 +261,9 @@ func SendMessagePush(lang, msg, title, token string, data interface{}, payload i
 // SendMessageMail format and send universal message by e-mail
 func SendMessageMail(lang, msg, title, addr string, data interface{}) {
 	NewMessage(lang, msg, title, nil, nil, []string{addr}).Send(data)
+}
+
+// Init initializes initEventsPublisher
+func Init() {
+	go initEventsPublisher()
 }
