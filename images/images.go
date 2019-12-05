@@ -45,8 +45,8 @@ var (
 		"csx-docs":       "nl-ams",
 	}
 	S3_OBJECT_DAMAGES = map[string]string{
-		"csx-photo-damages":        "fr-par",
 		"csx-photo-damages-051019": "fr-par",
+		"csx-photo-damages":        "fr-par",
 	}
 )
 
