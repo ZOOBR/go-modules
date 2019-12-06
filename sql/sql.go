@@ -185,7 +185,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	if params.Where != nil {
 		where = " WHERE " + prepareFields(params.Where)
 	}
-	if params.Order != nil {
+	if params.Order != nil && len(*params.Order) > 0 {
 		order = " ORDER BY " + prepareFields(params.Order)
 	}
 	if params.Group != nil {
@@ -1347,6 +1347,10 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	} else {
 		fields = &table.SQLFields
 	}
+	if len(params) > 3 {
+		join := &params[3]
+		return table.QueryJoin(recs, fields, where, order, join)
+	}
 
 	return table.Query(recs, fields, where, order)
 }
@@ -1356,6 +1360,26 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string
 	qparams := &QueryParams{
 		Select: fields,
 		From:   &table.Name,
+		Where:  where,
+		Order:  order,
+	}
+
+	query, err := MakeQuery(qparams)
+	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
+		fmt.Println(err)
+		return err
+	}
+	return nil
+}
+
+// Query execute  sql query with params
+func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join *[]string, args ...interface{}) error {
+	if join == nil || len(*join) == 0 {
+		return errors.New("join arg is empty")
+	}
+	qparams := &QueryParams{
+		Select: fields,
+		From:   &(*join)[0],
 		Where:  where,
 		Order:  order,
 	}
