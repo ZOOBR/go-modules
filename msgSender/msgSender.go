@@ -3,10 +3,12 @@ package msgsender
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gitlab.com/battler/modules/amqpconnector"
 	amqp "gitlab.com/battler/modules/amqpconnector"
 	"gitlab.com/battler/modules/templater"
 )
@@ -215,7 +217,22 @@ func (msg *Message) Send(data interface{}) {
 		SendPush(text, title, msg.Tokens, msg.Payload, false)
 	}
 	if msg.Mode&(MessageModeWebPush) != 0 {
-		publisher.Publish(msg.Payload.([]byte), msg.Trigger)
+		var msgdata []byte
+		switch msg.Payload.(type) {
+		case amqpconnector.Update:
+			update := msg.Payload.(amqpconnector.Update)
+			update.Data = text
+			msgdata, _ = json.Marshal(update)
+			break
+		default:
+			payload := reflect.ValueOf(msg.Payload)
+			if payload.Kind() == reflect.Struct {
+				msgdata, _ = json.Marshal(msg.Payload)
+			} else if payload.IsValid() && !payload.IsNil() {
+				msgdata = msg.Payload.([]byte)
+			}
+		}
+		publisher.Publish(msgdata, msg.Trigger)
 	}
 	if msg.Mode&(MessageModeMail) != 0 {
 		var contentType string
