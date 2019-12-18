@@ -959,8 +959,12 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	return fullReq
 }
 
-//Init open connection to database
+// Init open connection to database
 func Init() {
+	if DB != nil {
+		// Exit on dublicate initialization
+		return
+	}
 	var err error
 	var db *sqlx.DB
 	connected := false
