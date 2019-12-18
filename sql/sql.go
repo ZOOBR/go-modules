@@ -1067,7 +1067,12 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 	reg.callbacks = append(reg.callbacks, cb)
 	if !reg.isConnector {
 		reg.isConnector = true
-		go connector.OnUpdates(registerSchemaOnUpdate, "csx.api."+tableName, map[string]interface{}{
+		queueName := "csx.api." + tableName
+		instName := os.Getenv("INSTANCE_NAME")
+		if instName != "" {
+			queueName += "." + instName
+		}
+		go connector.OnUpdates(registerSchemaOnUpdate, queueName, map[string]interface{}{
 			"queueAutoDelete": true,
 			"queueDurable":    false,
 			"queueKeys":       []string{tableName},
