@@ -25,10 +25,11 @@ const (
 )
 
 var (
-	amqpURI          = os.Getenv("AMQP_URI")
-	mailingsExchange = initMailingsExchange()
-	publisher        *amqp.Consumer
-	reconTime        = time.Second * 20
+	amqpURI               = os.Getenv("AMQP_URI")
+	mailingsExchange      = initMailingsExchange()
+	publisher             *amqp.Consumer
+	notificationPublisher *amqp.Consumer
+	reconTime             = time.Second * 20
 )
 
 func initMailingsExchange() string {
@@ -46,16 +47,38 @@ func initEventsPublisher() {
 		for {
 			publisher, err = amqp.NewPublisher(amqpURI, amqpTelemetryExchange, "topic", "csx.events", "csx.events")
 			if err != nil {
-				log.Printf("error init publisher: %s", err)
-				log.Printf("try reconnect to rabbitmq after %s", reconTime)
+				log.Error("init events publisher err:", err)
+				log.Warn("try reconnect to rabbitmq after:", reconTime)
 				time.Sleep(reconTime)
 				continue
 			}
 
-			log.Printf("running forever")
+			log.Info("events publisher running")
 			select {
 			case <-publisher.Done:
-				log.Printf("try reconnect to rabbitmq after %s", reconTime)
+				log.Warn("try reconnect to rabbitmq after:", reconTime)
+				time.Sleep(reconTime)
+				continue
+			}
+		}
+	}
+}
+
+func initNotificationsPublisher() {
+	if amqpURI != "" && mailingsExchange != "" {
+		var err error
+		for {
+			notificationPublisher, err = amqp.NewPublisher(amqpURI, mailingsExchange, "direct", "", "csx.notifications")
+			if err != nil {
+				log.Error("init notification publisher err:", err)
+				log.Warn("try reconnect to rabbitmq after:", reconTime)
+				time.Sleep(reconTime)
+				continue
+			}
+			log.Info("notification publisher running")
+			select {
+			case <-notificationPublisher.Done:
+				log.Warn("try reconnect to rabbitmq after:", reconTime)
 				time.Sleep(reconTime)
 				continue
 			}
@@ -132,7 +155,7 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 	if err != nil {
 		log.Warn("msgSender-sendEmail error json marshal: ", err)
 	}
-	amqp.Publish(amqpURI, mailingsExchange, "direct", "email", string(m), false)
+	notificationPublisher.Publish(m, "email")
 	log.Info("[msgSender-SendEmail] ", "Success sended notification to: ", to)
 }
 
@@ -150,7 +173,7 @@ func SendSMS(phone, msg string, msgId ...string) {
 		log.Error("[msgSender-SendSMS] ", "Error create sms for client: "+phone, err)
 		return
 	}
-	amqp.Publish(amqpURI, mailingsExchange, "direct", "sms", string(m), false)
+	notificationPublisher.Publish(m, "sms")
 	log.Info("[msgSender-SendSMS] ", "Success sended notification to: ", phone)
 }
 
@@ -169,7 +192,7 @@ func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool
 		log.Error("[msgSender-SendPush] ", "Error create push: ", err)
 		return
 	}
-	amqp.Publish(amqpURI, mailingsExchange, "direct", "push", string(m), false)
+	notificationPublisher.Publish(m, "push")
 	log.Info("[msgSender-SendPush] ", "Success sended notification to: ", tokens)
 }
 
@@ -282,5 +305,6 @@ func SendMessageMail(lang, msg, title, addr string, data interface{}) {
 
 // Init initializes initEventsPublisher
 func Init() {
+	go initNotificationsPublisher()
 	go initEventsPublisher()
 }
