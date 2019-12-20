@@ -3,7 +3,6 @@ package msgsender
 import (
 	"encoding/json"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -217,21 +216,17 @@ func (msg *Message) Send(data interface{}) {
 		SendPush(text, title, msg.Tokens, msg.Payload, false)
 	}
 	if msg.Mode&(MessageModeWebPush) != 0 {
-		var msgdata []byte
+		var event amqpconnector.Update
 		switch msg.Payload.(type) {
 		case amqpconnector.Update:
-			update := msg.Payload.(amqpconnector.Update)
-			update.Data = text
-			msgdata, _ = json.Marshal(update)
+			event = msg.Payload.(amqpconnector.Update)
 			break
 		default:
-			payload := reflect.ValueOf(msg.Payload)
-			if payload.Kind() == reflect.Struct {
-				msgdata, _ = json.Marshal(msg.Payload)
-			} else if payload.IsValid() && !payload.IsNil() {
-				msgdata = msg.Payload.([]byte)
-			}
+			event.Cmd = "notify"
+			event.Data = text
+			event.ExtData = msg.Payload
 		}
+		msgdata, _ := json.Marshal(event)
 		publisher.Publish(msgdata, msg.Trigger)
 	}
 	if msg.Mode&(MessageModeMail) != 0 {
