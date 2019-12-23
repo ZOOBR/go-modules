@@ -244,6 +244,15 @@ func (msg *Message) Send(data interface{}) {
 		case amqpconnector.Update:
 			event = msg.Payload.(amqpconnector.Update)
 			break
+		case map[string]interface{}:
+			payload := msg.Payload.(map[string]interface{})
+			event.Cmd = "notify"
+			event.Data = text
+			event.ExtData = payload
+			if firm, ok := payload["firm"]; ok {
+				event.Groups = []string{firm.(string)}
+			}
+			break
 		default:
 			event.Cmd = "notify"
 			event.Data = text
