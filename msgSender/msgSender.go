@@ -197,31 +197,31 @@ func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool
 
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
-	var typ, title, info string
-
-	text := msg.Msg
-	isTemplate := false
-	if len(text) > 0 && text[0] == '#' {
-		text = text[1:]
-		isTemplate = true
-	}
-	text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
-		"isTemplate": isTemplate,
-	})
-	if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
-		if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
-			title = msg.Title
-			isTemplate := false
-			if title[0] == '#' {
-				title = title[1:]
-				isTemplate = true
+	var text, typ, title, info string
+	if msg.Mode != MessageModeWebPush {
+		text = msg.Msg
+		isTemplate := false
+		if len(text) > 0 && text[0] == '#' {
+			text = text[1:]
+			isTemplate = true
+		}
+		text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
+			"isTemplate": isTemplate,
+		})
+		if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
+			if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
+				title = msg.Title
+				isTemplate := false
+				if title[0] == '#' {
+					title = title[1:]
+					isTemplate = true
+				}
+				title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
+					"isTemplate": isTemplate,
+				})
 			}
-			title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
-				"isTemplate": isTemplate,
-			})
 		}
 	}
-
 	if msg.Mode&(MessageModeSMS) != 0 {
 		for _, phone := range msg.Phones {
 			if len(info) > 0 {
@@ -247,7 +247,6 @@ func (msg *Message) Send(data interface{}) {
 		case map[string]interface{}:
 			payload := msg.Payload.(map[string]interface{})
 			event.Cmd = "notify"
-			event.Data = text
 			event.ExtData = payload
 			if firm, ok := payload["firm"]; ok {
 				event.Groups = []string{firm.(string)}
@@ -255,7 +254,6 @@ func (msg *Message) Send(data interface{}) {
 			break
 		default:
 			event.Cmd = "notify"
-			event.Data = text
 			event.ExtData = msg.Payload
 		}
 		msgdata, _ := json.Marshal(event)
