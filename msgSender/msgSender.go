@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/amqpconnector"
 	amqp "gitlab.com/battler/modules/amqpconnector"
@@ -29,7 +31,45 @@ var (
 	publisher             *amqp.Consumer
 	notificationPublisher *amqp.Consumer
 	reconTime             = time.Second * 20
+
+	// PublisherInitWait - wait initialization of publisher
+	PublisherInitWait = NewInitWait()
 )
+
+// InitWait - wait initialize
+type InitWait struct {
+	sync.Mutex
+	cond        *sync.Cond
+	initialized bool
+	result      error
+}
+
+// NewInitWait - new waiter
+func NewInitWait() *InitWait {
+	wait := InitWait{}
+	wait.cond = sync.NewCond(&wait)
+	return &wait
+}
+
+// Wait wait
+func (wait *InitWait) Wait() error {
+	wait.Lock()
+	if !wait.initialized {
+		wait.cond.Wait()
+	}
+	result := wait.result
+	wait.Unlock()
+	return result
+}
+
+// Process set initialize result and signals waiters
+func (wait *InitWait) Process(result error) {
+	wait.Lock()
+	wait.result = result
+	wait.initialized = true
+	wait.Unlock()
+	wait.cond.Broadcast()
+}
 
 func initMailingsExchange() string {
 	mExch := os.Getenv("MAILINGS_EXCHANGE")
@@ -51,7 +91,7 @@ func initEventsPublisher() {
 				time.Sleep(reconTime)
 				continue
 			}
-
+			PublisherInitWait.Process(err)
 			log.Info("events publisher running")
 			select {
 			case <-publisher.Done:
@@ -251,6 +291,11 @@ func (msg *Message) Send(data interface{}) {
 			if firm, ok := payload["firm"]; ok {
 				event.Groups = []string{firm.(string)}
 			}
+
+			if payload["object"] == "a395a17b-92f4-4124-bf81-7631c852ca34" {
+				logrus.Info("NOTIFY publish: ", payload["event"])
+			}
+
 			break
 		default:
 			event.Cmd = "notify"
