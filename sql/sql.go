@@ -23,7 +23,6 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/prometheus/common/log"
 	amqp "gitlab.com/battler/modules/amqpconnector"
-	connector "gitlab.com/battler/modules/amqpconnector"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
@@ -1076,7 +1075,7 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		if instName != "" {
 			queueName += "." + instName
 		}
-		go connector.OnUpdates(registerSchemaOnUpdate, queueName, map[string]interface{}{
+		go amqp.OnUpdates(registerSchemaOnUpdate, queueName, map[string]interface{}{
 			"queueAutoDelete": true,
 			"queueDurable":    false,
 			"queueKeys":       []string{tableName},
@@ -1085,12 +1084,12 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 	return nil
 }
 
-func registerSchemaOnUpdate(consumer *connector.Consumer) {
+func registerSchemaOnUpdate(consumer *amqp.Consumer) {
 	deliveries := consumer.Deliveries
 	done := consumer.Done
 	log.Debug("HandleUpdates: deliveries channel open")
 	for d := range deliveries {
-		msg := connector.Update{}
+		msg := amqp.Update{}
 		err := json.Unmarshal(d.Body, &msg)
 		if err != nil {
 			log.Error("HandleUpdates", "Error parse json: ", err)
