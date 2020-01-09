@@ -41,7 +41,7 @@ require (
 	github.com/onsi/gomega v1.8.1 // indirect
 	github.com/prometheus/common v0.7.0
 	github.com/ryanuber/columnize v2.1.0+incompatible // indirect
-	github.com/satori/go.uuid@master
+	github.com/satori/go.uuid v1.2.1-0.20181028125025-b2ce2384e17b
 	github.com/sergi/go-diff v1.1.0 // indirect
 	github.com/shurcooL/sanitized_anchor_name v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.4.2
