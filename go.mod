@@ -1,4 +1,4 @@
-module gitlab.com/api/modules
+module gitlab.com/battler/modules
 
 go 1.13
 
