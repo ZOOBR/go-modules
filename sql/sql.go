@@ -870,8 +870,16 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					field = f[0]
 				}
 				switch keyValue[0] {
+				case "similar":
+					where += field + ` SIMILAR TO '%` + v + "%'"
+				case "notsimilar":
+					where += field + ` NOT SIMILAR TO '%` + v + "%'"
 				case "text":
 					where += field + ` ILIKE '%` + v + "%'"
+				case "ilike":
+					where += field + ` ILIKE '%` + v + "%'"
+				case "notilike":
+					where += field + ` NOT ILIKE '%` + v + "%'"
 				case "date":
 					rangeDates := strings.Split(v, "_")
 					beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
@@ -908,6 +916,8 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					where += field + ` IS ` + v
 				case "in":
 					where += field + ` IN (` + v + `)`
+				case "notin":
+					where += field + ` NOT IN(` + v + `)`
 				}
 			}
 		}
