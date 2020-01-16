@@ -1,13 +1,14 @@
 package msgsender
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/amqpconnector"
 	amqp "gitlab.com/battler/modules/amqpconnector"
@@ -23,6 +24,8 @@ const (
 	MessageModeMail = 4
 	// MessageModeWebPush is web push mode of message
 	MessageModeWebPush = 8
+	// MessageModeBot is telegram bot mode of message
+	MessageModeBot = 16
 )
 
 var (
@@ -137,6 +140,8 @@ type Message struct {
 	Sender  string      `json:"sender"`
 	Payload interface{} `json:"payload"`
 	Trigger string      `json:"trigger"`
+	BotID   string      `json:"bot"`
+	ChatID  string      `json:"chat"`
 }
 
 // SMS is a basic SMS struct
@@ -235,6 +240,47 @@ func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool
 	log.Info("[msgSender-SendPush] ", "Success sended notification to: ", tokens)
 }
 
+// SendWeb is using for sending web push messages
+func SendWeb(routingKey string, payload interface{}) {
+	var event amqpconnector.Update
+	switch payload.(type) {
+	case amqpconnector.Update:
+		event = payload.(amqpconnector.Update)
+		break
+	case map[string]interface{}:
+		payload := payload.(map[string]interface{})
+		event.Cmd = "notify"
+		event.ExtData = payload
+		if firm, ok := payload["firm"]; ok {
+			event.Groups = []string{firm.(string)}
+		}
+		break
+	default:
+		event.Cmd = "notify"
+		event.ExtData = payload
+	}
+	msgdata, _ := json.Marshal(event)
+	publisher.Publish(msgdata, routingKey)
+}
+
+// SendBot sending message to telegram chat
+// msg - message body
+// title - message title
+// botID - bot api token
+// chatID - chat identity
+func SendBot(msg, title string, botID, chatID string) {
+	log.Info("[msgSender-SendBot] ", "Try send telegram to: ", chatID)
+	url := "https://api.telegram.org/bot" + botID + "/sendMessage"
+	data := []byte(`{"chat_id":"` + chatID + `","text":"` + msg + `"}`)
+	r := bytes.NewReader(data)
+	_, err := http.Post(url, "application/json", r)
+	if err != nil {
+		log.Error("[msgSender-SendBot] ", "Error send telegram to: ", chatID, " ", err)
+		return
+	}
+	log.Info("[msgSender-SendBot] ", "Success sended telegram to: ", chatID)
+}
+
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
 	var text, typ, title, info string
@@ -262,7 +308,7 @@ func (msg *Message) Send(data interface{}) {
 			}
 		}
 	}
-	if msg.Mode&(MessageModeSMS) != 0 {
+	if (msg.Mode & MessageModeSMS) != 0 {
 		for _, phone := range msg.Phones {
 			if len(info) > 0 {
 				info += ","
@@ -271,40 +317,20 @@ func (msg *Message) Send(data interface{}) {
 			SendSMS(phone, text)
 		}
 	}
-	if msg.Mode&(MessageModePush) != 0 && len(msg.Tokens) > 0 {
+	if (msg.Mode&MessageModePush) != 0 && len(msg.Tokens) > 0 {
 		if len(info) > 0 {
 			info += ","
 		}
 		info += strings.Join(msg.Tokens[:], ",")
 		SendPush(text, title, msg.Tokens, msg.Payload, false)
 	}
-	if msg.Mode&(MessageModeWebPush) != 0 {
-		var event amqpconnector.Update
-		switch msg.Payload.(type) {
-		case amqpconnector.Update:
-			event = msg.Payload.(amqpconnector.Update)
-			break
-		case map[string]interface{}:
-			payload := msg.Payload.(map[string]interface{})
-			event.Cmd = "notify"
-			event.ExtData = payload
-			if firm, ok := payload["firm"]; ok {
-				event.Groups = []string{firm.(string)}
-			}
-
-			if payload["object"] == "a395a17b-92f4-4124-bf81-7631c852ca34" {
-				logrus.Info("NOTIFY publish: ", payload["event"])
-			}
-
-			break
-		default:
-			event.Cmd = "notify"
-			event.ExtData = msg.Payload
-		}
-		msgdata, _ := json.Marshal(event)
-		publisher.Publish(msgdata, msg.Trigger)
+	if (msg.Mode & MessageModeWebPush) != 0 {
+		SendWeb(msg.Trigger, msg.Payload)
 	}
-	if msg.Mode&(MessageModeMail) != 0 {
+	if (msg.Mode & MessageModeBot) != 0 {
+		SendBot(text, title, msg.BotID, msg.ChatID)
+	}
+	if (msg.Mode & MessageModeMail) != 0 {
 		var contentType string
 		if typ == "html" {
 			contentType = "text/html"
@@ -325,7 +351,15 @@ func (msg *Message) Send(data interface{}) {
 // NewMessage create new message structure
 func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
-	return &Message{mode, msg, title, lang, phones, tokens, mails, "", nil, ""}
+	return &Message{
+		Mode:   mode,
+		Msg:    msg,
+		Title:  title,
+		Lang:   lang,
+		Phones: phones,
+		Tokens: tokens,
+		Addrs:  mails,
+	}
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
