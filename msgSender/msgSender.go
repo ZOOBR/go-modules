@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ var (
 	publisher             *amqp.Consumer
 	notificationPublisher *amqp.Consumer
 	reconTime             = time.Second * 20
+	botProxy              = os.Getenv("BOT_HTTP_PROXY")
 
 	// PublisherInitWait - wait initialization of publisher
 	PublisherInitWait = NewInitWait()
@@ -269,16 +271,27 @@ func SendWeb(routingKey string, payload interface{}) {
 // botID - bot api token
 // chatID - chat identity
 func SendBot(msg, title string, botID, chatID string) {
-	log.Info("[msgSender-SendBot] ", "Try send telegram to: ", chatID)
-	url := "https://api.telegram.org/bot" + botID + "/sendMessage"
-	data := []byte(`{"chat_id":"` + chatID + `","text":"` + msg + `"}`)
+	if title != "" {
+		msg = "<b>" + title + "</b>\r\n" + msg
+	}
+	uri := "https://api.telegram.org/bot" + botID + "/sendMessage"
+	data := []byte(`{"chat_id":"` + chatID + `","text":"` + msg + `","parse_mode":"HTML"}`)
 	r := bytes.NewReader(data)
-	_, err := http.Post(url, "application/json", r)
+	client := &http.Client{}
+	if botProxy != "" {
+		proxyURL, err := url.Parse(botProxy)
+		if err == nil {
+			client.Transport = &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+		}
+	}
+	resp, err := client.Post(uri, "application/json", r)
 	if err != nil {
 		log.Error("[msgSender-SendBot] ", "Error send telegram to: ", chatID, " ", err)
 		return
 	}
-	log.Info("[msgSender-SendBot] ", "Success sended telegram to: ", chatID)
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	log.Info("[msgSender-SendBot] ", "Success sended telegram to: ", chatID, result)
 }
 
 // Send format and send universal message by SMS, Push, Mail
@@ -294,7 +307,7 @@ func (msg *Message) Send(data interface{}) {
 		text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
 			"isTemplate": isTemplate,
 		})
-		if len(msg.Title) > 0 && (len(msg.Tokens) > 0 || len(msg.Addrs) > 0) {
+		if len(msg.Title) > 0 && (msg.Mode&(MessageModePush|MessageModeMail|MessageModeBot)) != 0 {
 			if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
 				title = msg.Title
 				isTemplate := false
