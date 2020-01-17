@@ -169,11 +169,7 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	} else {
 		var gen bytes.Buffer
 		err = t.Execute(&gen, correctDataForExec(data))
-		text = gen.String()
-		typ = reg.typ
-		if typ == "html" {
-			text = strings.Replace(text, "<no value>", "[no value]", -1)
-		}
+		text = strings.Replace(gen.String(), "<no value>", "", -1)
 	}
 	if len(text) == 0 {
 		text = "[" + reg.id + "]"

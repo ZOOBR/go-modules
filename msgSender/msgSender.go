@@ -272,10 +272,10 @@ func SendWeb(routingKey string, payload interface{}) {
 // chatID - chat identity
 func SendBot(msg, title string, botID, chatID string) {
 	if title != "" {
-		msg = "<b>" + title + "</b>\r\n" + msg
+		msg = "*" + title + "*\r\n" + msg
 	}
 	uri := "https://api.telegram.org/bot" + botID + "/sendMessage"
-	data := []byte(`{"chat_id":"` + chatID + `","text":"` + msg + `","parse_mode":"HTML"}`)
+	data := []byte(`{"chat_id":"` + chatID + `","text":"` + msg + `","parse_mode":"Markdown"}`)
 	r := bytes.NewReader(data)
 	client := &http.Client{}
 	if botProxy != "" {
@@ -291,7 +291,7 @@ func SendBot(msg, title string, botID, chatID string) {
 	}
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
-	log.Info("[msgSender-SendBot] ", "Success sended telegram to: ", chatID, result)
+	log.Info("[msgSender-SendBot] ", "Sended telegram to: ", chatID, result)
 }
 
 // Send format and send universal message by SMS, Push, Mail
@@ -308,17 +308,15 @@ func (msg *Message) Send(data interface{}) {
 			"isTemplate": isTemplate,
 		})
 		if len(msg.Title) > 0 && (msg.Mode&(MessageModePush|MessageModeMail|MessageModeBot)) != 0 {
-			if msg.Mode&(MessageModePush|MessageModeMail) != 0 {
-				title = msg.Title
-				isTemplate := false
-				if title[0] == '#' {
-					title = title[1:]
-					isTemplate = true
-				}
-				title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
-					"isTemplate": isTemplate,
-				})
+			title = msg.Title
+			isTemplate := false
+			if title[0] == '#' {
+				title = title[1:]
+				isTemplate = true
 			}
+			title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
+				"isTemplate": isTemplate,
+			})
 		}
 	}
 	if (msg.Mode & MessageModeSMS) != 0 {
