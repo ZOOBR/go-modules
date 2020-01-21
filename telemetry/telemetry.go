@@ -165,6 +165,8 @@ type FlatPosition struct {
 	Time float64            `db:"t" json:"t"`
 	P    map[uint16]float64 `db:"p" json:"p"`
 	E    []uint16           `db:"e" json:"e"`
+	Z    []string           `db:"z" json:"z"`
+	K    []int              `db:"k" json:"k"`
 }
 
 func (pos *FlatPosition) Scan(src interface{}) error {
