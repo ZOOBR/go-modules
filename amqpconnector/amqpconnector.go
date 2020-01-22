@@ -62,6 +62,9 @@ func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, o
 		if val, ok := optionsQueue["queueKeys"]; ok {
 			queueKeys = val.([]string)
 		}
+		if val, ok := optionsQueue["consumerTag"]; ok {
+			ctag = val.(string)
+		}
 	}
 
 	var err error
