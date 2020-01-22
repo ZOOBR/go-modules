@@ -1080,16 +1080,24 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 	reg.callbacks = append(reg.callbacks, cb)
 	if !reg.isConnector {
 		reg.isConnector = true
-		queueName := "csx.api." + tableName
+		queueName := "csx.sql." + tableName
 		envName := os.Getenv("CSX_ENV")
+		consumerTag := os.Getenv("SERVICE_NAME")
 		if envName != "" {
 			queueName += "." + envName
 		}
-		go amqp.OnUpdates(registerSchemaOnUpdate, queueName, map[string]interface{}{
+		options := map[string]interface{}{
 			"queueAutoDelete": true,
 			"queueDurable":    false,
 			"queueKeys":       []string{tableName},
-		})
+		}
+		if consumerTag != "" {
+			options["consumerTag"] = consumerTag
+			queueName += "." + consumerTag
+		} else {
+			queueName += "." + *strUtil.NewId()
+		}
+		go amqp.OnUpdates(registerSchemaOnUpdate, queueName, options)
 	}
 	return nil
 }
