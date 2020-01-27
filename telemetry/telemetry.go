@@ -233,6 +233,18 @@ type BinaryData struct {
 	Data []byte
 }
 
+// UTC translate position time to Time UTC
+func (pos *FlatPosition) UTC() time.Time {
+	sec := pos.Time / 1000
+	nsec := (sec - math.Floor(sec)) * 1000000000
+	return time.Unix(int64(sec), int64(nsec)).UTC()
+}
+
+// TimeStr format position time
+func (pos *FlatPosition) TimeStr() string {
+	return time.Unix(int64(pos.Time/1000), 0).Format("2006-01-02 15:04:05")
+}
+
 func TranslatePos(p *FlatPosition) map[string]interface{} {
 	tPos := make(map[string]interface{})
 	for c, v := range p.P {
