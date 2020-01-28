@@ -160,38 +160,19 @@ type BinaryPosition struct {
 	E    []uint16
 }
 
+//ZoneInfo zone information
+type ZoneInfo struct {
+	ID   string
+	Name string
+	Type int
+}
+
 //FlatPosition compact position format
 type FlatPosition struct {
-	Time float64            `db:"t" json:"t"`
-	P    map[uint16]float64 `db:"p" json:"p"`
-	E    []uint16           `db:"e" json:"e"`
-	Z    []string           `db:"z" json:"z"`
-	K    []int              `db:"k" json:"k"`
-}
-
-func (pos *FlatPosition) Scan(src interface{}) error {
-	val, ok := src.([]byte)
-	if !ok {
-		log.Warn("unable scan flat pos:", src)
-		return errors.New("unable scan flat pos")
-	}
-	err := json.Unmarshal(val, &pos)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// UTC translate position time to Time UTC
-func (pos *FlatPosition) UTC() time.Time {
-	sec := pos.Time / 1000
-	nsec := (sec - math.Floor(sec)) * 1000000000
-	return time.Unix(int64(sec), int64(nsec)).UTC()
-}
-
-// TimeStr format position time
-func (pos *FlatPosition) TimeStr() string {
-	return time.Unix(int64(pos.Time/1000), 0).Format("2006-01-02 15:04:05")
+	Time  float64            `db:"t" json:"t"`
+	P     map[uint16]float64 `db:"p" json:"p"`
+	E     []uint16           `db:"e" json:"e"`
+	Zones []ZoneInfo         `db:"z" json:"z"`
 }
 
 //PrettyPosition struct for user friendly
@@ -816,7 +797,34 @@ func NewReader() *BinaryReader {
 	return &reader
 }
 
-func (pos *FlatPosition) CopyTo(newPos *FlatPosition) *FlatPosition {
+// Scan - database field scan json
+func (pos *FlatPosition) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		log.Warn("unable scan flat pos:", src)
+		return errors.New("unable scan flat pos")
+	}
+	err := json.Unmarshal(val, &pos)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// UTC translate position time to Time UTC
+func (pos *FlatPosition) UTC() time.Time {
+	sec := pos.Time / 1000
+	nsec := (sec - math.Floor(sec)) * 1000000000
+	return time.Unix(int64(sec), int64(nsec)).UTC()
+}
+
+// TimeStr format position time
+func (pos *FlatPosition) TimeStr() string {
+	return time.Unix(int64(pos.Time/1000), 0).Format("2006-01-02 15:04:05")
+}
+
+// CopyTo position full or partial
+func (pos *FlatPosition) CopyTo(newPos *FlatPosition, extinfo bool) *FlatPosition {
 	if newPos == nil {
 		newPos = new(FlatPosition)
 	}
@@ -827,9 +835,16 @@ func (pos *FlatPosition) CopyTo(newPos *FlatPosition) *FlatPosition {
 	}
 	newPos.E = make([]uint16, len(pos.E))
 	copy(newPos.E, pos.E)
+	if extinfo {
+		// Copy as constant reference
+		if len(pos.Zones) > 0 {
+			newPos.Zones = pos.Zones
+		}
+	}
 	return newPos
 }
 
-func (pos *FlatPosition) Copy() *FlatPosition {
-	return pos.CopyTo(nil)
+// Copy position full or partial
+func (pos *FlatPosition) Copy(extinfo bool) *FlatPosition {
+	return pos.CopyTo(nil, extinfo)
 }
