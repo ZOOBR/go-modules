@@ -172,7 +172,7 @@ type FlatPosition struct {
 	Time  float64            `db:"t" json:"t"`
 	P     map[uint16]float64 `db:"p" json:"p"`
 	E     []uint16           `db:"e" json:"e"`
-	Zones []ZoneInfo         `db:"z" json:"z"`
+	Zones []ZoneInfo
 }
 
 //PrettyPosition struct for user friendly
