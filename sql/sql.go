@@ -484,7 +484,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	return nil
 }
 
-//SetStructValues update helper with nodejs mysql style format
+//UpdateStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
 func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
@@ -684,7 +684,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	return nil
 }
 
-//SetStructValues update helper with nodejs mysql style format
+//InsertStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
 func (this *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
