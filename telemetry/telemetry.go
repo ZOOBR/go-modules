@@ -162,9 +162,9 @@ type BinaryPosition struct {
 
 //ZoneInfo zone information
 type ZoneInfo struct {
-	ID   string
-	Name string
-	Type int
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type int    `json:"type"`
 }
 
 //FlatPosition compact position format
@@ -172,7 +172,7 @@ type FlatPosition struct {
 	Time  float64            `db:"t" json:"t"`
 	P     map[uint16]float64 `db:"p" json:"p"`
 	E     []uint16           `db:"e" json:"e"`
-	Zones []ZoneInfo
+	Zones []ZoneInfo         `json:"zones"`
 }
 
 //PrettyPosition struct for user friendly
