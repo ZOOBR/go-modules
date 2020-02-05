@@ -3,6 +3,7 @@ package msgsender
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -144,6 +145,8 @@ type Message struct {
 	Trigger string      `json:"trigger"`
 	BotID   string      `json:"bot"`
 	ChatID  string      `json:"chat"`
+	Type    int         `json:"type"`
+	MsgId   *string     `json:"msgId"`
 }
 
 // SMS is a basic SMS struct
@@ -151,6 +154,7 @@ type SMS struct {
 	Phone string  `json:"phone"`
 	Msg   string  `json:"msg"`
 	MsgID *string `json:"msgId"`
+	Type  string  `json:"type"`
 }
 
 // Mail is a basic email struct
@@ -208,11 +212,14 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 // SendSMS is using for sending SMS messages
 // phone - recepient phone
 // msg - message body
-func SendSMS(phone, msg string, msgId ...string) {
+func SendSMS(phone, msg string, options ...string) {
 	log.Info("[msgSender-SendSMS] ", "Try send SMS to: ", phone)
 	newSms := SMS{Phone: phone, Msg: msg}
-	if len(msgId) > 0 {
-		newSms.MsgID = &msgId[0]
+	if len(options) > 0 && options[0] != "" {
+		newSms.MsgID = &options[0]
+	}
+	if len(options) > 1 {
+		newSms.Type = options[1]
 	}
 	m, err := json.Marshal(newSms)
 	if err != nil {
@@ -325,7 +332,11 @@ func (msg *Message) Send(data interface{}) {
 				info += ","
 			}
 			info += phone
-			SendSMS(phone, text)
+			msgID := ""
+			if msg.MsgId != nil {
+				msgID = *msg.MsgId
+			}
+			SendSMS(phone, text, msgID, fmt.Sprintf("%d", msg.Type))
 		}
 	}
 	if (msg.Mode&MessageModePush) != 0 && len(msg.Tokens) > 0 {
@@ -360,7 +371,7 @@ func (msg *Message) Send(data interface{}) {
 }
 
 // NewMessage create new message structure
-func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
+func NewMessage(lang, msg, title string, phones, tokens, mails []string, msgType int, msgID *string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
 	return &Message{
 		Mode:   mode,
@@ -370,29 +381,31 @@ func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Messag
 		Phones: phones,
 		Tokens: tokens,
 		Addrs:  mails,
+		Type:   msgType,
+		MsgId:  msgID,
 	}
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
-func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}) {
-	NewMessage(lang, msg, title, phones, tokens, mails).Send(data)
+func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}, msgType int, msgID *string) {
+	NewMessage(lang, msg, title, phones, tokens, mails, msgType, msgID).Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
-func SendMessageSMS(lang, msg, title, phone string, data interface{}) {
-	NewMessage(lang, msg, title, []string{phone}, nil, nil).Send(data)
+func SendMessageSMS(lang, msg, title, phone string, data interface{}, msgType int, msgID *string) {
+	NewMessage(lang, msg, title, []string{phone}, nil, nil, msgType, msgID).Send(data)
 }
 
 // SendMessagePush format and send universal message by phone push
-func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}) {
-	message := NewMessage(lang, msg, title, nil, []string{token}, nil)
+func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}, msgType int, msgID *string) {
+	message := NewMessage(lang, msg, title, nil, []string{token}, nil, msgType, msgID)
 	message.Payload = payload
 	message.Send(data)
 }
 
 // SendMessageMail format and send universal message by e-mail
-func SendMessageMail(lang, msg, title, addr string, data interface{}) {
-	NewMessage(lang, msg, title, nil, nil, []string{addr}).Send(data)
+func SendMessageMail(lang, msg, title, addr string, data interface{}, msgType int, msgID *string) {
+	NewMessage(lang, msg, title, nil, nil, []string{addr}, msgType, msgID).Send(data)
 }
 
 // Init initializes initEventsPublisher
