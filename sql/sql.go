@@ -75,20 +75,20 @@ func NewQuery(tx bool) (q Query, err error) {
 	return q, err
 }
 
-func (this *Query) Commit() (err error) {
-	return this.tx.Commit()
+func (queryObj *Query) Commit() (err error) {
+	return queryObj.tx.Commit()
 }
 
-func (this *Query) Rollback() (err error) {
-	return this.tx.Rollback()
+func (queryObj *Query) Rollback() (err error) {
+	return queryObj.tx.Rollback()
 }
 
-func (this *Query) ExecWithArg(arg interface{}, query string) (err error) {
-	return this.tx.Get(arg, query)
+func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
+	return queryObj.tx.Get(arg, query)
 }
 
-func (this *Query) Exec(query string) (res sql.Result, err error) {
-	return this.tx.Exec(query)
+func (queryObj *Query) Exec(query string) (res sql.Result, err error) {
+	return queryObj.tx.Exec(query)
 }
 
 var (
@@ -116,7 +116,7 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 	return res
 }
 
-func (this *Query) saveLog(table string, item string, user string, data interface{}, diff map[string]interface{}) {
+func (queryObj *Query) saveLog(table string, item string, user string, data interface{}, diff map[string]interface{}) {
 	if len(diff) > 0 {
 		keys := []string{}
 		values := []string{}
@@ -147,15 +147,14 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 			"time":  now,
 		}
 
-		if this.tx != nil {
-			_, err = this.tx.NamedExec(query, logItem)
+		if queryObj.tx != nil {
+			_, err = queryObj.tx.NamedExec(query, logItem)
 		} else {
-			_, err = this.db.NamedExec(query, logItem)
+			_, err = queryObj.db.NamedExec(query, logItem)
 		}
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
-		go amqp.SendUpdate(amqpURI, table, item, "update", diff)
 	}
 }
 
@@ -306,18 +305,18 @@ func SetValues(query *string, values *map[string]interface{}) error {
 	return nil
 }
 
-func (this *Query) Delete(query string) (err error) {
-	if this.tx != nil {
-		_, err = this.tx.Exec(query)
+func (queryObj *Query) Delete(query string) (err error) {
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
 	} else {
-		_, err = this.db.Exec(query)
+		_, err = queryObj.db.Exec(query)
 	}
 	return err
 }
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
+func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
@@ -462,17 +461,17 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
+	if queryObj.tx != nil {
 		if len(isUpdate) > 0 && isUpdate[0] {
-			_, err = this.tx.Exec(query)
+			_, err = queryObj.tx.Exec(query)
 		} else {
-			_, err = this.tx.NamedExec(query, resultMap)
+			_, err = queryObj.tx.NamedExec(query, resultMap)
 		}
 	} else {
 		if len(isUpdate) > 0 && isUpdate[0] {
-			_, err = this.db.Exec(query)
+			_, err = queryObj.db.Exec(query)
 		} else {
-			_, err = this.db.NamedExec(query, resultMap)
+			_, err = queryObj.db.NamedExec(query, resultMap)
 		}
 	}
 	if err != nil {
@@ -486,7 +485,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 //UpdateStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
+func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
@@ -661,7 +660,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 		if withLog {
 			if table != "" && id != "" {
-				this.saveLog(table, id, user, oldMap, diff)
+				queryObj.saveLog(table, id, user, oldMap, diff)
+				go amqp.SendUpdate(amqpURI, table, id, "update", diff)
 			} else {
 				log.Error("missing table or id for save log", options)
 			}
@@ -670,11 +670,11 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
-		_, err = this.tx.Exec(query)
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
 
 	} else {
-		_, err = this.db.Exec(query)
+		_, err = queryObj.db.Exec(query)
 	}
 	if err != nil {
 		golog.Error(query)
@@ -686,7 +686,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 //InsertStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
+func (queryObj *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
@@ -739,11 +739,11 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
-		_, err = this.tx.NamedExec(query, resultMap)
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.NamedExec(query, resultMap)
 
 	} else {
-		_, err = this.db.NamedExec(query, resultMap)
+		_, err = queryObj.db.NamedExec(query, resultMap)
 	}
 	if err != nil {
 		golog.Error(query)
@@ -1024,6 +1024,7 @@ type SchemaTable struct {
 	sqlSelect  string
 	SQLFields  []string
 	onUpdate   schemaTableUpdateCallback
+	LogChanges bool
 }
 
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
@@ -1128,6 +1129,14 @@ func registerSchemaOnUpdate(consumer *amqp.Consumer) {
 	done <- nil
 }
 
+// GetSchemaTable get schema table by table name
+func GetSchemaTable(table string) (*SchemaTable, bool) {
+	registerSchema.RLock()
+	schema, ok := registerSchema.tables[table]
+	registerSchema.RUnlock()
+	return schema.table, ok
+}
+
 // NewSchemaField create SchemaTable definition
 func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	field := new(SchemaField)
@@ -1198,17 +1207,23 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	}
 
 	var onUpdate schemaTableUpdateCallback
+	var logChanges bool
 	for key, val := range options {
-		if key == "onUpdate" {
+		switch key {
+		case "onUpdate":
 			if reflect.TypeOf(val).Kind() == reflect.Func {
 				onUpdate = val.(func(table *SchemaTable, msg interface{}))
 			}
+		case "logChanges":
+			logChanges = val.(bool)
 		}
 	}
 	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
 	newSchemaTable.onUpdate = onUpdate
+	newSchemaTable.LogChanges = logChanges
+
 	newSchemaTable.register()
 	return &newSchemaTable
 }
@@ -1464,29 +1479,52 @@ func (table *SchemaTable) Insert(data interface{}) error {
 	return err
 }
 
+func (table *SchemaTable) getIDField(id string, options []map[string]interface{}) (idField, newID string, err error) {
+	idField = "id"
+	newID = id
+	if len(options) > 0 {
+		option := options[0]
+		if option != nil && option["idField"] != nil {
+			idField = option["idField"].(string)
+		}
+
+		index, field := table.FindField(idField)
+		if index == -1 {
+			return "", "", errors.New("invalid id field: " + idField)
+		}
+		if field.Type == "uuid" && id == "" {
+			newID = *strUtil.NewId()
+		}
+	}
+	return idField, newID, nil
+}
+
+// Upsert execute insert sql string
+func (table *SchemaTable) Upsert(id string, oldData, data interface{}, options ...map[string]interface{}) error {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return err
+	}
+	where := idField + "=" + id
+	result, err := table.CheckInsert(data, &where)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err == nil && rows == 1 {
+		err = table.Update(oldData, data, where, options...)
+	} else if err == nil && rows > 1 {
+		return errors.New("multiple upsert not allowed, rec count: " + fmt.Sprintf("%d", rows))
+	}
+	return err
+}
+
 // CheckInsert execute insert sql string if not exist where expression
 func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Result, error) {
-	// if where != nil {
-	// 	ok, err := table.Exists(*where)
-	// 	if err != nil || ok {
-	// 		return err
-	// 	}
-	// }
-	// return table.Insert(data)
 
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
-	/*
-		recCnt := 1
-		switch recType.Kind() {
-		case reflect.Slice:
-			recType = recType.Elem()
-			recCnt = rec.Len()
-		case reflect.Array:
-			recType = recType.Elem()
-			recCnt = rec.Len()
-		}
-	*/
 
 	if recType.Kind() == reflect.Ptr {
 		rec = reflect.Indirect(rec)
@@ -1537,8 +1575,8 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 	return DB.Exec(sql, args...)
 }
 
-// Update execute update sql string
-func (table *SchemaTable) Update(oldData, data interface{}, where string) error {
+// UpdateMultiple execute update sql string
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) error {
 	diff := make(map[string]interface{})
 	itemID := ""
 	rec := reflect.ValueOf(data)
@@ -1613,14 +1651,50 @@ func (table *SchemaTable) Update(oldData, data interface{}, where string) error 
 	if err == nil && itemID != "" {
 		go amqp.SendUpdate(amqpURI, table.Name, itemID, "update", diff)
 	}
+	withLog := table.LogChanges
+
+	if len(options) > 0 {
+		option := options[0]
+		if option["withLog"] != nil {
+			withLog = option["withLog"].(bool)
+		}
+		if withLog {
+			id := itemID
+			user := ""
+			if option["idField"] != nil {
+				id = option["idField"].(string)
+			}
+			if option["user"] != nil {
+				user = option["user"].(string)
+			}
+			queryObj := Query{}
+			queryObj.saveLog(table.Name, id, user, oldData, diff)
+		}
+	}
 	return err
 }
 
-// Delete records with where sql string
-func (table *SchemaTable) Delete(where string, args ...interface{}) (int, error) {
+// Update update one item by id
+func (table *SchemaTable) Update(oldData, data interface{}, id string, options ...map[string]interface{}) error {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return err
+	}
+	return table.UpdateMultiple(oldData, data, idField+`=`+id, options...)
+}
+
+// DeleteMultiple  delete all records with where sql string
+func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]interface{}) (int, error) {
 	sql := `DELETE FROM "` + table.Name + `"`
 	if len(where) > 0 {
 		sql += " WHERE " + where
+	}
+	var args []interface{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["args"] != nil {
+			args = option["args"].([]interface{})
+		}
 	}
 	ret, err := DB.Exec(sql, args...)
 	if err == nil {
@@ -1628,6 +1702,16 @@ func (table *SchemaTable) Delete(where string, args ...interface{}) (int, error)
 		return int(rows), err
 	}
 	return -1, err
+}
+
+// Delete delete one record by id
+func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (int, error) {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return 0, err
+	}
+	count, err := table.DeleteMultiple(idField + `=` + id)
+	return count, err
 }
 
 //---------------------------------------------------------------------------
