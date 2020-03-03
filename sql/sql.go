@@ -1541,6 +1541,7 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
+		fType := f.Tag.Get("type")
 		if len(name) == 0 || name == "-" {
 			continue
 		}
@@ -1558,7 +1559,11 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 		fields += `"` + name + `"`
 		fld := rec.FieldByName(f.Name)
 		if fld.IsValid() {
-			values += "$" + strconv.Itoa(cnt)
+			if fType == "geometry" {
+				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else {
+				values += "$" + strconv.Itoa(cnt)
+			}
 			args = append(args, fld.Interface())
 		} else {
 			values += "NULL"
@@ -1609,6 +1614,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
+		fType := f.Tag.Get("type")
 		if len(name) == 0 || name == "-" {
 			continue
 		}
@@ -1632,8 +1638,12 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		fields += `"` + name + `"`
 
 		if newFld.IsValid() {
-			values += "$" + strconv.Itoa(cnt)
 			v := newFld.Interface()
+			if fType == "geometry" {
+				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else {
+				values += "$" + strconv.Itoa(cnt)
+			}
 			diff[name] = v
 			args = append(args, v)
 		} else {
@@ -1680,7 +1690,7 @@ func (table *SchemaTable) Update(oldData, data interface{}, id string, options .
 	if err != nil {
 		return err
 	}
-	return table.UpdateMultiple(oldData, data, idField+`=`+id, options...)
+	return table.UpdateMultiple(oldData, data, idField+`='`+id+`'`, options...)
 }
 
 // DeleteMultiple  delete all records with where sql string
@@ -1710,7 +1720,7 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 	if err != nil {
 		return 0, err
 	}
-	count, err := table.DeleteMultiple(idField + `=` + id)
+	count, err := table.DeleteMultiple(idField + `= '` + id + `'`)
 	return count, err
 }
 
