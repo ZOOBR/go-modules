@@ -1025,6 +1025,7 @@ type SchemaTable struct {
 	SQLFields  []string
 	onUpdate   schemaTableUpdateCallback
 	LogChanges bool
+	Struct     interface{}
 }
 
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
@@ -1223,7 +1224,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable.Fields = fields
 	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.LogChanges = logChanges
-
+	newSchemaTable.Struct = info
 	newSchemaTable.register()
 	return &newSchemaTable
 }
@@ -1474,8 +1475,8 @@ func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error
 }
 
 // Insert execute insert sql string
-func (table *SchemaTable) Insert(data interface{}) error {
-	_, err := table.CheckInsert(data, nil)
+func (table *SchemaTable) Insert(data interface{}, options ...map[string]interface{}) error {
+	_, err := table.CheckInsert(data, nil, options...)
 	return err
 }
 
@@ -1510,7 +1511,6 @@ func (table *SchemaTable) Upsert(id string, oldData, data interface{}, options .
 	if err != nil {
 		return err
 	}
-
 	rows, err := result.RowsAffected()
 	if err == nil && rows == 1 {
 		err = table.Update(oldData, data, where, options...)
@@ -1520,23 +1520,10 @@ func (table *SchemaTable) Upsert(id string, oldData, data interface{}, options .
 	return err
 }
 
-// CheckInsert execute insert sql string if not exist where expression
-func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Result, error) {
-
-	rec := reflect.ValueOf(data)
-	recType := rec.Type()
-
-	if recType.Kind() == reflect.Ptr {
-		rec = reflect.Indirect(rec)
-		recType = rec.Type()
-	}
-	if recType.Kind() != reflect.Struct {
-		return nil, errors.New("element must be struct")
-	}
-
-	var args = []interface{}{}
-	var fields, values string
+func prepareArgsStruct(rec reflect.Value, idField string) (args []interface{}, values, fields, itemID string) {
+	args = []interface{}{}
 	cnt := 0
+	recType := rec.Type()
 	fcnt := recType.NumField()
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
@@ -1544,12 +1531,6 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 		if len(name) == 0 || name == "-" {
 			continue
 		}
-		/*
-			_, field := table.FindField(name)
-			if field == nil {
-				continue
-			}
-		*/
 		if cnt > 0 {
 			fields += ","
 			values += ","
@@ -1557,12 +1538,70 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 		cnt++
 		fields += `"` + name + `"`
 		fld := rec.FieldByName(f.Name)
+		fldInt := fld.Interface()
+		if name == idField {
+			itemID = fmt.Sprintf("%v", fldInt)
+		}
 		if fld.IsValid() {
 			values += "$" + strconv.Itoa(cnt)
-			args = append(args, fld.Interface())
+			args = append(args, fldInt)
 		} else {
 			values += "NULL"
 		}
+	}
+	return args, values, fields, itemID
+}
+
+func prepareArgsMap(data map[string]interface{}, idField string) (args []interface{}, values, fields, itemID string) {
+	args = []interface{}{}
+	cnt := 0
+	for name := range data {
+		if cnt > 0 {
+			fields += ","
+			values += ","
+		}
+		cnt++
+		fields += `"` + name + `"`
+		val := data[name]
+		if name == idField {
+			itemID = fmt.Sprintf("%v", val)
+		}
+		if val != nil {
+			values += "$" + strconv.Itoa(cnt)
+			args = append(args, val)
+		} else {
+			values += "NULL"
+		}
+	}
+	return args, values, fields, itemID
+}
+
+// CheckInsert execute insert sql string if not exist where expression
+func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
+
+	idField, _, err := table.getIDField("", options)
+	if err != nil {
+		return nil, err
+	}
+	rec := reflect.ValueOf(data)
+	recType := rec.Type()
+
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.Indirect(rec)
+		recType = rec.Type()
+	}
+	var fields, values, itemID string
+	var args []interface{}
+	if recType.Kind() == reflect.Map {
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("element must be a map[string]interface")
+		}
+		args, values, fields, itemID = prepareArgsMap(dataMap, idField)
+	} else if recType.Kind() == reflect.Struct {
+		args, values, fields, itemID = prepareArgsStruct(rec, idField)
+	} else {
+		return nil, errors.New("element must be struct or map[string]interface")
 	}
 
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `)`
@@ -1572,13 +1611,39 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
 
-	return DB.Exec(sql, args...)
+	res, err := DB.Exec(sql, args...)
+	if err == nil {
+		table.SaveLog(itemID, nil, nil, options)
+	}
+	return res, err
+}
+
+// SaveLog save model logs to database
+func (table *SchemaTable) SaveLog(itemID string, oldData interface{}, diff map[string]interface{}, options []map[string]interface{}) {
+	withLog := table.LogChanges
+	if len(options) > 0 {
+		option := options[0]
+		if option["withLog"] != nil {
+			withLog = option["withLog"].(bool)
+		}
+		if withLog {
+			id := itemID
+			user := ""
+			if option["idField"] != nil {
+				id = option["idField"].(string)
+			}
+			if option["user"] != nil {
+				user = option["user"].(string)
+			}
+			queryObj := Query{}
+			queryObj.saveLog(table.Name, id, user, oldData, diff)
+		}
+	}
 }
 
 // UpdateMultiple execute update sql string
-func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) error {
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (map[string]interface{}, error) {
 	diff := make(map[string]interface{})
-	itemID := ""
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 	oldRec := reflect.ValueOf(oldData)
@@ -1589,7 +1654,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		recType = rec.Type()
 	}
 	if recType.Kind() != reflect.Struct {
-		return errors.New("element must be struct")
+		return nil, errors.New("element must be struct")
 	}
 	if compareWithOldRec {
 		oldRecType := oldRec.Type()
@@ -1598,7 +1663,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 			oldRecType = oldRec.Type()
 		}
 		if oldRecType.Kind() != reflect.Struct {
-			return errors.New("oldData element must be struct")
+			return nil, errors.New("oldData element must be struct")
 		}
 	}
 
@@ -1617,9 +1682,6 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		if compareWithOldRec {
 			oldFld := oldRec.FieldByName(f.Name)
 			if oldFld.IsValid() && newFld.IsValid() && oldFld.Interface() == newFld.Interface() {
-				if name == "id" {
-					itemID = newFld.String()
-				}
 				continue
 			}
 		}
@@ -1648,30 +1710,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
 	}
 	_, err := DB.Exec(sql, args...)
-	if err == nil && itemID != "" {
-		go amqp.SendUpdate(amqpURI, table.Name, itemID, "update", diff)
-	}
-	withLog := table.LogChanges
-
-	if len(options) > 0 {
-		option := options[0]
-		if option["withLog"] != nil {
-			withLog = option["withLog"].(bool)
-		}
-		if withLog {
-			id := itemID
-			user := ""
-			if option["idField"] != nil {
-				id = option["idField"].(string)
-			}
-			if option["user"] != nil {
-				user = option["user"].(string)
-			}
-			queryObj := Query{}
-			queryObj.saveLog(table.Name, id, user, oldData, diff)
-		}
-	}
-	return err
+	return diff, err
 }
 
 // Update update one item by id
@@ -1680,7 +1719,16 @@ func (table *SchemaTable) Update(oldData, data interface{}, id string, options .
 	if err != nil {
 		return err
 	}
-	return table.UpdateMultiple(oldData, data, idField+`=`+id, options...)
+	where := idField + `=` + id
+	if oldData == nil {
+		oldData = table.Get(oldData, where)
+	}
+	diff, err := table.UpdateMultiple(oldData, data, where, options...)
+	if err == nil {
+		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diff)
+		table.SaveLog(id, oldData, diff, options)
+	}
+	return err
 }
 
 // DeleteMultiple  delete all records with where sql string
@@ -1710,7 +1758,7 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 	if err != nil {
 		return 0, err
 	}
-	count, err := table.DeleteMultiple(idField + `=` + id)
+	count, err := table.DeleteMultiple(idField + `='` + id + `'`)
 	return count, err
 }
 
