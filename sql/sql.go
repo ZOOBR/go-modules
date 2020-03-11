@@ -1007,13 +1007,14 @@ func Init() {
 
 // SchemaField is definition of sql field
 type SchemaField struct {
-	Name    string
-	Type    string
-	Length  int
-	IsNull  bool
-	Default string
-	Key     int
-	checked bool
+	Name      string
+	Type      string
+	IndexType string
+	Length    int
+	IsNull    bool
+	Default   string
+	Key       int
+	checked   bool
 }
 
 // SchemaTable is definition of sql table
@@ -1191,6 +1192,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field := new(SchemaField)
 			field.Name = name
 			field.Type = f.Tag.Get("type")
+			field.IndexType = f.Tag.Get("index")
 			if len(field.Type) == 0 {
 				field.Type = f.Type.Name()
 				if len(field.Type) == 0 || field.Type == "string" {
@@ -1258,7 +1260,7 @@ func (field *SchemaField) sql() string {
 
 func (table *SchemaTable) create() error {
 	var keys string
-	skeys := []string{}
+	skeys := []*SchemaField{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
 	for index, field := range table.Fields {
 		if index > 0 {
@@ -1271,8 +1273,8 @@ func (table *SchemaTable) create() error {
 			}
 			keys += field.Name
 		}
-		if (field.Key & 2) != 0 {
-			skeys = append(skeys, field.Name)
+		if (field.Key&2) != 0 || field.IndexType != "" {
+			skeys = append(skeys, field)
 		}
 	}
 	sql += `)`
@@ -1284,15 +1286,23 @@ func (table *SchemaTable) create() error {
 		schemaLogSQL(sql, err)
 	}
 	if err == nil && len(skeys) > 0 {
-		for _, fieldName := range skeys {
-			table.createIndex(fieldName)
+		for _, field := range skeys {
+			table.createIndex(field)
 		}
 	}
 	return err
 }
 
-func (table *SchemaTable) createIndex(fieldName string) error {
-	sql := `CREATE INDEX "` + table.Name + "_" + fieldName + `_idx" ON "` + table.Name + `" USING btree ("` + fieldName + `")`
+func (table *SchemaTable) createIndex(field *SchemaField) error {
+	indexType := field.IndexType
+	if indexType == "" {
+		if field.Type == "json" || field.Type == "jsonb" {
+			indexType = "GIN"
+		} else {
+			indexType = "btree"
+		}
+	}
+	sql := `CREATE INDEX "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
 	_, err := DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	return err
@@ -1314,8 +1324,8 @@ func (table *SchemaTable) alter(cols []string) error {
 			if err != nil {
 				break
 			}
-			if (field.Key & 2) != 0 {
-				table.createIndex(field.Name)
+			if (field.Key&2) != 0 || field.IndexType != "" {
+				table.createIndex(field)
 			}
 			field.checked = true
 		}
