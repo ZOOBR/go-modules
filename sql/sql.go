@@ -1544,9 +1544,9 @@ func prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string) (
 			continue
 		}
 		newFld := rec.FieldByName(f.Name)
-		oldFld := oldRec.FieldByName(f.Name)
 		var oldFldInt interface{}
 		if compareWithOldRec {
+			oldFld := oldRec.FieldByName(f.Name)
 			if oldFld.IsValid() {
 				oldFldInt = oldFld.Interface()
 				if oldFldInt == newFld.Interface() {
