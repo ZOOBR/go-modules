@@ -162,7 +162,7 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 func (sender *Sender) Protection(obj string, drv string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
-		Act: on,
+		Act: uint32(on),
 	}
 
 	return sender.Run(obj, drv, &action)
@@ -172,7 +172,7 @@ func (sender *Sender) Protection(obj string, drv string, on uint8) TerminalRespo
 func (sender *Sender) Engine(obj string, drv string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "engine",
-		Act: on,
+		Act: uint32(on),
 	}
 
 	return sender.Run(obj, drv, &action)
@@ -182,8 +182,8 @@ func (sender *Sender) Engine(obj string, drv string, on uint8) TerminalResponse 
 func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
-		Index: idx,
-		Act:   uint8(on),
+		Index: uint32(idx),
+		Act:   uint32(on),
 		Ton:   ton,
 		Toff:  toff,
 	}
