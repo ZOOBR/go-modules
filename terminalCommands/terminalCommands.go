@@ -18,14 +18,14 @@ type Sender struct {
 
 // TerminalResponse ---
 type TerminalResponse struct {
-	Id          string                 `json:"id"`
-	Result      int32                  `json:"result"`
-	Errors      []CommandError         `json:"errors"`
-	Telemetry   map[string]interface{} `json:"telemetry"`
-	Driver      string                 `json:"driver"`
-	Device      string                 `json:"device"`
-	VersionSoft int                    `json:"version_soft"`
-	VersionHard int                    `json:"version_hard"`
+	Id        string                 `json:"id"`
+	Result    int32                  `json:"result"`
+	Errors    []CommandError         `json:"errors"`
+	Telemetry map[string]interface{} `json:"telemetry"`
+	Driver    string                 `json:"driver"`
+	Device    string                 `json:"device"`
+	Token     string                 `json:"token"`
+	Expired   uint64                 `json:"expired"`
 }
 
 // CommandAction ---
@@ -202,6 +202,15 @@ func (sender *Sender) State(obj string, drv string) TerminalResponse {
 func (sender *Sender) Reset(obj string, drv string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
+	}
+	return sender.Run(obj, drv, &action)
+}
+
+// Auth - update auth token
+func (sender *Sender) Auth(obj string, drv string) TerminalResponse {
+	action := CommandAction{
+		Id:  "guard",
+		Act: 100,
 	}
 	return sender.Run(obj, drv, &action)
 }
