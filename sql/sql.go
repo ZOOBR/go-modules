@@ -763,6 +763,52 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 	return nil
 }
 
+// GetMapFromStruct return map from struct
+func GetMapFromStruct(structVal interface{}) map[string]interface{} {
+	iVal := reflect.ValueOf(structVal).Elem()
+	typ := iVal.Type()
+	res := make(map[string]interface{})
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		if f.Kind() == reflect.Ptr {
+			f = reflect.Indirect(f)
+		}
+		ft := typ.Field(i)
+		tag := ft.Tag.Get("db")
+
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		if f.IsValid() {
+			switch val := f.Interface().(type) {
+			case bool:
+				res[tag] = f.Bool()
+			case int, int8, int16, int32, int64:
+				res[tag] = f.Int()
+			case uint, uint8, uint16, uint32, uint64:
+				res[tag] = f.Uint()
+			case float32, float64:
+				res[tag] = f.Float()
+			case []byte:
+				v := string(f.Bytes())
+				res[tag] = v
+			case string:
+				res[tag] = f.String()
+			case time.Time:
+				res[tag] = val.Format(time.RFC3339)
+			default:
+				valJSON, _ := json.Marshal(val)
+				res[tag] = string(valJSON)
+			}
+		} else {
+			res[tag] = nil
+		}
+
+	}
+	return res
+}
+
 func GetStructValues(structVal interface{}, fields *[]string) map[string]interface{} {
 	resultMap := make(map[string]interface{})
 	iVal := reflect.ValueOf(structVal).Elem()
@@ -1340,7 +1386,12 @@ func (table *SchemaTable) prepare() error {
 		if index > 0 {
 			table.sqlSelect += ", "
 		}
-		fieldName := `"` + field.Name + `" `
+		fieldName := ""
+		if field.Type == "geometry" {
+			fieldName = "st_asgeojson(" + field.Name + `) as "` + field.Name + `"`
+		} else {
+			fieldName = `"` + field.Name + `" `
+		}
 		table.sqlSelect += fieldName
 		table.SQLFields = append(table.SQLFields, fieldName)
 	}
@@ -1514,21 +1565,19 @@ func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[str
 	if err != nil {
 		return err
 	}
-	where := idField + "=" + id
+	where := `"` + idField + `"='` + id + "'"
 	result, err := table.CheckInsert(data, &where)
 	if err != nil {
 		return err
 	}
 	rows, err := result.RowsAffected()
-	if err == nil && rows == 1 {
+	if err == nil && rows == 0 {
 		err = table.Update(id, data, options...)
-	} else if err == nil && rows > 1 {
-		return errors.New("multiple upsert not allowed, rec count: " + fmt.Sprintf("%d", rows))
 	}
 	return err
 }
 
-func prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
+func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
 	diff = make(map[string]interface{})
 	args = []interface{}{}
 	cnt := 0
@@ -1553,6 +1602,9 @@ func prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string) (
 					continue
 				}
 			}
+		}
+		if checkExcludeFields(name, options...) {
+			continue
 		}
 		if cnt > 0 {
 			fields += ","
@@ -1582,10 +1634,11 @@ func prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string) (
 			values += "NULL"
 		}
 	}
+	excludeFields(diff, options...)
 	return args, values, fields, itemID, diff
 }
 
-func prepareArgsMap(data, oldData map[string]interface{}, idField string) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
+func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
 	diff = make(map[string]interface{})
 	args = []interface{}{}
 	cnt := 0
@@ -1594,6 +1647,9 @@ func prepareArgsMap(data, oldData map[string]interface{}, idField string) (args 
 		val := data[name]
 		oldVal := oldData[name]
 		if compareWithOldRec && val == oldVal {
+			continue
+		}
+		if checkExcludeFields(name, options...) {
 			continue
 		}
 		if cnt > 0 {
@@ -1613,13 +1669,52 @@ func prepareArgsMap(data, oldData map[string]interface{}, idField string) (args 
 			diff[name] = diffVal
 		}
 		if val != nil {
-			values += "$" + strconv.Itoa(cnt)
+			_, f := table.FindField(name)
+			if f.Type == "geometry" {
+				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else {
+				values += "$" + strconv.Itoa(cnt)
+			}
 			args = append(args, val)
 		} else {
 			values += "NULL"
 		}
 	}
+	excludeFields(diff, options...)
 	return args, values, fields, itemID, diff
+}
+
+func excludeFields(diff map[string]interface{}, options ...map[string]interface{}) {
+	ignoreDiff := []string{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["ignoreDiff"] != nil {
+			ignoreDiff = option["ignoreDiff"].([]string)
+		}
+	}
+	for i := 0; i < len(ignoreDiff); i++ {
+		field := ignoreDiff[i]
+		if _, ok := diff[field]; ok {
+			delete(diff, field)
+		}
+	}
+}
+
+func checkExcludeFields(fieldName string, options ...map[string]interface{}) bool {
+	ignoreDiff := []string{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["ignoreDiff"] != nil {
+			ignoreDiff = option["ignoreDiff"].([]string)
+		}
+	}
+	for i := 0; i < len(ignoreDiff); i++ {
+		f := ignoreDiff[i]
+		if f == fieldName {
+			return true
+		}
+	}
+	return false
 }
 
 // SelectMap select multiple items from db to []map[string]interfaces
@@ -1691,9 +1786,9 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 		if !ok {
 			return nil, errors.New("element must be a map[string]interface")
 		}
-		args, values, fields, itemID, diff = prepareArgsMap(dataMap, nil, idField)
+		args, values, fields, itemID, diff = table.prepareArgsMap(dataMap, nil, idField)
 	} else if recType.Kind() == reflect.Struct {
-		args, values, fields, itemID, diff = prepareArgsStruct(rec, nil, idField)
+		args, values, fields, itemID, diff = table.prepareArgsStruct(rec, nil, idField)
 	} else {
 		return nil, errors.New("element must be struct or map[string]interface")
 	}
@@ -1760,9 +1855,23 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		if !ok {
 			return nil, errors.New("oldData must be a map[string]interface")
 		}
-		args, values, fields, _, diff = prepareArgsMap(dataMap, oldDataMap, "")
+		args, values, fields, _, diff = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 	} else if recType.Kind() == reflect.Struct {
-		args, values, fields, _, diff = prepareArgsStruct(rec, oldData, "")
+		oldRec := reflect.ValueOf(oldData)
+		oldRecType := oldRec.Type()
+
+		if oldRecType.Kind() == reflect.Ptr {
+			oldRec = reflect.Indirect(oldRec)
+			oldRecType = oldRec.Type()
+		}
+		//if oldData is map and rec is struct - convert rec to map
+		if oldRecType.Kind() == reflect.Map {
+			str := GetMapFromStruct(data)
+			args, values, fields, _, diff = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
+		} else {
+			args, values, fields, _, diff = table.prepareArgsStruct(rec, oldData, "", options...)
+		}
+
 	} else {
 		return nil, errors.New("element must be struct or map[string]interface")
 	}
@@ -1793,7 +1902,7 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 			oldData = options[0]["oldData"].(map[string]interface{})
 		}
 	}
-	where := idField + `='` + id + `'`
+	where := `"` + idField + `"='` + id + `'`
 	if oldData == nil {
 		oldData, err = table.GetMap(where)
 		if err != nil {
@@ -1801,7 +1910,7 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 		}
 	}
 	diff, err := table.UpdateMultiple(oldData, data, where, options...)
-	if err == nil {
+	if err == nil && len(diff) > 0 {
 		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diff)
 		table.SaveLog(id, diff, options)
 	}
