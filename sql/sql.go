@@ -116,6 +116,7 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 	return res
 }
 
+// TODO:: Move save log to modelLog
 func (queryObj *Query) saveLog(table string, item string, user string, diff map[string]interface{}) {
 	if len(diff) > 0 {
 		keys := []string{}
@@ -1134,6 +1135,9 @@ func GetSchemaTable(table string) (*SchemaTable, bool) {
 	registerSchema.RLock()
 	schema, ok := registerSchema.tables[table]
 	registerSchema.RUnlock()
+	if !ok {
+		return nil, ok
+	}
 	return schema.table, ok
 }
 
@@ -1508,7 +1512,20 @@ func (table *SchemaTable) getIDField(id string, options []map[string]interface{}
 	return idField, newID, nil
 }
 
-// Upsert execute insert sql string
+// UpsertMultiple execute insert or update sql string
+func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
+	result, err := table.CheckInsert(data, &where)
+	if err != nil {
+		return count, err
+	}
+	count, err = result.RowsAffected()
+	if err != nil {
+		_, err = table.UpdateMultiple(nil, data, where, options...)
+	}
+	return count, err
+}
+
+// Upsert execute insert or update sql string
 func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[string]interface{}) error {
 	idField, id, err := table.getIDField(id, options)
 	if err != nil {
@@ -1544,9 +1561,9 @@ func prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string) (
 			continue
 		}
 		newFld := rec.FieldByName(f.Name)
-		oldFld := oldRec.FieldByName(f.Name)
 		var oldFldInt interface{}
 		if compareWithOldRec {
+			oldFld := oldRec.FieldByName(f.Name)
 			if oldFld.IsValid() {
 				oldFldInt = oldFld.Interface()
 				if oldFldInt == newFld.Interface() {
