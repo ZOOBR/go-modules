@@ -122,8 +122,16 @@ var (
 	binaryID = []rune("bt")
 )
 
-type Position struct {
-	Time int64 `json:"time"`
+// PositionInfo - position info (base check content)
+type PositionInfo struct {
+	Time float64 `json:"time"`
+	Auth *Auth   `json:"auth"`
+}
+
+// Auth - auth token info
+type Auth struct {
+	Token   string  `json:"token"`
+	Expired float64 `json:"expired"`
 }
 
 type ParamsFloat32 struct {
