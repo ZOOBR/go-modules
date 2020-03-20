@@ -168,22 +168,22 @@ type BinaryPosition struct {
 	E    []uint16
 }
 
-//ZoneInfo zone information
+// ZoneInfo zone information
 type ZoneInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Type int    `json:"type"`
 }
 
-//FlatPosition compact position format
+// FlatPosition compact position format
 type FlatPosition struct {
-	Time  float64            `db:"t" json:"t"`
-	P     map[uint16]float64 `db:"p" json:"p"`
-	E     []uint16           `db:"e" json:"e"`
-	Zones []ZoneInfo         `json:"zones"`
+	Time  float64            `json:"t"`
+	P     map[uint16]float64 `json:"p"`
+	E     []uint16           `json:"e"`
+	Zones []ZoneInfo         `json:"zones,omitempty"`
 }
 
-//PrettyPosition struct for user friendly
+// PrettyPosition struct for user friendly
 type PrettyPosition struct {
 	Time    float64  `json:"t"`  //[PARAMS.time, 't'],
 	Events  []uint16 `json:"e"`  //[PARAMS.event, 'e'],
@@ -232,6 +232,18 @@ type BinaryData struct {
 	Day  string
 	Time float64
 	Data []byte
+}
+
+// FindZone is search zone by id
+func FindZone(list []ZoneInfo, id string) *ZoneInfo {
+	cnt := len(list)
+	for i := 0; i < cnt; i++ {
+		zone := list[i]
+		if zone.ID == id {
+			return &zone
+		}
+	}
+	return nil
 }
 
 func TranslatePos(p *FlatPosition) map[string]interface{} {
