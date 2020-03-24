@@ -486,6 +486,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 	diff := make(map[string]interface{})
+	diffPub := make(map[string]interface{})
 	cntAuto := 0
 
 	iValOld := reflect.ValueOf(structVal).Elem()
@@ -567,6 +568,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			if isPointer && oldMap[tag] != nil {
 				resultMap[tag] = nil
 				diff[tag] = nil
+				diffPub[tag] = nil
 				prepFields = append(prepFields, `"`+tag+`"`)
 				prepValues = append(prepValues, "NULL")
 			}
@@ -607,11 +609,13 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
 			if log {
-				diffVal := []interface{}{resultMap[tag]}
+				tagVal := resultMap[tag]
+				diffVal := []interface{}{tagVal}
 				if oldMap[tag] != nil {
 					diffVal = append(diffVal, oldMap[tag])
 				}
 				diff[tag] = diffVal
+				diffPub[tag] = tagVal
 			}
 			if auto {
 				cntAuto++
@@ -659,8 +663,8 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 
 		if withLog {
 			if table != "" && id != "" {
+				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
 				queryObj.saveLog(table, id, user, diff)
-				go amqp.SendUpdate(amqpURI, table, id, "update", diff)
 			} else {
 				log.Error("missing table or id for save log", options)
 			}
