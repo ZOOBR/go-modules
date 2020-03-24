@@ -1571,7 +1571,7 @@ func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options
 	}
 	count, err = result.RowsAffected()
 	if err != nil {
-		_, err = table.UpdateMultiple(nil, data, where, options...)
+		_, _, err = table.UpdateMultiple(nil, data, where, options...)
 	}
 	return count, err
 }
@@ -1594,8 +1594,9 @@ func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[str
 	return err
 }
 
-func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
+func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
 	diff = make(map[string]interface{})
+	diffPub = make(map[string]interface{})
 	args = []interface{}{}
 	cnt := 0
 	recType := rec.Type()
@@ -1645,18 +1646,20 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 					diffVal = append(diffVal, oldFldInt)
 				}
 				diff[name] = diffVal
+				diffPub[name] = fldInt
 			}
 			args = append(args, fldInt)
 		} else {
 			values += "NULL"
 		}
 	}
-	excludeFields(diff, options...)
-	return args, values, fields, itemID, diff
+	excludeFields(diff, diffPub, options...)
+	return args, values, fields, itemID, diff, diffPub
 }
 
-func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff map[string]interface{}) {
+func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
 	diff = make(map[string]interface{})
+	diffPub = make(map[string]interface{})
 	args = []interface{}{}
 	cnt := 0
 	compareWithOldRec := oldData != nil
@@ -1684,6 +1687,7 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 				diffVal = append(diffVal, oldVal)
 			}
 			diff[name] = diffVal
+			diffPub[name] = val
 		}
 		if val != nil {
 			_, f := table.FindField(name)
@@ -1697,11 +1701,11 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			values += "NULL"
 		}
 	}
-	excludeFields(diff, options...)
-	return args, values, fields, itemID, diff
+	excludeFields(diff, diffPub, options...)
+	return args, values, fields, itemID, diff, diffPub
 }
 
-func excludeFields(diff map[string]interface{}, options ...map[string]interface{}) {
+func excludeFields(diff map[string]interface{}, diffPub map[string]interface{}, options ...map[string]interface{}) {
 	ignoreDiff := []string{}
 	if len(options) > 0 {
 		option := options[0]
@@ -1711,9 +1715,8 @@ func excludeFields(diff map[string]interface{}, options ...map[string]interface{
 	}
 	for i := 0; i < len(ignoreDiff); i++ {
 		field := ignoreDiff[i]
-		if _, ok := diff[field]; ok {
-			delete(diff, field)
-		}
+		delete(diff, field)
+		delete(diffPub, field)
 	}
 }
 
@@ -1784,7 +1787,7 @@ func (table *SchemaTable) GetMap(q string) (map[string]interface{}, error) {
 
 // CheckInsert execute insert sql string if not exist where expression
 func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
-	diff := make(map[string]interface{})
+	var diff, diffPub map[string]interface{}
 	idField, _, err := table.getIDField("", options)
 	if err != nil {
 		return nil, err
@@ -1803,9 +1806,9 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 		if !ok {
 			return nil, errors.New("element must be a map[string]interface")
 		}
-		args, values, fields, itemID, diff = table.prepareArgsMap(dataMap, nil, idField)
+		args, values, fields, itemID, diff, diffPub = table.prepareArgsMap(dataMap, nil, idField)
 	} else if recType.Kind() == reflect.Struct {
-		args, values, fields, itemID, diff = table.prepareArgsStruct(rec, nil, idField)
+		args, values, fields, itemID, diff, diffPub = table.prepareArgsStruct(rec, nil, idField)
 	} else {
 		return nil, errors.New("element must be struct or map[string]interface")
 	}
@@ -1819,6 +1822,7 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 
 	res, err := DB.Exec(sql, args...)
 	if err == nil {
+		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub)
 		table.SaveLog(itemID, diff, options)
 	}
 	return res, err
@@ -1852,8 +1856,7 @@ func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, op
 }
 
 // UpdateMultiple execute update sql string
-func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (map[string]interface{}, error) {
-	var diff map[string]interface{}
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, err error) {
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 
@@ -1866,13 +1869,13 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	if recType.Kind() == reflect.Map {
 		dataMap, ok := data.(map[string]interface{})
 		if !ok {
-			return nil, errors.New("data must be a map[string]interface")
+			return nil, nil, errors.New("data must be a map[string]interface")
 		}
 		oldDataMap, ok := oldData.(map[string]interface{})
 		if !ok {
-			return nil, errors.New("oldData must be a map[string]interface")
+			return nil, nil, errors.New("oldData must be a map[string]interface")
 		}
-		args, values, fields, _, diff = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
+		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 	} else if recType.Kind() == reflect.Struct {
 		oldRec := reflect.ValueOf(oldData)
 		oldRecType := oldRec.Type()
@@ -1884,13 +1887,13 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		//if oldData is map and rec is struct - convert rec to map
 		if oldRecType.Kind() == reflect.Map {
 			str := GetMapFromStruct(data)
-			args, values, fields, _, diff = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
+			args, values, fields, _, diff, diffPub = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
 		} else {
-			args, values, fields, _, diff = table.prepareArgsStruct(rec, oldData, "", options...)
+			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
 
 	} else {
-		return nil, errors.New("element must be struct or map[string]interface")
+		return nil, nil, errors.New("element must be struct or map[string]interface")
 	}
 
 	var sql string
@@ -1900,11 +1903,10 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	} else if lenDiff > 0 {
 		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
 	}
-	var err error
 	if lenDiff > 0 {
 		_, err = DB.Exec(sql, args...)
 	}
-	return diff, err
+	return diff, diffPub, err
 }
 
 // Update update one item by id
@@ -1926,9 +1928,9 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 			return err
 		}
 	}
-	diff, err := table.UpdateMultiple(oldData, data, where, options...)
+	diff, diffPub, err := table.UpdateMultiple(oldData, data, where, options...)
 	if err == nil && len(diff) > 0 {
-		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diff)
+		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
 		table.SaveLog(id, diff, options)
 	}
 	return err
