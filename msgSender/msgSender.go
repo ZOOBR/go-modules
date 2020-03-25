@@ -387,8 +387,10 @@ func NewMessage(lang, msg, title string, phones, tokens, mails []string, msgType
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
-func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}, msgType int, msgID *string) {
-	NewMessage(lang, msg, title, phones, tokens, mails, msgType, msgID).Send(data)
+func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}, payload interface{}, msgType int, msgID *string) {
+	message := NewMessage(lang, msg, title, phones, tokens, mails, msgType, msgID)
+	message.Payload = payload
+	message.Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
