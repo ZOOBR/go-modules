@@ -949,6 +949,10 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 					}
 				case "select":
 					where += field + ` = '` + v + "'"
+				case "mask":
+					where += field + ` & '` + v + " > 0'"
+				case "notMask":
+					where += field + ` & '` + v + " = 0'"
 				case "lte":
 					where += field + ` <= '` + v + "'"
 				case "lten":
