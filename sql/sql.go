@@ -87,8 +87,12 @@ func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
 	return queryObj.tx.Get(arg, query)
 }
 
-func (queryObj *Query) Exec(query string) (res sql.Result, err error) {
-	return queryObj.tx.Exec(query)
+func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, err error) {
+	return queryObj.tx.Exec(query, args...)
+}
+
+func (queryObj *Query) Select(dest interface{}, query string) error {
+	return queryObj.tx.Select(dest, query)
 }
 
 var (
