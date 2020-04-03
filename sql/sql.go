@@ -22,6 +22,7 @@ import (
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	"github.com/prometheus/common/log"
+	"github.com/sirupsen/logrus"
 	amqp "gitlab.com/battler/modules/amqpconnector"
 	strUtil "gitlab.com/battler/modules/strings"
 )
@@ -1977,6 +1978,90 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 	}
 	count, err := table.DeleteMultiple(idField + `='` + id + `'`)
 	return count, err
+}
+
+//---------------------------------------------------------------------------
+
+// DataStore store local storage
+type DataStore struct {
+	name  string
+	items sync.Map
+
+	Load   func()
+	Update func(cmd, id, data string)
+	Find   func(id *string) (interface{}, bool)
+}
+
+// DataStoreLoadProc load store items function
+type DataStoreLoadProc func(id *string) (interface{}, error)
+
+// NewDataStore create DataStore
+func NewDataStore(storeName, propID string, load DataStoreLoadProc) *DataStore {
+	store := DataStore{name: storeName}
+	store.Find = func(id *string) (interface{}, bool) {
+		if id == nil {
+			return nil, false
+		}
+		result, ok := store.items.Load(*id)
+		if !ok {
+			logrus.Warn("store '"+storeName+"' not found: ", *id)
+			return nil, false
+		}
+		return result, true
+	}
+	store.Load = func() {
+		items, err := load(nil)
+		if err != nil {
+			logrus.Error("store '"+storeName+"' load ", err)
+		}
+		itemsVal := reflect.ValueOf(items)
+		cnt := itemsVal.Len()
+		for i := 0; i < cnt; i++ {
+			itemVal := itemsVal.Index(i)
+			itemPtr := itemVal.Addr().Interface()
+			itemID := itemVal.FieldByName(propID).String()
+			store.items.Store(itemID, itemPtr)
+		}
+	}
+	store.Update = func(cmd, id, data string) {
+		var itemPtr interface{}
+		if cmd == "update" {
+			var ok bool
+			itemPtr, ok = store.items.Load(id)
+			if !ok || itemPtr == nil {
+				logrus.Error("store '"+storeName+"' not found: ", id)
+				return
+			}
+		}
+		if itemPtr == nil {
+			items, err := load(&id)
+			if err != nil {
+				logrus.Error("store '"+storeName+"' load: ", id, " ", err)
+			} else {
+				itemsVal := reflect.ValueOf(items)
+				if itemsVal.Len() == 0 {
+					logrus.Error("store '"+storeName+"' not found: ", id)
+				} else {
+					itemVal := itemsVal.Index(0)
+					itemPtr = itemVal.Addr().Interface()
+				}
+			}
+		} else {
+			// itemPtr := deepcopier.Copy(itemPtr)
+			// need custom unmarshaler for locked types
+			err := json.Unmarshal([]byte(data), itemPtr)
+			if err != nil {
+				logrus.Error("store '"+storeName+"' unmarshal: ", id, " ", err)
+				itemPtr = nil
+			}
+		}
+		if itemPtr != nil {
+			store.items.Store(id, itemPtr)
+			logrus.Warn("store '"+storeName+"' update: ", id, " ", data)
+		}
+	}
+
+	return &store
 }
 
 //---------------------------------------------------------------------------
