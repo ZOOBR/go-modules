@@ -1984,16 +1984,15 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 
 //---------------------------------------------------------------------------
 
-// DataStore store local storage
+// DataStore store local data
 type DataStore struct {
 	sync.RWMutex
-	items   map[string]interface{}
-	indexes map[string]map[interface{}]interface{}
-
-	Load   func()
-	Update func(cmd, id, data string)
-	Find   func(id *string) (interface{}, bool)
-	FindBy func(propID string, propVal interface{}) (interface{}, bool)
+	name        string
+	propID      string
+	propIndexes []string
+	load        DataStoreLoadProc
+	items       map[string]interface{}
+	indexes     map[string]map[interface{}]interface{}
 }
 
 // DataStoreLoadProc load store items function
@@ -2001,106 +2000,184 @@ type DataStoreLoadProc func(id *string) (interface{}, error)
 
 // NewDataStore create DataStore
 func NewDataStore(storeName, propID string, indexes []string, load DataStoreLoadProc) *DataStore {
-	store := DataStore{}
-	store.Find = func(id *string) (interface{}, bool) {
-		if id == nil {
-			return nil, false
-		}
-		store.RLock()
-		result, ok := store.items[*id]
-		store.RUnlock()
-		if !ok {
-			logrus.Warn("store '"+storeName+"' not found: ", *id)
-			return nil, false
-		}
-		return result, true
+	return &DataStore{
+		name:        storeName,
+		propID:      propID,
+		propIndexes: indexes,
+		load:        load,
 	}
-	store.FindBy = func(propID string, propVal interface{}) (result interface{}, ok bool) {
-		if propVal == nil {
+}
+
+// Find data store search element by id
+func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) {
+	var propID string
+	var propVal interface{}
+	argcnt := len(args)
+	if argcnt > 1 {
+		propVal = args[0]
+		propIDValue := reflect.Indirect(reflect.ValueOf(args[1]))
+		if propIDValue.IsValid() {
+			propID = propIDValue.String()
+		}
+		if propID == "" {
+			logrus.Error("store '" + store.name + "' invalid index id")
 			return nil, false
 		}
-		store.RLock()
-		if index, isIndex := store.indexes[propID]; isIndex {
-			result, ok = index[propVal]
-		}
-		store.RUnlock()
-		return result, ok
+	} else if argcnt > 0 {
+		propVal = args[0]
 	}
-	store.Load = func() {
-		items, err := load(nil)
-		if err != nil {
-			logrus.Error("store '"+storeName+"' load ", err)
-		}
-		itemsVal := reflect.ValueOf(items)
-		cnt := itemsVal.Len()
-		store.Lock()
-		cntIndexes := len(indexes)
-		store.items = make(map[string]interface{})
-		store.indexes = make(map[string]map[interface{}]interface{})
-		for i := 0; i < cntIndexes; i++ {
-			store.indexes[indexes[i]] = make(map[interface{}]interface{})
-		}
-		for i := 0; i < cnt; i++ {
-			itemVal := itemsVal.Index(i)
-			itemPtr := itemVal.Addr().Interface()
-			itemID := itemVal.FieldByName(propID).String()
-			store.items[itemID] = itemPtr
-			if cntIndexes > 0 {
-				store.appendIndexies(indexes, itemVal, itemPtr)
+	if propVal == nil {
+		return nil, false
+	}
+
+	store.RLock()
+	if propID == "" {
+		val := reflect.Indirect(reflect.ValueOf(propVal))
+		if val.IsValid() {
+			id := val.String()
+			result, ok = store.items[id]
+			if !ok {
+				logrus.Warn("store '"+store.name+"' not found: ", id)
 			}
+		}
+	} else {
+		index, isIndex := store.indexes[propID]
+		if isIndex {
+			result, ok = index[propVal]
+		} else {
+			logrus.Error("store '"+store.name+"' not found index: ", propID)
+		}
+	}
+	store.RUnlock()
+	return result, ok
+}
+
+// Load data store from source
+func (store *DataStore) Load() {
+	items, err := store.load(nil)
+	if err != nil {
+		logrus.Error("store '"+store.name+"' load ", err)
+	}
+	itemsVal := reflect.ValueOf(items)
+	cnt := itemsVal.Len()
+	store.Lock()
+	cntIndexes := len(store.propIndexes)
+	store.items = make(map[string]interface{})
+	store.indexes = make(map[string]map[interface{}]interface{})
+	for i := 0; i < cntIndexes; i++ {
+		store.indexes[store.propIndexes[i]] = make(map[interface{}]interface{})
+	}
+	for i := 0; i < cnt; i++ {
+		itemVal := itemsVal.Index(i)
+		itemPtr := itemVal.Addr().Interface()
+		itemID := itemVal.FieldByName(store.propID).String()
+		store.items[itemID] = itemPtr
+		if cntIndexes > 0 {
+			store.updateIndexies(itemVal, itemPtr, nil)
+		}
+	}
+	store.Unlock()
+}
+
+// Update data store by data
+func (store *DataStore) Update(cmd, id, data string) {
+	var itemPtr interface{}
+	var itemVal reflect.Value
+	var oldValues []interface{}
+	cntIndexes := len(store.propIndexes)
+	isUpdate := cmd == "update"
+	if isUpdate {
+		var ok bool
+		store.RLock()
+		itemPtr, ok = store.items[id]
+		store.RUnlock()
+		if !ok || itemPtr == nil {
+			logrus.Error("store '"+store.name+"' not found: ", id)
+			return
+		}
+	}
+	if itemPtr == nil {
+		items, err := store.load(&id)
+		if err != nil {
+			logrus.Error("store '"+store.name+"' load: ", id, " ", err)
+		} else {
+			itemsVal := reflect.ValueOf(items)
+			if itemsVal.Len() == 0 {
+				logrus.Error("store '"+store.name+"' not found: ", id)
+			} else {
+				itemVal = itemsVal.Index(0)
+				itemPtr = itemVal.Addr().Interface()
+			}
+		}
+	} else {
+		var err error
+		if cntIndexes > 0 {
+			itemVal = reflect.ValueOf(itemPtr)
+			if itemVal.Kind() == reflect.Ptr {
+				itemVal = reflect.Indirect(itemVal)
+			}
+			oldValues = store.readIndexies(itemVal, itemPtr)
+		}
+		writeItem(itemPtr, func(locked bool) {
+			if !locked {
+				// Делаем полную копию, если у элемента нет методов блокировки (можно использовать только для чтения)
+				itemPtr = deepcopier.Copy(itemPtr)
+				itemVal = reflect.Indirect(reflect.ValueOf(itemPtr))
+			}
+			err = json.Unmarshal([]byte(data), itemPtr)
+		})
+		if err != nil {
+			logrus.Error("store '"+store.name+"' unmarshal: ", id, " ", err)
+			itemPtr = nil
+		}
+	}
+	if itemPtr != nil {
+		store.Lock()
+		store.items[id] = itemPtr
+		if cntIndexes > 0 {
+			store.updateIndexies(itemVal, itemPtr, oldValues)
 		}
 		store.Unlock()
+		logrus.Warn("store '"+store.name+"' update: ", id, " ", data)
 	}
-	store.Update = func(cmd, id, data string) {
-		var itemPtr interface{}
-		isUpdate := cmd == "update"
-		if isUpdate {
-			var ok bool
-			store.RLock()
-			itemPtr, ok = store.items[id]
-			store.RUnlock()
-			if !ok || itemPtr == nil {
-				logrus.Error("store '"+storeName+"' not found: ", id)
-				return
-			}
-		}
-		if itemPtr == nil {
-			items, err := load(&id)
-			if err != nil {
-				logrus.Error("store '"+storeName+"' load: ", id, " ", err)
-			} else {
-				itemsVal := reflect.ValueOf(items)
-				if itemsVal.Len() == 0 {
-					logrus.Error("store '"+storeName+"' not found: ", id)
-				} else {
-					itemVal := itemsVal.Index(0)
-					itemPtr = itemVal.Addr().Interface()
-				}
-			}
-		} else {
-			var err error
-			writeItem(itemPtr, func(locked bool) {
-				if !locked {
-					// Делаем полную копию, если у элемента нет методов блокировки (можно использовать только для чтения)
-					itemPtr = deepcopier.Copy(itemPtr)
-				}
-				err = json.Unmarshal([]byte(data), itemPtr)
-			})
-			if err != nil {
-				logrus.Error("store '"+storeName+"' unmarshal: ", id, " ", err)
-				itemPtr = nil
-			}
-		}
-		if itemPtr != nil {
-			store.Lock()
-			store.items[id] = itemPtr
+}
 
-			store.Unlock()
-			logrus.Warn("store '"+storeName+"' update: ", id, " ", data)
+func (store *DataStore) readIndexies(itemVal reflect.Value, itemPtr interface{}) []interface{} {
+	cnt := len(store.propIndexes)
+	result := make([]interface{}, cnt)
+	readItem(itemPtr, func() {
+		for i := 0; i < cnt; i++ {
+			propID := store.propIndexes[i]
+			prop := reflect.Indirect(itemVal.FieldByName(propID))
+			if !prop.IsValid() {
+				continue
+			}
+			result[i] = prop.Interface()
+		}
+	})
+	return result
+}
+
+func (store *DataStore) updateIndexies(itemVal reflect.Value, itemPtr interface{}, oldValues []interface{}) {
+	cnt := len(store.propIndexes)
+	for i := 0; i < cnt; i++ {
+		propID := store.propIndexes[i]
+		prop := reflect.Indirect(itemVal.FieldByName(propID))
+		index, isIndex := store.indexes[propID]
+		if !isIndex || !prop.IsValid() {
+			continue
+		}
+		propVal := prop.Interface()
+		if oldValues != nil {
+			oldVal := oldValues[i]
+			if oldVal != propVal && oldVal != nil {
+				delete(index, oldVal)
+			}
+		}
+		if propVal != nil {
+			index[propVal] = itemPtr
 		}
 	}
-
-	return &store
 }
 
 func writeItem(itemPtr interface{}, cb func(locked bool)) {
@@ -2127,20 +2204,6 @@ func readItem(itemPtr interface{}, cb func()) {
 	if lock.IsValid() {
 		unlock := itemVal.MethodByName("RUnlock")
 		unlock.Call([]reflect.Value{})
-	}
-}
-
-func (store *DataStore) appendIndexies(props []string, itemVal reflect.Value, itemPtr interface{}) {
-	cnt := len(props)
-	for i := 0; i < cnt; i++ {
-		propID := props[i]
-		prop := itemVal.FieldByName(propID)
-		if prop.IsValid() {
-			propVal := prop.Interface()
-			if index, ok := store.indexes[propID]; ok {
-				index[propVal] = itemPtr
-			}
-		}
 	}
 }
 
