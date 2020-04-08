@@ -365,7 +365,7 @@ func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUp
 					case string:
 						oldMap[tag] = f.String()
 					case time.Time:
-						oldMap[tag] = val.Format(time.RFC3339)
+						oldMap[tag] = val.Format(time.RFC3339Nano)
 					case []string:
 						jsonArray, _ := json.Marshal(val)
 						oldMap[tag] = jsonArray
@@ -424,7 +424,7 @@ func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUp
 			resultMap[tag] = f.String()
 			updV = resultMap[tag].(string)
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
 		case []string:
 			jsonArray, _ := json.Marshal(val)
@@ -535,7 +535,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 				case string:
 					oldMap[tag] = f.String()
 				case time.Time:
-					oldMap[tag] = val.Format(time.RFC3339)
+					oldMap[tag] = val.Format(time.RFC3339Nano)
 				default:
 					valJSON, _ := json.Marshal(val)
 					oldMap[tag] = string(valJSON)
@@ -604,7 +604,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			resultMap[tag] = f.String()
 			updV = resultMap[tag].(string)
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
 		default:
 			valJSON, _ := json.Marshal(val)
@@ -736,7 +736,7 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		case string:
 			resultMap[tag] = f.String()
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
 		default:
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
@@ -808,7 +808,7 @@ func GetMapFromStruct(structVal interface{}) map[string]interface{} {
 			case string:
 				res[tag] = f.String()
 			case time.Time:
-				res[tag] = val.Format(time.RFC3339)
+				res[tag] = val.Format(time.RFC3339Nano)
 			default:
 				valJSON, _ := json.Marshal(val)
 				res[tag] = string(valJSON)
