@@ -174,6 +174,9 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	if len(text) == 0 {
 		text = "[" + reg.id + "]"
 	}
+	if reg.typ != "" {
+		typ = reg.typ
+	}
 	return text, typ, err
 }
 
