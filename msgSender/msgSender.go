@@ -366,6 +366,7 @@ func (msg *Message) Send(data interface{}) {
 			info += addr
 			SendEmail(addr, title, text, contentType, nil)
 		}
+		return
 	}
 	log.Debug("Message", " [Send] ", info+": ", text)
 }
