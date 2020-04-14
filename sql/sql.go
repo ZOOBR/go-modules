@@ -126,6 +126,10 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 // TODO:: Move save log to modelLog
 func (queryObj *Query) saveLog(table string, item string, user string, diff map[string]interface{}) {
 	if len(diff) > 0 {
+		if user == "" {
+			log.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
+			return
+		}
 		keys := []string{}
 		values := []string{}
 		for key := range diff {
@@ -777,7 +781,7 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 
 // GetMapFromStruct return map from struct
 func GetMapFromStruct(structVal interface{}) map[string]interface{} {
-	iVal := reflect.ValueOf(structVal).Elem()
+	iVal := reflect.Indirect(reflect.ValueOf(structVal))
 	typ := iVal.Type()
 	res := make(map[string]interface{})
 	for i := 0; i < iVal.NumField(); i++ {
@@ -809,6 +813,9 @@ func GetMapFromStruct(structVal interface{}) map[string]interface{} {
 				res[tag] = f.String()
 			case time.Time:
 				res[tag] = val.Format(time.RFC3339Nano)
+			case pq.StringArray:
+				arr := f.Interface().(pq.StringArray)
+				res[tag] = "{" + strings.Join(arr, ",") + "}"
 			default:
 				valJSON, _ := json.Marshal(val)
 				res[tag] = string(valJSON)
@@ -1979,6 +1986,9 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 		return 0, err
 	}
 	count, err := table.DeleteMultiple(idField + `='` + id + `'`)
+	if count != 1 {
+		err = errors.New("record not found")
+	}
 	return count, err
 }
 
