@@ -122,6 +122,7 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 	return &res, nil
 }
 
+// MakeThumbnail makes photo thumbnail from exif or without
 func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -148,19 +149,15 @@ func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
 		ySize = binary.BigEndian.Uint32(yTag.Val)
 	}
 
-	ratio := xSize / ySize
+	var ratio float32 = float32(xSize) / float32(ySize)
 	var thX, thY uint
 	if ratio > 1 {
 		thX = 176
-		// thY = int(float64(ySize) * (float64(thX) / float64(xSize)))
 		thY = 0
 	} else {
 		thY = 176
-		// thX = int(float64(xSize) * (float64(thY) / float64(ySize)))
 		thX = 0
 	}
-	// dstThumb := imaging.Thumbnail(img, thX, thY, imaging.Lanczos)
-	// thumbnail = dstThumb.Pix
 	dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
 	w := bytes.NewBuffer([]byte{})
 	err = jpeg.Encode(w, dstThumb, nil)
@@ -172,6 +169,7 @@ func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
 	return &res, nil
 }
 
+// UploadImageS3 loads image to S3 storage with thumbnail
 func UploadImageS3(photo *string, bucketName string, existPath *string, rawData ...multipart.File) (*uploadedPhoto, error) {
 	var r io.Reader
 	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
@@ -199,18 +197,13 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 			log.Error("Error decode exif: ", err)
 			return nil, err
 		}
-		if x != nil {
-			thumbnail, err = x.JpegThumbnail()
+		newThumbnail, err := MakeThumbnail(dec, x)
+		if err != nil {
+			return nil, err
+		} else if newThumbnail == nil {
+			return nil, errors.New("Empty thumbnail")
 		}
-		if err != nil || len(thumbnail) == 0 {
-			newThumbnail, err := MakeThumbnail(dec, x)
-			if err != nil {
-				return nil, err
-			} else if newThumbnail == nil {
-				return nil, errors.New("Empty thumbnail")
-			}
-			thumbnail = *newThumbnail
-		}
+		thumbnail = *newThumbnail
 	}
 
 	file := str.RandomString(10, false)
