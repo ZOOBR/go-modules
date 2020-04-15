@@ -21,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 
 	//"github.com/rwcarlsen/goexif/exif"
+	"github.com/disintegration/imaging"
 	"github.com/xor-gate/goexif2/exif"
 
 	"github.com/nfnt/resize"
@@ -123,13 +124,14 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 }
 
 // MakeThumbnail makes photo thumbnail from exif or without
-func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
+func MakeThumbnail(data []byte, x *exif.Exif, thumbSize int64) (*[]byte, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		log.Error("Error gen thumbnail: ", err)
 		return nil, err
 	}
 	var xSize, ySize uint32
+	var orientation uint16
 	if x == nil {
 		b := img.Bounds()
 		xSize = uint32(b.Max.X)
@@ -145,20 +147,44 @@ func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
 			log.Error("Error gen thumbnail: ", err)
 			return nil, err
 		}
+		orientationTag, err := x.Get("Orientation")
+		if err != nil {
+			log.Error("Error gen orientation: ", err)
+		}
 		xSize = binary.BigEndian.Uint32(xTag.Val)
 		ySize = binary.BigEndian.Uint32(yTag.Val)
+		if orientationTag != nil {
+			orientation = binary.BigEndian.Uint16(orientationTag.Val)
+		}
+
 	}
 
 	var ratio float32 = float32(xSize) / float32(ySize)
 	var thX, thY uint
 	if ratio > 1 {
-		thX = 176
+		thX = uint(thumbSize)
 		thY = 0
 	} else {
-		thY = 176
+		thY = uint(thumbSize)
 		thX = 0
 	}
 	dstThumb := resize.Resize(thX, thY, img, resize.Lanczos3)
+	if orientation > 0 {
+		switch orientation {
+		case 6:
+			dst := imaging.Rotate270(dstThumb)
+			dstThumb = image.Image(dst)
+			break
+		case 3:
+			dst := imaging.Rotate180(dstThumb)
+			dstThumb = image.Image(dst)
+			break
+		case 8:
+			dst := imaging.Rotate90(dstThumb)
+			dstThumb = image.Image(dst)
+			break
+		}
+	}
 	w := bytes.NewBuffer([]byte{})
 	err = jpeg.Encode(w, dstThumb, nil)
 	if err != nil {
@@ -170,7 +196,7 @@ func MakeThumbnail(data []byte, x *exif.Exif) (*[]byte, error) {
 }
 
 // UploadImageS3 loads image to S3 storage with thumbnail
-func UploadImageS3(photo *string, bucketName string, existPath *string, rawData ...multipart.File) (*uploadedPhoto, error) {
+func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSize int64, rawData ...multipart.File) (*uploadedPhoto, error) {
 	var r io.Reader
 	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
 		var err error
@@ -197,7 +223,7 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, rawData 
 			log.Error("Error decode exif: ", err)
 			return nil, err
 		}
-		newThumbnail, err := MakeThumbnail(dec, x)
+		newThumbnail, err := MakeThumbnail(dec, x, thumbSize)
 		if err != nil {
 			return nil, err
 		} else if newThumbnail == nil {
