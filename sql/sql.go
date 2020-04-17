@@ -1989,6 +1989,17 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 	if count != 1 {
 		err = errors.New("record not found")
 	}
+	if err == nil {
+		var data interface{}
+		if len(options) > 0 {
+			data = options[0]["data"]
+		}
+		if data == nil {
+			data = struct{}{}
+		}
+		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data)
+		//table.SaveLog(id, diff, options)
+	}
 	return count, err
 }
 
