@@ -136,7 +136,9 @@ func correctDataForExec(data interface{}) interface{} {
 		rec = reflect.ValueOf(data).Elem()
 		recType = reflect.TypeOf(data)
 	}
-	if recType.Kind() != reflect.Struct {
+	if recType.Kind() == reflect.Map {
+		return data.(map[string]interface{})
+	} else if recType.Kind() != reflect.Struct {
 		return data
 	}
 	m := map[string]interface{}{}
