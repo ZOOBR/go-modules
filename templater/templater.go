@@ -137,7 +137,11 @@ func correctDataForExec(data interface{}) interface{} {
 		recType = reflect.TypeOf(data)
 	}
 	if recType.Kind() == reflect.Map {
-		return data.(map[string]interface{})
+		res, ok := data.(map[string]interface{})
+		if !ok /* recType.String() == "models.JsonB" */ {
+			return rec.Convert(reflect.TypeOf(res))
+		}
+		return res
 	} else if recType.Kind() != reflect.Struct {
 		return data
 	}
