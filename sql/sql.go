@@ -998,19 +998,26 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	}
 	orderby := ""
 	if val, ok := req["sort"]; ok && val != "" && !isCount {
-		sortParams := strings.Split(val, "-")
 		orderby += "ORDER BY "
-		if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
-			orderby += sortParams[0]
-		} else {
-			orderby += `"` + sortParams[0] + `"`
+		sortFields := strings.Split(val, ",")
+		for iSort := 0; iSort < len(sortFields); iSort++ {
+			if iSort > 0 {
+				orderby += ","
+			}
+			sortParams := strings.Split(sortFields[iSort], "-")
+			if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
+				orderby += sortParams[0]
+			} else {
+				orderby += `"` + sortParams[0] + `"`
+			}
+			if len(sortParams) > 1 {
+				orderby += " " + sortParams[1]
+			}
+			if v, o := req["nulls"]; o && v != "" {
+				orderby += ` NULLS ` + v
+			}
 		}
-		if len(sortParams) > 1 {
-			orderby += " " + sortParams[1]
-		}
-		if v, o := req["nulls"]; o && v != "" {
-			orderby += ` NULLS ` + v
-		}
+
 	}
 	paginationQuery := ""
 	prevPaginationQuery := ""
