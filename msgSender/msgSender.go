@@ -159,13 +159,16 @@ type SMS struct {
 
 // Mail is a basic email struct
 type Mail struct {
-	From        string   `json:"from"`
-	To          string   `json:"to"`
-	Subject     string   `json:"subject"`
-	Images      []string `json:"images"`
-	Bucket      string   `json:"bucket"`
-	Body        string   `json:"body"`
-	ContentType string   `json:"contentType"`
+	From            string      `json:"from"`
+	To              string      `json:"to"`
+	Subject         string      `json:"subject"`
+	Images          []string    `json:"images"`
+	Bucket          string      `json:"bucket"`
+	Body            string      `json:"body"`
+	ContentType     string      `json:"contentType"`
+	Template        string      `json:"template"`
+	TemplateType    string      `json:"templateType"`
+	TemplateContext interface{} `json:"templateContext"`
 }
 
 // Push is a basic push struct
@@ -184,7 +187,7 @@ type Push struct {
 // contentType - email content type
 // images - array of paths to images (nil if without images)
 // bucket - optional for email with images
-func SendEmail(to, subject, mail string, contentType string, images *[]string, bucket ...string) {
+func SendEmail(to, subject, mail string, contentType string, images *[]string, options map[string]string, data interface{}, bucket ...string) {
 	log.Info("[msgSender-SendEmail] ", "Try send notification to: ", to)
 
 	newMail := Mail{
@@ -200,6 +203,15 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 	}
 	if len(bucket) > 0 {
 		newMail.Bucket = bucket[0]
+	}
+	if _, ok := options["templateName"]; ok {
+		newMail.Template = options["templateName"]
+	}
+	if _, ok := options["templateType"]; ok {
+		newMail.TemplateType = options["templateType"]
+	}
+	if newMail.Template != "" {
+		newMail.TemplateContext = data
 	}
 	m, err := json.Marshal(newMail)
 	if err != nil {
@@ -304,6 +316,7 @@ func SendBot(msg, title string, botID, chatID string) {
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
 	var text, typ, title, info string
+	var options map[string]string
 	if msg.Mode != MessageModeWebPush {
 		text = msg.Msg
 		isTemplate := false
@@ -311,7 +324,7 @@ func (msg *Message) Send(data interface{}) {
 			text = text[1:]
 			isTemplate = true
 		}
-		text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
+		text, typ, options, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
 			"isTemplate": isTemplate,
 		})
 		if len(msg.Title) > 0 && (msg.Mode&(MessageModePush|MessageModeMail|MessageModeBot)) != 0 {
@@ -321,7 +334,7 @@ func (msg *Message) Send(data interface{}) {
 				title = title[1:]
 				isTemplate = true
 			}
-			title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
+			title, _, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
 				"isTemplate": isTemplate,
 			})
 		}
@@ -364,7 +377,7 @@ func (msg *Message) Send(data interface{}) {
 				info += ","
 			}
 			info += addr
-			SendEmail(addr, title, text, contentType, nil)
+			SendEmail(addr, title, text, contentType, nil, options, data)
 		}
 		return
 	}

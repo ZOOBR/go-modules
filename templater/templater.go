@@ -17,9 +17,11 @@ import (
 )
 
 type msgTemplateReg struct {
-	id        string
-	typ       string
-	templates map[string]*template.Template
+	id           string
+	typ          string
+	templateName string
+	templateType string
+	templates    map[string]*template.Template
 }
 
 var msgTemplates struct {
@@ -102,6 +104,10 @@ func prepareTemplate(id string, isTemplate bool) *msgTemplateReg {
 			}
 			if key == "type" {
 				reg.typ = str
+			} else if key == "templateName" {
+				reg.templateName = str
+			} else if key == "templateType" {
+				reg.templateType = str
 			} else {
 				t, err := template.New(mt.ID).Option("missingkey=zero").Parse(str)
 				if err == nil {
@@ -157,9 +163,10 @@ func correctDataForExec(data interface{}) interface{} {
 	return m
 }
 
-func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string, error) {
+func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string, map[string]string, error) {
 	var err error
 	var text, typ string
+	var options = make(map[string]string)
 	var t *template.Template
 
 	if lang == "" {
@@ -183,21 +190,28 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	if reg.typ != "" {
 		typ = reg.typ
 	}
-	return text, typ, err
+	if reg.templateName != "" {
+		options["templateName"] = reg.templateName
+	}
+	if reg.templateType != "" {
+		options["templateType"] = reg.templateType
+	}
+	return text, typ, options, err
 }
 
-func format(id, lang string, isTemplate bool, data interface{}) (string, string, error) {
+func format(id, lang string, isTemplate bool, data interface{}) (string, string, map[string]string, error) {
 	var text, typ string
+	var options map[string]string
 	var err error
 	if len(id) > 0 {
-		text, typ, err = prepareTemplate(id, isTemplate).format(lang, data)
+		text, typ, options, err = prepareTemplate(id, isTemplate).format(lang, data)
 	}
-	return text, typ, err
+	return text, typ, options, err
 }
 
 // Format message by template id with map or struct data
 // Template string: "Hello <b>{{.Name}}</b> {{.Caption}}"
-func Format(id, lang string, data interface{}, options ...map[string]interface{}) (string, string, error) {
+func Format(id, lang string, data interface{}, options ...map[string]interface{}) (string, string, map[string]string, error) {
 	isTemplate := true
 	if len(options) > 0 {
 		if tmplOption, ok := options[0]["isTemplate"]; ok {
@@ -213,7 +227,7 @@ func Format(id, lang string, data interface{}, options ...map[string]interface{}
 
 // FormatParams message by template id with unnamed parameters
 // Template string: "Hello <b>{{.p0}}</b> {{.p1}}"
-func FormatParams(id, lang string, params ...interface{}) (string, string, error) {
+func FormatParams(id, lang string, params ...interface{}) (string, string, map[string]string, error) {
 	data := map[string]interface{}{}
 	for index, param := range params {
 		data["p"+strconv.Itoa(index)] = param
@@ -241,20 +255,20 @@ func Init() {
 	// })
 
 	// structure data
-	msg, _, err := Format("#test", "en", struct{ Name, Gift string }{
+	msg, _, _, err := Format("#test", "en", struct{ Name, Gift string }{
 		"name", "test",
 	})
 	log.Debug(msg, err)
 
 	// map data
-	msg, _, err = Format("#test", "en", map[string]interface{}{
+	msg, _, _, err = Format("#test", "en", map[string]interface{}{
 		"Name": "name2",
 		"Gift": "test2",
 	})
 	log.Debug(msg, err)
 
 	// unamed parameters
-	msg, _, err = FormatParams("#auth.code.message", "en", 121343)
+	msg, _, _, err = FormatParams("#auth.code.message", "en", 121343)
 	log.Debug(msg, err)
 
 	//*/
