@@ -37,6 +37,7 @@ var (
 	notificationPublisher *amqp.Consumer
 	reconTime             = time.Second * 20
 	botProxy              = os.Getenv("BOT_HTTP_PROXY")
+	emailSender           = os.Getenv("EMAIL_SENDER")
 
 	// PublisherInitWait - wait initialization of publisher
 	PublisherInitWait = NewInitWait()
@@ -194,7 +195,7 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, o
 	log.Info("[msgSender-SendEmail] ", "Try send notification to: ", to)
 
 	newMail := Mail{
-		From:        os.Getenv("EMAIL_SENDER"),
+		From:        emailSender,
 		To:          to,
 		Subject:     subject,
 		Body:        mail,
