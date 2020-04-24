@@ -21,6 +21,7 @@ type msgTemplateReg struct {
 	typ          string
 	templateName string
 	templateType string
+	bucket       string
 	templates    map[string]*template.Template
 }
 
@@ -108,6 +109,8 @@ func prepareTemplate(id string, isTemplate bool) *msgTemplateReg {
 				reg.templateName = str
 			} else if key == "templateType" {
 				reg.templateType = str
+			} else if key == "bucket" {
+				reg.bucket = str
 			} else {
 				t, err := template.New(mt.ID).Option("missingkey=zero").Parse(str)
 				if err == nil {
@@ -195,6 +198,9 @@ func (reg *msgTemplateReg) format(lang string, data interface{}) (string, string
 	}
 	if reg.templateType != "" {
 		options["templateType"] = reg.templateType
+	}
+	if reg.bucket != "" {
+		options["bucket"] = reg.bucket
 	}
 	return text, typ, options, err
 }
