@@ -210,6 +210,8 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, o
 	}
 	if senderName, ok := options["senderName"]; ok {
 		newMail.SenderName = senderName
+	} else {
+		newMail.SenderName = newMail.From
 	}
 	if _, ok := options["templateName"]; ok {
 		newMail.Template = options["templateName"]
