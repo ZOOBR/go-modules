@@ -124,8 +124,11 @@ var (
 
 // PositionInfo - position info (base check content)
 type PositionInfo struct {
-	Time float64 `json:"time"`
-	Auth *Auth   `json:"auth"`
+	Time float64       `json:"time"`
+	ID   string        `json:"id"`
+	Type string        `json:"type"`
+	Data *FlatPosition `json:"data"`
+	Auth *Auth         `json:"auth"`
 }
 
 // Auth - auth token info
@@ -179,8 +182,8 @@ type ZoneInfo struct {
 // FlatPosition compact position format
 type FlatPosition struct {
 	Time  float64            `json:"t"`
-	P     map[uint16]float64 `json:"p"`
-	E     []uint16           `json:"e"`
+	P     map[uint16]float64 `json:"p,omitempty"`
+	E     []uint16           `json:"e,omitempty"`
 	Zones []ZoneInfo         `json:"zones,omitempty"`
 }
 

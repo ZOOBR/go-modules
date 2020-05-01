@@ -220,6 +220,11 @@ func (consumer *Consumer) Publish(msg []byte, options ...string) error {
 	return err
 }
 
+// SendTelemetry send position to saver service
+func SendTelemetry(amqpURI, id, telemetry string) error {
+	return Publish(amqpURI, "csx.telemetry", "fanout", id, telemetry, false)
+}
+
 // SendUpdate Send rpc update command to services
 func SendUpdate(amqpURI, table, id, method string, data interface{}) error {
 	objectJSON, err := json.Marshal(data)
