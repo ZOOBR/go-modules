@@ -24,7 +24,7 @@ func RandomString(n int, onlyDigits bool) string {
 }
 
 func IsValidUUID(u string) bool {
-	_, err := uuid.FromString(u)
+	_, err := uuid.Parse(u)
 	return err == nil
 }
 
