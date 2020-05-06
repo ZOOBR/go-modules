@@ -123,7 +123,7 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 		obj = drv + ":" + obj
 	}
 	cmd := Command{
-		Id:      uuid.Must(uuid.NewV4()).String(),
+		Id:      uuid.NewV4().String(),
 		Target:  obj,
 		Command: *action,
 	}
