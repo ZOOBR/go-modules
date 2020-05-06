@@ -90,7 +90,7 @@ func initEventsPublisher() {
 	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
 	if amqpURI != "" && amqpTelemetryExchange != "" {
 		var err error
-		publisher, err = amqp.NewPublisher(amqpURI, "initEventsPublisher", amqp.Exchange{Name: amqpTelemetryExchange, Type: "topic"})
+		publisher, err = amqp.NewPublisher(amqpURI, "initEventsPublisher", amqp.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
 		if err != nil {
 			log.Error("init events publisher err:", err)
 			log.Warn("try reconnect to rabbitmq after:", reconTime)
