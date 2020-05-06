@@ -90,45 +90,29 @@ func initEventsPublisher() {
 	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
 	if amqpURI != "" && amqpTelemetryExchange != "" {
 		var err error
-		for {
-			publisher, err = amqp.NewPublisher(amqpURI, amqpTelemetryExchange, "topic", "csx.events", "csx.events")
-			if err != nil {
-				log.Error("init events publisher err:", err)
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-			PublisherInitWait.Process(err)
-			log.Info("events publisher running")
-			select {
-			case <-publisher.Done:
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
+		publisher, err = amqp.NewPublisher(amqpURI, "initEventsPublisher", amqp.Exchange{Name: amqpTelemetryExchange, Type: "topic"})
+		if err != nil {
+			log.Error("init events publisher err:", err)
+			log.Warn("try reconnect to rabbitmq after:", reconTime)
+			time.Sleep(reconTime)
+			initEventsPublisher()
 		}
+		PublisherInitWait.Process(err)
+		log.Info("events publisher running")
 	}
 }
 
 func initNotificationsPublisher() {
 	if amqpURI != "" && mailingsExchange != "" {
 		var err error
-		for {
-			notificationPublisher, err = amqp.NewPublisher(amqpURI, mailingsExchange, "direct", "", "csx.notifications")
-			if err != nil {
-				log.Error("init notification publisher err:", err)
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-			log.Info("notification publisher running")
-			select {
-			case <-notificationPublisher.Done:
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
+		notificationPublisher, err = amqp.NewPublisher(amqpURI, "initNotificationsPublisher", amqp.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
+		if err != nil {
+			log.Error("init notification publisher err:", err)
+			log.Warn("try reconnect to rabbitmq after:", reconTime)
+			time.Sleep(reconTime)
+			initNotificationsPublisher()
 		}
+		log.Info("notification publisher running")
 	}
 }
 
