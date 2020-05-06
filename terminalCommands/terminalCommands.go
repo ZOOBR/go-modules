@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -123,7 +123,7 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 		obj = drv + ":" + obj
 	}
 	cmd := Command{
-		Id:      uuid.Must(uuid.NewV4()).String(),
+		Id:      uuid.New().String(),
 		Target:  obj,
 		Command: *action,
 	}
