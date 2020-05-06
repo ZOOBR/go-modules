@@ -2,6 +2,8 @@ module gitlab.com/battler/modules
 
 go 1.13
 
+//replace gitlab.com/battler/models => ../../models
+
 require (
 	github.com/CloudyKit/fastprinter v0.0.0-20200109182630-33d98a066a53 // indirect
 	github.com/ajg/form v1.5.1 // indirect
