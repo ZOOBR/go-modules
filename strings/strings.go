@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/prometheus/common/log"
 	uuid "github.com/satori/go.uuid"
 )
 
@@ -29,7 +30,12 @@ func IsValidUUID(u string) bool {
 }
 
 func NewId() (res *string) {
-	uuidVal := uuid.NewV4().String()
+	u2, err := uuid.NewV4()
+	if err != nil {
+		log.Error("error generate uuid:", err)
+		return res
+	}
+	uuidVal := u2.String()
 	return &uuidVal
 }
 
