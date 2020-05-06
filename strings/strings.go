@@ -63,8 +63,7 @@ func GetIdsStr(ids string) string {
 
 // GetStructFields extract all json fields from structure
 func GetStructFields(s interface{}) []string {
-	v := reflect.ValueOf(s)
-	rt := reflect.TypeOf(v)
+	rt := reflect.TypeOf(s)
 	out := []string{}
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
