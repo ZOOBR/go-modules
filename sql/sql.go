@@ -1163,25 +1163,32 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		if envName != "" {
 			queueName += "." + envName
 		}
-		options := map[string]interface{}{
-			"queueAutoDelete": true,
-			"queueDurable":    false,
-			"queueKeys":       []string{tableName},
-		}
 		if consumerTag != "" {
-			options["consumerTag"] = consumerTag
 			queueName += "." + consumerTag
 		} else {
 			queueName += "." + *strUtil.NewId()
 		}
-		go amqp.OnUpdates(registerSchemaOnUpdate, queueName, options)
+		updateExch := os.Getenv("EXCHANGE_UPDATES")
+		if updateExch == "" {
+			updateExch = "csx.updates"
+		}
+		exchange := amqp.Exchange{Name: updateExch, Type: "direct", Durable: true}
+		queue := amqp.Queue{
+			Name:        queueName,
+			ConsumerTag: consumerTag,
+			AutoDelete:  true,
+			Durable:     false,
+			Keys:        []string{tableName},
+		}
+		amqpURI = os.Getenv("AMQP_URI")
+		go amqp.OnUpdates(registerSchemaOnUpdate, amqpURI, tableName, exchange, queue)
 	}
 	return nil
 }
 
 func registerSchemaOnUpdate(consumer *amqp.Consumer) {
 	deliveries := consumer.Deliveries
-	done := consumer.Done
+	//done := consumer.Done
 	log.Debug("HandleUpdates: deliveries channel open")
 	for d := range deliveries {
 		msg := amqp.Update{}
@@ -1202,7 +1209,9 @@ func registerSchemaOnUpdate(consumer *amqp.Consumer) {
 		d.Ack(false)
 	}
 	log.Debug("HandleUpdates: deliveries channel closed")
-	done <- nil
+	consumer.Reconnect()
+	registerSchemaOnUpdate(consumer)
+	//done <- nil
 }
 
 // GetSchemaTable get schema table by table name
