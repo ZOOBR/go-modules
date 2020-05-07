@@ -91,7 +91,10 @@ func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
 }
 
 func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, err error) {
-	return queryObj.tx.Exec(query, args...)
+	if queryObj.tx != nil {
+		return queryObj.tx.Exec(query, args...)
+	}
+	return queryObj.db.Exec(query, args...)
 }
 
 func (queryObj *Query) Select(dest interface{}, query string) error {
