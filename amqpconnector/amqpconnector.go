@@ -90,6 +90,26 @@ func (c *Consumer) ExchangeDeclare() (string, error) {
 	return "", nil
 }
 
+// BindKeys dial amqp server, decrare echange an queue if set
+func (c *Consumer) BindKeys(keys []string) error {
+	if len(keys) > 0 {
+		for _, key := range keys {
+			newKey := key
+			if err := c.channel.QueueBind(
+				c.queue.Name,    // name of the queue
+				newKey,          // bindingKey
+				c.exchange.Name, // sourceExchange
+				c.queue.NoWait,  // noWait
+				c.queue.Args,    // arguments
+			); err != nil {
+				return err
+			}
+		}
+		logrus.Info(c.logInfo("amqp bind keys: "), keys, " to queue: ", c.queue.Name)
+	}
+	return nil
+}
+
 // QueueDeclare dial amqp server, decrare echange an queue if set
 func (c *Consumer) QueueDeclare(exchange string) error {
 	// declare and bind queue
@@ -107,28 +127,13 @@ func (c *Consumer) QueueDeclare(exchange string) error {
 			return err
 		}
 		if len(c.queue.Keys) > 0 {
-			logrus.Info(c.logInfo("amqp bind keys: "), c.queue.Keys, " to queue: ", c.queue.Name)
-			for _, key := range c.queue.Keys {
-				if err = c.channel.QueueBind(
-					c.queue.Name,   // name of the queue
-					key,            // bindingKey
-					exchange,       // sourceExchange
-					c.queue.NoWait, // noWait
-					c.queue.Args,   // arguments
-				); err != nil {
-					return err
-				}
-			}
+			err = c.BindKeys(c.queue.Keys)
 		} else {
-			if err = c.channel.QueueBind(
-				c.queue.Name,        // name of the queue
-				c.queue.ConsumerTag, // bindingKey
-				exchange,            // sourceExchange
-				c.queue.NoWait,      // noWait
-				c.queue.Args,        // arguments
-			); err != nil {
-				return err
-			}
+			err = c.BindKeys([]string{c.queue.ConsumerTag})
+		}
+
+		if err != nil {
+			return err
 		}
 		logrus.Info(c.logInfo("starting consume for queue: "), c.queue.Name)
 		deliveries, err := c.channel.Consume(
@@ -265,15 +270,14 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue) (consum
 		consumers.Store(name, consumer)
 	} else {
 		consumer = consumerInt.(*Consumer)
-		// declare exchange
-		exchange, err := consumer.ExchangeDeclare()
-		if err != nil {
-			return nil, err
+		var err error
+		if len(queue.Keys) > 0 {
+			err = consumer.BindKeys(queue.Keys)
+		} else {
+			err = consumer.BindKeys([]string{queue.ConsumerTag})
 		}
-		// declare queue and bind routing keys
-		err = consumer.QueueDeclare(exchange)
 		if err != nil {
-			return nil, err
+			return consumer, err
 		}
 	}
 	return consumer, nil
@@ -329,7 +333,7 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 	var consumer *Consumer
 	consumerInt, ok := consumers.Load("SendUpdate")
 	if !ok {
-		consumer, err = NewConsumer(amqpURI, "SendUpdate", &Exchange{Name: "csx.updates", Type: "direct"}, &Queue{})
+		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: "csx.updates", Type: "direct", Durable: true})
 		if err != nil {
 			return err
 		}
