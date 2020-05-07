@@ -333,7 +333,7 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 		if err != nil {
 			return err
 		}
-		consumers.Store("SendUpdate", &consumer)
+		consumers.Store("SendUpdate", consumer)
 	} else {
 		consumer = consumerInt.(*Consumer)
 	}
