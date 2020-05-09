@@ -1176,7 +1176,7 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 	return nil
 }
 
-func registerSchemaOnUpdate(d amqp.Delivery) {
+func registerSchemaOnUpdate(d *amqp.Delivery) {
 	msg := amqp.Update{}
 	err := json.Unmarshal(d.Body, &msg)
 	if err != nil {

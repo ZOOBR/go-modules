@@ -35,7 +35,7 @@ type Consumer struct {
 	queue    *Queue
 	uri      string
 	name     string // consumer name for logs
-	handlers []func(Delivery)
+	handlers []func(*Delivery)
 }
 
 // Exchange struct for receive exchange params
@@ -223,7 +223,7 @@ func (c *Consumer) Reconnect() <-chan amqp.Delivery {
 }
 
 //NewConsumer create simple consumer for read messages with ack
-func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handlers []func(Delivery)) (*Consumer, error) {
+func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handlers []func(*Delivery)) (*Consumer, error) {
 	c := &Consumer{
 		exchange: exchange,
 		queue:    queue,
@@ -273,7 +273,7 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 }
 
 // GetConsumer get or create publish/consume consumer
-func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler func(Delivery)) (consumer *Consumer, err error) {
+func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler func(*Delivery)) (consumer *Consumer, err error) {
 	consumerInt, ok := consumers.Load(name)
 	if !ok {
 		if queue == nil {
@@ -283,7 +283,7 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 			}
 			consumer, err = NewPublisher(amqpURI, name, exch)
 		} else {
-			consumer, err = NewConsumer(amqpURI, name, exchange, queue, []func(Delivery){handler})
+			consumer, err = NewConsumer(amqpURI, name, exchange, queue, []func(*Delivery){handler})
 		}
 		if err != nil {
 			return nil, err
@@ -373,7 +373,7 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 				for i := 0; i < len(c.handlers); i++ {
 					cb := c.handlers[i]
 					dv := Delivery(d)
-					cb(dv)
+					cb(&dv)
 				}
 				d.Ack(false)
 			}
@@ -387,9 +387,9 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 }
 
 // AddConsumeHandler add handler for queue consumer
-func (c *Consumer) AddConsumeHandler(handler func(Delivery)) {
+func (c *Consumer) AddConsumeHandler(handler func(*Delivery)) {
 	if len(c.handlers) == 0 {
-		c.handlers = []func(Delivery){handler}
+		c.handlers = []func(*Delivery){handler}
 	} else {
 		c.handlers = append(c.handlers, handler)
 	}
@@ -412,7 +412,7 @@ func GenerateName(prefix string) string {
 }
 
 // OnUpdates Listener to get models events update, create and delete
-func OnUpdates(cb func(data Delivery), keys []string) {
+func OnUpdates(cb func(data *Delivery), keys []string) {
 
 	updateExch := os.Getenv("EXCHANGE_UPDATES")
 	if updateExch == "" {
@@ -437,7 +437,7 @@ func OnUpdates(cb func(data Delivery), keys []string) {
 	}
 	lenHandlers := len(cUpdates.handlers)
 	if lenHandlers == 0 {
-		cUpdates.handlers = make([]func(Delivery), 0)
+		cUpdates.handlers = make([]func(*Delivery), 0)
 		cUpdates.handlers = append(cUpdates.handlers, cb)
 	} else {
 		cUpdates.handlers = append(cUpdates.handlers, cb)
