@@ -4,11 +4,14 @@ package amqpconnector
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
+	strUtil "gitlab.com/battler/modules/strings"
 )
 
 var consumers sync.Map
@@ -25,14 +28,14 @@ type Update struct {
 
 //Consumer structure for NewConsumer result
 type Consumer struct {
-	conn       *amqp.Connection
-	channel    *amqp.Channel
-	Done       chan error
-	Deliveries <-chan amqp.Delivery
-	exchange   *Exchange
-	queue      *Queue
-	uri        string
-	name       string // consumer name for logs
+	conn     *amqp.Connection
+	channel  *amqp.Channel
+	done     chan error
+	exchange *Exchange
+	queue    *Queue
+	uri      string
+	name     string // consumer name for logs
+	handlers []func(Delivery)
 }
 
 // Exchange struct for receive exchange params
@@ -59,6 +62,8 @@ type Queue struct {
 	NoWait      bool
 	Args        map[string]interface{}
 }
+
+type Delivery amqp.Delivery
 
 // TODO:: Get from env
 var (
@@ -93,7 +98,20 @@ func (c *Consumer) ExchangeDeclare() (string, error) {
 // BindKeys dial amqp server, decrare echange an queue if set
 func (c *Consumer) BindKeys(keys []string) error {
 	if len(keys) > 0 {
+		if len(c.queue.Keys) == 0 {
+			c.queue.Keys = make([]string, 0)
+		}
 		for _, key := range keys {
+			keyExists := false
+			for _, oldKey := range c.queue.Keys {
+				if oldKey == key {
+					keyExists = true
+					break
+				}
+			}
+			if !keyExists {
+				c.queue.Keys = append(c.queue.Keys, key)
+			}
 			newKey := key
 			if err := c.channel.QueueBind(
 				c.queue.Name,    // name of the queue
@@ -111,7 +129,7 @@ func (c *Consumer) BindKeys(keys []string) error {
 }
 
 // QueueDeclare dial amqp server, decrare echange an queue if set
-func (c *Consumer) QueueDeclare(exchange string) error {
+func (c *Consumer) QueueDeclare(exchange string) (<-chan amqp.Delivery, error) {
 	// declare and bind queue
 	if c.queue != nil {
 		logrus.Info(c.logInfo("amqp declare queue: "), c.queue.Name, " durable: ", c.queue.Durable, " autodelete: ", c.queue.AutoDelete)
@@ -124,7 +142,7 @@ func (c *Consumer) QueueDeclare(exchange string) error {
 			c.queue.Args,       // arguments
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(c.queue.Keys) > 0 {
 			err = c.BindKeys(c.queue.Keys)
@@ -133,7 +151,7 @@ func (c *Consumer) QueueDeclare(exchange string) error {
 		}
 
 		if err != nil {
-			return err
+			return nil, err
 		}
 		logrus.Info(c.logInfo("starting consume for queue: "), c.queue.Name)
 		deliveries, err := c.channel.Consume(
@@ -146,76 +164,78 @@ func (c *Consumer) QueueDeclare(exchange string) error {
 			c.queue.Args,        // arguments
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		c.Deliveries = deliveries
+		return deliveries, nil
+
 	}
-	return nil
+	return nil, nil
 }
 
 // Connect dial amqp server, decrare echange an queue if set
-func (c *Consumer) Connect() error {
+func (c *Consumer) Connect(reconnect bool) (<-chan amqp.Delivery, error) {
 	var err error
 	logrus.Info(c.logInfo("amqp connect to: "), c.uri)
 	c.conn, err = amqp.Dial(c.uri)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	go func() {
-		select {
-		case <-c.Done:
-			logrus.Warn(c.logInfo("try reconnect to rabbitmq after: "), reconTime)
-			time.Sleep(reconTime)
-			c.Reconnect()
-			return
-		case err := <-c.conn.NotifyClose(make(chan *amqp.Error)):
-			logrus.Error(c.logInfo("amqp connection err: "), err)
-			time.Sleep(reconTime)
-			c.Reconnect()
-			return
-		}
-	}()
 
 	logrus.Info(c.logInfo("amqp get channel"))
 	c.channel, err = c.conn.Channel()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// declare exchange
 	exchange, err := c.ExchangeDeclare()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// declare queue and bind routing keys
-	err = c.QueueDeclare(exchange)
+	deliveries, err := c.QueueDeclare(exchange)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	return nil
+	if !reconnect {
+		go c.handleDeliveries(deliveries)
+	}
+	go func() {
+		logrus.Error(c.logInfo("amqp connection err: "), <-c.conn.NotifyClose(make(chan *amqp.Error)))
+		c.done <- errors.New(c.logInfo("channel closed"))
+	}()
+	return deliveries, nil
 }
 
 // Reconnect reconnect to amqp server
-func (c *Consumer) Reconnect() {
-	reconnectInterval := 30
-	time.Sleep(time.Duration(reconnectInterval) * time.Second)
-	if err := c.Connect(); err != nil {
-		logrus.Error(c.logInfo("consumer reconnect err: "), err.Error(), " next try in ", reconnectInterval, "s")
-		c.Reconnect()
+func (c *Consumer) Reconnect() <-chan amqp.Delivery {
+	if err := c.Shutdown(); err != nil {
+		logrus.Error(c.logInfo("error during shutdown: "), err)
 	}
+	reconnectInterval := 30
+	logrus.Warn(c.logInfo("consumer wait reconnect"), " next try in ", reconnectInterval, "s")
+	time.Sleep(time.Duration(reconnectInterval) * time.Second)
+	deliveries, err := c.Connect(true)
+	if err != nil {
+		logrus.Error(c.logInfo("consumer reconnect err: "), err.Error(), " next try in ", reconnectInterval, "s")
+		return c.Reconnect()
+	}
+	return deliveries
 }
 
 //NewConsumer create simple consumer for read messages with ack
-func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue) (*Consumer, error) {
+func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handlers []func(Delivery)) (*Consumer, error) {
 	c := &Consumer{
 		exchange: exchange,
 		queue:    queue,
-		Done:     make(chan error),
+		done:     make(chan error),
 		uri:      amqpURI,
 		name:     name,
 	}
-	return c, c.Connect()
+	if len(handlers) > 0 {
+		c.handlers = handlers
+	}
+	_, err := c.Connect(false)
+	return c, err
 }
 
 // NewPublisher create publisher for send amqp messages
@@ -225,7 +245,8 @@ func NewPublisher(amqpURI, name string, exchange Exchange) (*Consumer, error) {
 		uri:      amqpURI,
 		name:     name,
 	}
-	return c, c.Connect()
+	_, err := c.Connect(false)
+	return c, err
 }
 
 // PublishWithHeaders sends messages and reconnects in case of error
@@ -252,7 +273,7 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 }
 
 // GetConsumer get or create publish/consume consumer
-func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue) (consumer *Consumer, err error) {
+func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler func(Delivery)) (consumer *Consumer, err error) {
 	consumerInt, ok := consumers.Load(name)
 	if !ok {
 		if queue == nil {
@@ -262,7 +283,7 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue) (consum
 			}
 			consumer, err = NewPublisher(amqpURI, name, exch)
 		} else {
-			consumer, err = NewConsumer(amqpURI, name, exchange, queue)
+			consumer, err = NewConsumer(amqpURI, name, exchange, queue, []func(Delivery){handler})
 		}
 		if err != nil {
 			return nil, err
@@ -285,7 +306,7 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue) (consum
 
 // Publish simple publisher with unique name and one connect
 func Publish(amqpURI, consumerName, exchangeName, exchangeType, routingKey string, msg []byte, headers map[string]interface{}) error {
-	consumer, err := GetConsumer(amqpURI, consumerName, &Exchange{Name: exchangeName, Type: exchangeType}, nil)
+	consumer, err := GetConsumer(amqpURI, consumerName, &Exchange{Name: exchangeName, Type: exchangeType}, nil, nil)
 	if err != nil {
 		return err
 	}
@@ -344,34 +365,82 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 	return consumer.Publish(msgJSON, collection)
 }
 
-// OnUpdates Listener to get models events update, create and delete
-func OnUpdates(cb func(consumer *Consumer), amqpURI, name string, exchange Exchange, queue Queue) {
+func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 	for {
-		cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue)
-		if err != nil {
-			logrus.Error("[OnUpdates] consumer init err: ", err)
-			logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
-			time.Sleep(reconTime)
+		logrus.Info(c.logInfo("handle deliveries"))
+		go func() {
+			for d := range deliveries {
+				for i := 0; i < len(c.handlers); i++ {
+					cb := c.handlers[i]
+					dv := Delivery(d)
+					cb(dv)
+				}
+				d.Ack(false)
+			}
+		}()
+		if <-c.done != nil {
+			logrus.Error(c.logInfo("deliveries channel closed"))
+			deliveries = c.Reconnect()
 			continue
 		}
-		go cb(cUpdates)
-		if lifetime > 0 {
-			logrus.Info("[OnUpdates] running for: ", lifetime)
-			time.Sleep(lifetime)
-		} else {
-			logrus.Info("[OnUpdates] consumer running success")
-			select {
-			case <-cUpdates.Done:
-				logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-		}
+	}
+}
 
-		logrus.Info("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
-		if err := cUpdates.Shutdown(); err != nil {
-			logrus.Error("[OnUpdates] consumer shutdown err: ", err)
-		}
+// AddConsumeHandler add handler for queue consumer
+func (c *Consumer) AddConsumeHandler(handler func(Delivery)) {
+	if len(c.handlers) == 0 {
+		c.handlers = []func(Delivery){handler}
+	} else {
+		c.handlers = append(c.handlers, handler)
+	}
+}
+
+// GenerateName generate random name for queue and exchange
+func GenerateName(prefix string) string {
+	queueName := prefix
+	envName := os.Getenv("CSX_ENV")
+	consumerTag := os.Getenv("SERVICE_NAME")
+	if envName != "" {
+		queueName += "." + envName
+	}
+	if consumerTag != "" {
+		queueName += "." + consumerTag
+	} else {
+		queueName += "." + *strUtil.NewId()
+	}
+	return queueName
+}
+
+// OnUpdates Listener to get models events update, create and delete
+func OnUpdates(cb func(data Delivery), keys []string) {
+
+	updateExch := os.Getenv("EXCHANGE_UPDATES")
+	if updateExch == "" {
+		updateExch = "csx.updates"
+	}
+	exchange := Exchange{Name: updateExch, Type: "direct", Durable: true}
+	queueName := GenerateName("onUpdates")
+	queue := Queue{
+		Name:        queueName,
+		ConsumerTag: queueName,
+		AutoDelete:  true,
+		Durable:     false,
+		Keys:        keys,
+	}
+	amqpURI := os.Getenv("AMQP_URI")
+	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, cb)
+	if err != nil {
+		logrus.Error("[OnUpdates] consumer init err: ", err)
+		logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
+		time.Sleep(reconTime)
+		OnUpdates(cb, keys)
+	}
+	lenHandlers := len(cUpdates.handlers)
+	if lenHandlers == 0 {
+		cUpdates.handlers = make([]func(Delivery), 0)
+		cUpdates.handlers = append(cUpdates.handlers, cb)
+	} else {
+		cUpdates.handlers = append(cUpdates.handlers, cb)
 	}
 }
 
@@ -391,5 +460,5 @@ func (c *Consumer) Shutdown() error {
 	defer logrus.Warn(c.logInfo("[Shutdown] AMQP shutdown OK"))
 
 	// wait for handle() to exit
-	return <-c.Done
+	return <-c.done
 }

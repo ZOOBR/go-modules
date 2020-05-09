@@ -1171,50 +1171,27 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		} else {
 			queueName += "." + *strUtil.NewId()
 		}
-		updateExch := os.Getenv("EXCHANGE_UPDATES")
-		if updateExch == "" {
-			updateExch = "csx.updates"
-		}
-		exchange := amqp.Exchange{Name: updateExch, Type: "direct", Durable: true}
-		queue := amqp.Queue{
-			Name:        queueName,
-			ConsumerTag: consumerTag,
-			AutoDelete:  true,
-			Durable:     false,
-			Keys:        []string{tableName},
-		}
-		amqpURI = os.Getenv("AMQP_URI")
-		go amqp.OnUpdates(registerSchemaOnUpdate, amqpURI, tableName, exchange, queue)
+		go amqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
 	}
 	return nil
 }
 
-func registerSchemaOnUpdate(consumer *amqp.Consumer) {
-	deliveries := consumer.Deliveries
-	//done := consumer.Done
-	log.Debug("HandleUpdates: deliveries channel open")
-	for d := range deliveries {
-		msg := amqp.Update{}
-		err := json.Unmarshal(d.Body, &msg)
-		if err != nil {
-			log.Error("HandleUpdates", "Error parse json: ", err)
-			continue
-		}
-		registerSchema.RLock()
-		name := d.RoutingKey
-		reg, ok := registerSchema.tables[name]
-		if ok {
-			for _, cb := range reg.callbacks {
-				cb(reg.table, msg)
-			}
-		}
-		registerSchema.RUnlock()
-		d.Ack(false)
+func registerSchemaOnUpdate(d amqp.Delivery) {
+	msg := amqp.Update{}
+	err := json.Unmarshal(d.Body, &msg)
+	if err != nil {
+		log.Error("HandleUpdates", "Error parse json: ", err)
+		return
 	}
-	log.Debug("HandleUpdates: deliveries channel closed")
-	consumer.Reconnect()
-	registerSchemaOnUpdate(consumer)
-	//done <- nil
+	registerSchema.RLock()
+	name := d.RoutingKey
+	reg, ok := registerSchema.tables[name]
+	if ok {
+		for _, cb := range reg.callbacks {
+			cb(reg.table, msg)
+		}
+	}
+	registerSchema.RUnlock()
 }
 
 // GetSchemaTable get schema table by table name
