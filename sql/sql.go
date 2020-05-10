@@ -1478,7 +1478,7 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	return table.Query(recs, fields, where, order)
 }
 
-// `Query` execute sql query with params
+// Query execute sql query with params
 func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string, args ...interface{}) error {
 	qparams := &QueryParams{
 		Select: fields,
@@ -1489,14 +1489,13 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string
 
 	query, err := MakeQuery(qparams)
 	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error(*query)
-		fmt.Println(err)
+		log.Error("err: ", err, " query:", *query)
 		return err
 	}
 	return nil
 }
 
-// `QueryJoin` execute sql query with params
+// QueryJoin execute sql query with params
 func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join *[]string, args ...interface{}) error {
 	if join == nil || len(*join) == 0 {
 		return errors.New("join arg is empty")
