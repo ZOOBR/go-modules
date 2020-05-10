@@ -238,6 +238,76 @@ type BinaryData struct {
 	Data []byte
 }
 
+type param struct {
+	P uint16 // param code
+	T uint16 // linked time code or zero
+	H bool   // need load history if parameter not exists
+}
+
+// Params map with telemetry params
+var Params = map[string]param{
+	"paramTimeCan":        {8, 0, false},
+	"paramTimeReceive":    {9, 0, false},
+	"paramTimeFuel":       {10, 0, false},
+	"paramTimeFuel2":      {11, 0, false},
+	"paramStatus":         {1020, 0, false},
+	"paramBatteryV":       {1022, 0, false},
+	"paramAngle":          {1104, 0, false},
+	"paramSpeed":          {1105, 0, false},
+	"paramLat":            {1101, 0, true},
+	"paramLon":            {1102, 0, true},
+	"paramOdometer":       {1201, 0, true},
+	"paramMileageReserve": {1203, 0, false},
+	"paramCanStatus":      {2200, 0, false},
+	"paramCanTempr":       {2201, 0, false},
+	"paramCanSpeed":       {2202, 0, false},
+	"paramAdc0":           {2000, 0, false},
+	"paramAdc1":           {2001, 0, false},
+	"paramDriftLevel":     {3004, 0, false},
+	"paramSpeedAvg":       {3005, 0, false},
+	"paramFuel":           {3400, 0, true},
+	"paramFuel2":          {3401, 0, false},
+	"paramAvgFuel":        {3500, 0, true},
+	"paramAvgFuel2":       {3501, 0, false},
+}
+
+// Get position param value by name
+func (pos *FlatPosition) Get(name string) (float64, bool) {
+	val, ok := pos.P[Params[name].P]
+	return val, ok
+}
+
+// GetVal position param value by name
+func (pos *FlatPosition) GetVal(name string) float64 {
+	return pos.P[Params[name].P]
+}
+
+// Set position param value by name
+func (pos *FlatPosition) Set(name string, val float64, index ...int) {
+	if len(index) > 0 {
+		pos.P[Params[name].P+uint16(index[0])] = val
+		return
+	}
+	pos.P[Params[name].P] = val
+}
+
+// ParamCode get param code by name
+func ParamCode(name string) uint16 {
+	return Params[name].P
+}
+
+// FuelParams array with fuel params
+var FuelParams = []uint16{
+	ParamCode("paramFuel"),
+	ParamCode("paramFuel2"),
+}
+
+// FuelAvgParams array with avg fuel params
+var FuelAvgParams = []uint16{
+	ParamCode("paramAvgFuel"),
+	ParamCode("paramAvgFuel2"),
+}
+
 // FindZone is search zone by id
 func FindZone(list []ZoneInfo, id string) *ZoneInfo {
 	cnt := len(list)
