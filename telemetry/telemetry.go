@@ -905,6 +905,20 @@ func (pos *FlatPosition) Scan(src interface{}) error {
 	return nil
 }
 
+// Scan - database field scan json
+func (auth *Auth) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		log.Warn("unable scan auth:", src)
+		return errors.New("unable scan auth")
+	}
+	err := json.Unmarshal(val, &auth)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // UTC translate position time to Time UTC
 func (pos *FlatPosition) UTC() time.Time {
 	sec := pos.Time / 1000
