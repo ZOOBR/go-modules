@@ -435,8 +435,8 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 		time.Sleep(reconTime)
 		OnUpdates(cb, keys)
 	}
-	lenHandlers := len(cUpdates.handlers)
-	if lenHandlers == 0 {
+
+	if cUpdates.handlers == nil || len(cUpdates.handlers) == 0 {
 		cUpdates.handlers = make([]func(*Delivery), 0)
 		cUpdates.handlers = append(cUpdates.handlers, cb)
 	} else {
