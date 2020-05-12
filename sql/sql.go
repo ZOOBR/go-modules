@@ -325,6 +325,7 @@ func (queryObj *Query) Delete(query string) (err error) {
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
+//! DEPRECATED. Use InsertStructValues() for inserting or UpdateStructValues() for updating
 func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
