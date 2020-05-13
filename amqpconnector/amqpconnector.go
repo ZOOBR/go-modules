@@ -292,13 +292,15 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 	} else {
 		consumer = consumerInt.(*Consumer)
 		var err error
-		if len(queue.Keys) > 0 {
-			err = consumer.BindKeys(queue.Keys)
-		} else {
-			err = consumer.BindKeys([]string{queue.ConsumerTag})
-		}
-		if err != nil {
-			return consumer, err
+		if queue != nil {
+			if queue.Keys != nil && len(queue.Keys) > 0 {
+				err = consumer.BindKeys(queue.Keys)
+			} else {
+				err = consumer.BindKeys([]string{queue.ConsumerTag})
+			}
+			if err != nil {
+				return consumer, err
+			}
 		}
 	}
 	return consumer, nil
