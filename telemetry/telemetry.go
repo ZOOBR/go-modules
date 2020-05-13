@@ -10,6 +10,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	ParamLat = 1101
+	ParamLon = 1102
+
+	ParamCalcOdo = 3001
+)
+
 var mapParamsPrecision = map[uint16]float64{
 	1021: 100,
 	1022: 100,
@@ -263,12 +270,14 @@ var Params = map[string]param{
 	"paramCanSpeed":       {2202, 0, false},
 	"paramAdc0":           {2000, 0, false},
 	"paramAdc1":           {2001, 0, false},
-	"paramDriftLevel":     {3004, 0, false},
-	"paramSpeedAvg":       {3005, 0, false},
-	"paramFuel":           {3400, 0, true},
-	"paramFuel2":          {3401, 0, false},
-	"paramAvgFuel":        {3500, 0, true},
-	"paramAvgFuel2":       {3501, 0, false},
+
+	"paramCalcOdo":    {3001, 0, false},
+	"paramDriftLevel": {3004, 0, false},
+	"paramSpeedAvg":   {3005, 0, false},
+	"paramFuel":       {3400, 0, true},
+	"paramFuel2":      {3401, 0, false},
+	"paramAvgFuel":    {3500, 0, true},
+	"paramAvgFuel2":   {3501, 0, false},
 }
 
 // Get position param value by name
