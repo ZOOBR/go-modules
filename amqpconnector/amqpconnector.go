@@ -306,7 +306,7 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 
 // Publish simple publisher with unique name and one connect
 func Publish(amqpURI, consumerName, exchangeName, exchangeType, routingKey string, msg []byte, headers map[string]interface{}) error {
-	consumer, err := GetConsumer(amqpURI, consumerName, &Exchange{Name: exchangeName, Type: exchangeType}, nil, nil)
+	consumer, err := GetConsumer(amqpURI, consumerName, &Exchange{Name: exchangeName, Type: exchangeType, Durable: true}, nil, nil)
 	if err != nil {
 		return err
 	}
