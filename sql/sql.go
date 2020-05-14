@@ -1458,7 +1458,7 @@ func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
 
 // QueryParams execute  sql query with params
 func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) error {
-	var fields, where, order *[]string
+	var fields, where, order, groupby *[]string
 
 	if len(params) > 0 {
 		where = &params[0]
@@ -1471,21 +1471,25 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	} else {
 		fields = &table.SQLFields
 	}
-	if len(params) > 3 {
+	if len(params) > 3 && params[3] != nil {
 		join := &params[3]
 		return table.QueryJoin(recs, fields, where, order, join)
 	}
+	if len(params) > 4 {
+		groupby = &params[4]
+	}
 
-	return table.Query(recs, fields, where, order)
+	return table.Query(recs, fields, where, order, groupby)
 }
 
-// Query execute sql query with params
-func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string, args ...interface{}) error {
+// `Query` execute sql query with params
+func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[]string, args ...interface{}) error {
 	qparams := &QueryParams{
 		Select: fields,
 		From:   &table.Name,
 		Where:  where,
 		Order:  order,
+		Group:  group,
 	}
 
 	query, err := MakeQuery(qparams)
