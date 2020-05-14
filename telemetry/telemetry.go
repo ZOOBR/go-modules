@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -281,14 +282,34 @@ var Params = map[string]param{
 }
 
 // Get position param value by name
-func (pos *FlatPosition) Get(name string) (float64, bool) {
-	val, ok := pos.P[Params[name].P]
-	return val, ok
+func (pos *FlatPosition) Get(id interface{}) (float64, bool) {
+	var code uint16
+	switch id.(type) {
+	case int, int8, int16, int32, int64:
+		code = uint16(id.(int64))
+	case uint, uint8, uint16, uint32, uint64:
+		code = uint16(id.(uint64))
+	case float32, float64:
+		code = uint16(id.(float64))
+	case string:
+		sid := id.(string)
+		if val, err := strconv.Atoi(sid); err == nil {
+			code = uint16(val)
+		} else if p, ok := Params[sid]; ok {
+			code = p.P
+		}
+	}
+	if code > 0 {
+		val, ok := pos.P[code]
+		return val, ok
+	}
+	return 0, false
 }
 
 // GetVal position param value by name
-func (pos *FlatPosition) GetVal(name string) float64 {
-	return pos.P[Params[name].P]
+func (pos *FlatPosition) GetVal(id interface{}) float64 {
+	val, _ := pos.Get(id)
+	return val
 }
 
 // Set position param value by name
