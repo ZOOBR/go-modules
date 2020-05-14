@@ -12,10 +12,17 @@ import (
 )
 
 const (
-	ParamLat = 1101
-	ParamLon = 1102
-
-	ParamCalcOdo = 3001
+	// base
+	ParamLat      = 1101
+	ParamLon      = 1102
+	ParamAngle    = 1104
+	ParamOdometer = 1201
+	// can
+	ParamCanStatus = 2200
+	ParamCanSpeed  = 2202
+	// calculated
+	ParamCalcOdo  = 3001
+	ParamSpeedAvg = 3005
 )
 
 var mapParamsPrecision = map[uint16]float64{
@@ -281,24 +288,31 @@ var Params = map[string]param{
 	"paramAvgFuel2":   {3501, 0, false},
 }
 
-// Get position param value by name
-func (pos *FlatPosition) Get(id interface{}) (float64, bool) {
-	var code uint16
+// GetParamCode prepare uit16 code from interface
+func GetParamCode(id interface{}) uint16 {
 	switch id.(type) {
-	case int, int8, int16, int32, int64:
-		code = uint16(id.(int64))
-	case uint, uint8, uint16, uint32, uint64:
-		code = uint16(id.(uint64))
-	case float32, float64:
-		code = uint16(id.(float64))
+	case int:
+		return uint16(id.(int))
+	case uint:
+		return uint16(id.(uint))
+	case uint16:
+		return uint16(id.(uint16))
+	case float64:
+		return uint16(id.(float64))
 	case string:
 		sid := id.(string)
 		if val, err := strconv.Atoi(sid); err == nil {
-			code = uint16(val)
+			return uint16(val)
 		} else if p, ok := Params[sid]; ok {
-			code = p.P
+			return p.P
 		}
 	}
+	return 0
+}
+
+// Get position param value by name
+func (pos *FlatPosition) Get(id interface{}) (float64, bool) {
+	code := GetParamCode(id)
 	if code > 0 {
 		val, ok := pos.P[code]
 		return val, ok
@@ -313,12 +327,12 @@ func (pos *FlatPosition) GetVal(id interface{}) float64 {
 }
 
 // Set position param value by name
-func (pos *FlatPosition) Set(name string, val float64, index ...int) {
+func (pos *FlatPosition) Set(id interface{}, val float64, index ...int) {
+	code := GetParamCode(id)
 	if len(index) > 0 {
-		pos.P[Params[name].P+uint16(index[0])] = val
-		return
+		code += uint16(index[0])
 	}
-	pos.P[Params[name].P] = val
+	pos.P[code] = val
 }
 
 // ParamCode get param code by name
