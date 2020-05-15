@@ -1013,7 +1013,13 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 			if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
 				orderby += sortParams[0]
 			} else {
-				orderby += `"` + sortParams[0] + `"`
+				sortFieldParts := strings.Split(sortParams[0], ".")
+				if len(sortFieldParts) > 1 { // 2 parts: <table name>.<field name>
+					orderby += `"` + sortFieldParts[0] + `"."` + sortFieldParts[1] + `"`
+				} else {
+					orderby += `"` + sortParams[0] + `"`
+				}
+
 			}
 			if len(sortParams) > 1 {
 				orderby += " " + sortParams[1]
