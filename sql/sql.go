@@ -222,6 +222,7 @@ func ExecQuery(q *string, cb ...func(rows *sqlx.Rows)) QueryResult {
 		row := make(map[string]interface{})
 		err = rows.MapScan(row)
 		for k, v := range row {
+			//CRUTCH:: Type values get here uuid and arrays (return as string)
 			switch v.(type) {
 			case []byte:
 				var jsonMap map[string]*json.RawMessage
