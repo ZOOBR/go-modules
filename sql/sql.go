@@ -2084,7 +2084,7 @@ func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) 
 func (store *DataStore) Load() {
 	items, err := store.load(nil)
 	if err != nil {
-		logrus.Error("store '"+store.name+"' load ", err)
+		panic("store '" + store.name + "' load " + err.Error())
 	}
 	itemsVal := reflect.ValueOf(items)
 	cnt := itemsVal.Len()
