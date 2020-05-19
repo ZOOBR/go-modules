@@ -930,66 +930,34 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 				if where != "" {
 					where += " AND "
 				}
-				fieldParts := strings.Split(f[0], ".")
-				var field string
-				if len(fieldParts) < 2 {
-					field = `"` + f[0] + `"`
-				} else {
-					field = f[0]
-				}
-				switch keyValue[0] {
-				case "similar":
-					where += field + ` SIMILAR TO '%` + v + "%'"
-				case "notsimilar":
-					where += field + ` NOT SIMILAR TO '%` + v + "%'"
-				case "text":
-					where += field + ` ILIKE '%` + v + "%'"
-				case "ilike":
-					where += field + ` ILIKE '%` + v + "%'"
-				case "notilike":
-					where += field + ` NOT ILIKE '%` + v + "%'"
-				case "date":
-					rangeDates := strings.Split(v, "_")
-					beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
-					if err != nil {
-						continue
-					}
-					tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
-					where += field + ` >= '` + tmBegin + "'"
-					if len(rangeDates) > 1 {
-						endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
-						if err != nil {
-							continue
+				multiFields := strings.Split(f[0], ",")
+				lenMultiFields := len(multiFields)
+				if lenMultiFields > 1 {
+					where += " ("
+					for i := 0; i < lenMultiFields; i++ {
+						mField := multiFields[i]
+						fieldParts := strings.Split(mField, ".")
+						var field string
+						if len(fieldParts) < 2 {
+							field = `"` + mField + `"`
+						} else {
+							field = mField
 						}
-						tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
-						where += ` AND ` + field + ` <= '` + tmEnd + "'"
-						// startDatePagination = tmBegin
-						// endDatePagination = tmEnd
+						addCondition(keyValue[0], field, v, &where)
+						if i != lenMultiFields-1 {
+							where += " OR "
+						}
 					}
-				case "select":
-					where += field + ` = '` + v + "'"
-				case "mask":
-					where += field + ` & ` + v + " > 0"
-				case "notMask":
-					where += field + ` & ` + v + " = 0"
-				case "lte":
-					where += field + ` <= '` + v + "'"
-				case "lten":
-					where += `(` + field + ` IS NULL OR ` + field + ` <= '` + v + "')"
-				case "gte":
-					where += field + ` >= '` + v + "'"
-				case "gten":
-					where += `(` + field + ` IS NULL OR ` + field + ` >= '` + v + "')"
-				case "lt":
-					where += field + ` < '` + v + "'"
-				case "gt":
-					where += field + ` > '` + v + "'"
-				case "is":
-					where += field + ` IS ` + v
-				case "in":
-					where += field + ` IN (` + v + `)`
-				case "notin":
-					where += field + ` NOT IN(` + v + `)`
+					where += ") "
+				} else {
+					fieldParts := strings.Split(f[0], ".")
+					var field string
+					if len(fieldParts) < 2 {
+						field = `"` + f[0] + `"`
+					} else {
+						field = f[0]
+					}
+					addCondition(keyValue[0], field, v, &where)
 				}
 			}
 		}
@@ -1051,6 +1019,63 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 
 	// fmt.Println(fullReq)
 	return fullReq
+}
+
+func addCondition(fieldType, field, v string, where *string) {
+	switch fieldType {
+	case "similar":
+		*where += field + ` SIMILAR TO '%` + v + "%'"
+	case "notsimilar":
+		*where += field + ` NOT SIMILAR TO '%` + v + "%'"
+	case "text":
+		*where += field + ` ILIKE '%` + v + "%'"
+	case "ilike":
+		*where += field + ` ILIKE '%` + v + "%'"
+	case "notilike":
+		*where += field + ` NOT ILIKE '%` + v + "%'"
+	case "date":
+		rangeDates := strings.Split(v, "_")
+		beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
+		if err != nil {
+			return
+		}
+		tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+		*where += field + ` >= '` + tmBegin + "'"
+		if len(rangeDates) > 1 {
+			endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
+			if err != nil {
+				return
+			}
+			tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+			*where += ` AND ` + field + ` <= '` + tmEnd + "'"
+			// startDatePagination = tmBegin
+			// endDatePagination = tmEnd
+		}
+	case "select":
+		*where += field + ` = '` + v + "'"
+	case "mask":
+		*where += field + ` & ` + v + " > 0"
+	case "notMask":
+		*where += field + ` & ` + v + " = 0"
+	case "lte":
+		*where += field + ` <= '` + v + "'"
+	case "lten":
+		*where += `(` + field + ` IS NULL OR ` + field + ` <= '` + v + "')"
+	case "gte":
+		*where += field + ` >= '` + v + "'"
+	case "gten":
+		*where += `(` + field + ` IS NULL OR ` + field + ` >= '` + v + "')"
+	case "lt":
+		*where += field + ` < '` + v + "'"
+	case "gt":
+		*where += field + ` > '` + v + "'"
+	case "is":
+		*where += field + ` IS ` + v
+	case "in":
+		*where += field + ` IN (` + v + `)`
+	case "notin":
+		*where += field + ` NOT IN(` + v + `)`
+	}
 }
 
 // Init open connection to database
@@ -1260,7 +1285,8 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		for i := 0; i < fcnt; i++ {
 			f := recType.Field(i)
 			name := f.Tag.Get("db")
-			if len(name) == 0 || name == "-" {
+			dbFieldTag := f.Tag.Get("dbField")
+			if len(name) == 0 || name == "-" || dbFieldTag == "-" {
 				continue
 			}
 			field := new(SchemaField)
@@ -2091,7 +2117,7 @@ func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) 
 func (store *DataStore) Load() {
 	items, err := store.load(nil)
 	if err != nil {
-		logrus.Error("store '"+store.name+"' load ", err)
+		panic("store '" + store.name + "' load " + err.Error())
 	}
 	itemsVal := reflect.ValueOf(items)
 	cnt := itemsVal.Len()
