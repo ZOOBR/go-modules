@@ -1722,6 +1722,13 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			_, f := table.FindField(name)
 			if f.Type == "geometry" {
 				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else if f.Type == "jsonb" {
+				valJSON, err := json.Marshal(val)
+				if err != nil {
+					logrus.Error("invalid jsonb value: ", val, " of field: ", name)
+				}
+				val = valJSON
+				values += "$" + strconv.Itoa(cnt)
 			} else {
 				values += "$" + strconv.Itoa(cnt)
 			}
