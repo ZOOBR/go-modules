@@ -1285,7 +1285,8 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		for i := 0; i < fcnt; i++ {
 			f := recType.Field(i)
 			name := f.Tag.Get("db")
-			if len(name) == 0 || name == "-" {
+			dbFieldTag := f.Tag.Get("dbField")
+			if len(name) == 0 || name == "-" || dbFieldTag == "-" {
 				continue
 			}
 			field := new(SchemaField)
