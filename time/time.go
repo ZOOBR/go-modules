@@ -1,4 +1,4 @@
-package csxTime
+package csxtime
 
 import "time"
 
