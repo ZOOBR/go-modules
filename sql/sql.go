@@ -1124,19 +1124,21 @@ type SchemaField struct {
 	IsNull    bool
 	Default   string
 	Key       int
+	Auto      int
 	checked   bool
 }
 
 // SchemaTable is definition of sql table
 type SchemaTable struct {
-	Name       string
-	Fields     []*SchemaField
-	initalized bool
-	sqlSelect  string
-	SQLFields  []string
-	onUpdate   schemaTableUpdateCallback
-	LogChanges bool
-	Struct     interface{}
+	Name        string
+	Fields      []*SchemaField
+	initalized  bool
+	IDFieldName string
+	sqlSelect   string
+	SQLFields   []string
+	onUpdate    schemaTableUpdateCallback
+	LogChanges  bool
+	Struct      interface{}
 }
 
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
@@ -1279,6 +1281,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		recType = infoType
 	}
 
+	idFieldName := ""
 	fields := make([]*SchemaField, 0)
 	if recType.Kind() == reflect.Struct {
 		fcnt := recType.NumField()
@@ -1302,8 +1305,12 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
 			field.Default = f.Tag.Get("def")
+			field.Auto, _ = strconv.Atoi(f.Tag.Get("auto"))
 			if f.Type.Kind() == reflect.Ptr {
 				field.IsNull = true
+			}
+			if (field.Key == 1 || name == "id") && field.Type == "uuid" {
+				idFieldName = name
 			}
 			fields = append(fields, field)
 		}
@@ -1324,6 +1331,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
+	newSchemaTable.IDFieldName = idFieldName
 	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.LogChanges = logChanges
 	newSchemaTable.Struct = info
@@ -1515,7 +1523,7 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	return table.Query(recs, fields, where, order, groupby)
 }
 
-// `Query` execute sql query with params
+// Query execute sql query with params
 func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[]string, args ...interface{}) error {
 	qparams := &QueryParams{
 		Select: fields,
@@ -1599,7 +1607,7 @@ func (table *SchemaTable) Insert(data interface{}, options ...map[string]interfa
 }
 
 func (table *SchemaTable) getIDField(id string, options []map[string]interface{}) (idField, newID string, err error) {
-	idField = "id"
+	idField = table.IDFieldName
 	newID = id
 	if len(options) > 0 {
 		option := options[0]
