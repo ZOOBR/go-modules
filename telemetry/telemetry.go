@@ -191,7 +191,7 @@ type ZoneInfo struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	Path string `json:"path"`
-	Type int    `json:"type"`
+	Type string `json:"tid"`
 }
 
 // FlatPosition compact position format
