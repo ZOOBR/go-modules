@@ -1177,7 +1177,7 @@ func registerSchemaPrepare() {
 			golog.Debug(`Table "` + reg.table.Name + `" schema check successfully`)
 		}
 	}
-	golog.Info(`Database schema check successfully`)
+	logrus.Info(`Database schema check successfully`)
 }
 
 func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallback, internal bool) error {
