@@ -1727,6 +1727,11 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 	cnt := 0
 	compareWithOldRec := oldData != nil
 	for name := range data {
+		_, f := table.FindField(name)
+		if f == nil {
+			logrus.WithFields(logrus.Fields{"field": name}).Warn("invalid schema field")
+			continue
+		}
 		val := data[name]
 		oldVal := oldData[name]
 		if compareWithOldRec && val == oldVal {
@@ -1753,7 +1758,6 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			diffPub[name] = val
 		}
 		if val != nil {
-			_, f := table.FindField(name)
 			if f.Type == "geometry" {
 				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
 			} else if f.Type == "jsonb" {
