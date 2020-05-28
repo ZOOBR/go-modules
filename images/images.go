@@ -195,6 +195,47 @@ func MakeThumbnail(data []byte, x *exif.Exif, thumbSize int64) (*[]byte, error) 
 	return &res, nil
 }
 
+// UploadFileS3 loads file to S3 storage
+func UploadFileS3(bucketName, acl, filename string, rawData multipart.File) error {
+	data, err := ioutil.ReadAll(rawData)
+	if err != nil {
+		return errors.New("Error file read: " + err.Error())
+	}
+
+	regionS3, ok := regionsMap[bucketName]
+	if !ok {
+		return errors.New("Region not found")
+	}
+
+	ses, err := session.NewSession(&aws.Config{
+		Region:      aws.String(regionS3),
+		Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		return errors.New("Error create s3 session: " + err.Error())
+	}
+
+	bucket, ok := bucketsMap[bucketName]
+	if !ok {
+		return errors.New("Bucket not found")
+	}
+
+	_, err = s3.New(ses).PutObject(&s3.PutObjectInput{
+		Bucket:             aws.String(bucket),
+		Key:                aws.String(filename),
+		ACL:                aws.String(acl),
+		Body:               bytes.NewReader(data),
+		ContentLength:      aws.Int64(int64(len(data))),
+		ContentType:        aws.String(http.DetectContentType(data)),
+		ContentDisposition: aws.String("attachment"),
+	})
+	if err != nil {
+		return errors.New("Error upload file to s3" + err.Error())
+	}
+	return nil
+}
+
 // UploadImageS3 loads image to S3 storage with thumbnail
 func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSize int64, rawData ...multipart.File) (*uploadedPhoto, error) {
 	var r io.Reader
