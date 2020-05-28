@@ -1028,9 +1028,13 @@ func addCondition(fieldType, field, v string, where *string) {
 	case "notsimilar":
 		*where += field + ` NOT SIMILAR TO '%` + v + "%'"
 	case "text":
-		*where += field + ` ILIKE '%` + v + "%'"
+		// CRUTCH:: This is necessary for working with numeric fields.
+		// It is necessary to add normal filtering by number fields with comparison on > and <
+		*where += field + `::varchar ILIKE '%` + v + "%'"
 	case "ilike":
-		*where += field + ` ILIKE '%` + v + "%'"
+		// CRUTCH:: This is necessary for working with numeric fields.
+		// It is necessary to add normal filtering by number fields with comparison on > and <
+		*where += field + `::varchar ILIKE '%` + v + "%'"
 	case "notilike":
 		*where += field + ` NOT ILIKE '%` + v + "%'"
 	case "date":
@@ -1622,6 +1626,9 @@ func (table *SchemaTable) getIDField(id string, options []map[string]interface{}
 		if field.Type == "uuid" && id == "" {
 			newID = *strUtil.NewId()
 		}
+	}
+	if idField == "" {
+		idField = "id"
 	}
 	return idField, newID, nil
 }
