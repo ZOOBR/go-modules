@@ -30,11 +30,12 @@ type TerminalResponse struct {
 
 // CommandAction ---
 type CommandAction struct {
-	Id    string `json:"id"`
-	Index uint32 `json:"index"`
-	Act   uint32 `json:"act"`
-	Ton   uint32 `json:"ton"`
-	Toff  uint32 `json:"toff"`
+	Id    string                 `json:"id"`
+	Index uint32                 `json:"index"`
+	Act   uint32                 `json:"act"`
+	Ton   uint32                 `json:"ton"`
+	Toff  uint32                 `json:"toff"`
+	Args  map[string]interface{} `json:"args"`
 }
 
 // Command ---
