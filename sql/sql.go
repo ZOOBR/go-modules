@@ -1751,7 +1751,6 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			fields += ","
 			values += ","
 		}
-		cnt++
 		fields += `"` + name + `"`
 		if name == idField {
 			itemID = fmt.Sprintf("%v", val)
@@ -1765,17 +1764,19 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			diffPub[name] = val
 		}
 		if val != nil {
+			cnt++
+			argNum := "$" + strconv.Itoa(cnt)
 			if f.Type == "geometry" {
-				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+				values += "ST_GeomFromGeoJSON(" + argNum + ")"
 			} else if f.Type == "jsonb" {
 				valJSON, err := json.Marshal(val)
 				if err != nil {
 					logrus.Error("invalid jsonb value: ", val, " of field: ", name)
 				}
 				val = valJSON
-				values += "$" + strconv.Itoa(cnt)
+				values += argNum
 			} else {
-				values += "$" + strconv.Itoa(cnt)
+				values += argNum
 			}
 			args = append(args, val)
 		} else {
