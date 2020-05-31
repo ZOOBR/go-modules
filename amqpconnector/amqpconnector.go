@@ -431,7 +431,7 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 	}
 	amqpURI := os.Getenv("AMQP_URI")
 	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, cb)
-	if err != nil {
+	if err != nil || cUpdates == nil {
 		logrus.Error("[OnUpdates] consumer init err: ", err)
 		logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
 		time.Sleep(reconTime)
