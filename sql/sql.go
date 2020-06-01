@@ -1781,6 +1781,10 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			args = append(args, val)
 		} else {
 			values += "NULL"
+			if cnt == 0 {
+				fields += ","
+				values += ","
+			}
 		}
 	}
 	excludeFields(diff, diffPub, options...)
