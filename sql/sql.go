@@ -1734,6 +1734,7 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 	diffPub = make(map[string]interface{})
 	args = []interface{}{}
 	cnt := 0
+	cntField := 0
 	compareWithOldRec := oldData != nil
 	for name := range data {
 		_, f := table.FindField(name)
@@ -1754,7 +1755,7 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 		if checkExcludeFields(name, options...) {
 			continue
 		}
-		if cnt > 0 {
+		if cntField > 0 {
 			fields += ","
 			values += ","
 		}
@@ -1789,6 +1790,7 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 		} else {
 			values += "NULL"
 		}
+		cntField++
 	}
 	excludeFields(diff, diffPub, options...)
 	return args, values, fields, itemID, diff, diffPub
