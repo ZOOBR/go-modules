@@ -1126,6 +1126,7 @@ type SchemaField struct {
 	IndexType string
 	Length    int
 	IsNull    bool
+	IsUUID    bool
 	Default   string
 	Key       int
 	Auto      int
@@ -1313,7 +1314,8 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			if f.Type.Kind() == reflect.Ptr {
 				field.IsNull = true
 			}
-			if (field.Key == 1 || name == "id") && field.Type == "uuid" {
+			field.IsUUID = field.Type == "uuid"
+			if (field.Key == 1 || name == "id") && field.IsUUID {
 				idFieldName = name
 			}
 			fields = append(fields, field)
@@ -1741,6 +1743,11 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 		}
 		val := data[name]
 		oldVal := oldData[name]
+		if f.IsUUID {
+			if str, ok := val.(string); ok && str == "" {
+				val = nil
+			}
+		}
 		if compareWithOldRec && val == oldVal {
 			continue
 		}
@@ -1781,10 +1788,6 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			args = append(args, val)
 		} else {
 			values += "NULL"
-			if cnt == 0 {
-				fields += ","
-				values += ","
-			}
 		}
 	}
 	excludeFields(diff, diffPub, options...)
