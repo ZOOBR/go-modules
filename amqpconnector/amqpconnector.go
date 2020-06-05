@@ -14,8 +14,15 @@ import (
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
-var consumers sync.Map
-var consumersLock sync.Mutex
+var (
+	consumers     sync.Map
+	consumersLock sync.Mutex
+
+	updateExch  = os.Getenv("EXCHANGE_UPDATES")
+	amqpURI     = os.Getenv("AMQP_URI")
+	envName     = os.Getenv("CSX_ENV")
+	consumerTag = os.Getenv("SERVICE_NAME")
+)
 
 // Update struc for send updates msg to services
 type Update struct {
@@ -275,6 +282,8 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 
 // GetConsumer get or create publish/consume consumer
 func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler func(*Delivery)) (consumer *Consumer, err error) {
+	consumersLock.Lock()
+	defer consumersLock.Unlock()
 	consumerInt, ok := consumers.Load(name)
 	if !ok {
 		if queue == nil {
@@ -401,8 +410,6 @@ func (c *Consumer) AddConsumeHandler(handler func(*Delivery)) {
 // GenerateName generate random name for queue and exchange
 func GenerateName(prefix string) string {
 	queueName := prefix
-	envName := os.Getenv("CSX_ENV")
-	consumerTag := os.Getenv("SERVICE_NAME")
 	if envName != "" {
 		queueName += "." + envName
 	}
@@ -416,9 +423,6 @@ func GenerateName(prefix string) string {
 
 // OnUpdates Listener to get models events update, create and delete
 func OnUpdates(cb func(data *Delivery), keys []string) {
-	consumersLock.Lock()
-	defer consumersLock.Unlock()
-	updateExch := os.Getenv("EXCHANGE_UPDATES")
 	if updateExch == "" {
 		updateExch = "csx.updates"
 	}
@@ -431,13 +435,13 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 		Durable:     false,
 		Keys:        keys,
 	}
-	amqpURI := os.Getenv("AMQP_URI")
 	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, cb)
 	if err != nil || cUpdates == nil {
 		logrus.Error("[OnUpdates] consumer init err: ", err)
 		logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
 		time.Sleep(reconTime)
 		OnUpdates(cb, keys)
+		return
 	}
 
 	if cUpdates.handlers == nil || len(cUpdates.handlers) == 0 {
