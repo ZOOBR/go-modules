@@ -15,6 +15,7 @@ import (
 )
 
 var consumers sync.Map
+var consumersLock sync.Mutex
 
 // Update struc for send updates msg to services
 type Update struct {
@@ -415,7 +416,8 @@ func GenerateName(prefix string) string {
 
 // OnUpdates Listener to get models events update, create and delete
 func OnUpdates(cb func(data *Delivery), keys []string) {
-
+	consumersLock.Lock()
+	defer consumersLock.Unlock()
 	updateExch := os.Getenv("EXCHANGE_UPDATES")
 	if updateExch == "" {
 		updateExch = "csx.updates"
