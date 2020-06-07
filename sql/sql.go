@@ -1637,7 +1637,7 @@ func (table *SchemaTable) getIDField(id string, options []map[string]interface{}
 
 // UpsertMultiple execute insert or update sql string
 func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
-	result, err := table.CheckInsert(data, &where)
+	result, err := table.CheckInsert(data, &where, options...)
 	if err != nil {
 		return count, err
 	}
@@ -1655,7 +1655,7 @@ func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[str
 		return err
 	}
 	where := `"` + idField + `"='` + id + "'"
-	result, err := table.CheckInsert(data, &where)
+	result, err := table.CheckInsert(data, &where, options...)
 	if err != nil {
 		return err
 	}
@@ -1878,6 +1878,14 @@ func (table *SchemaTable) GetMap(q string) (map[string]interface{}, error) {
 
 // CheckInsert execute insert sql string if not exist where expression
 func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
 	var diff, diffPub map[string]interface{}
 	idField, _, err := table.getIDField("", options)
 	if err != nil {
@@ -1911,7 +1919,7 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
 
-	res, err := DB.Exec(sql, args...)
+	res, err := q.Exec(sql, args...)
 	if err == nil {
 		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub)
 		table.SaveLog(itemID, diff, options)
@@ -1948,6 +1956,14 @@ func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, op
 
 // UpdateMultiple execute update sql string
 func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, err error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 
@@ -1982,7 +1998,6 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		} else {
 			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
-
 	} else {
 		return nil, nil, errors.New("element must be struct or map[string]interface")
 	}
@@ -1995,7 +2010,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
 	}
 	if lenDiff > 0 {
-		_, err = DB.Exec(sql, args...)
+		_, err = q.Exec(sql, args...)
 	}
 	return diff, diffPub, err
 }
@@ -2029,6 +2044,14 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 
 // DeleteMultiple  delete all records with where sql string
 func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]interface{}) (int, error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
 	sql := `DELETE FROM "` + table.Name + `"`
 	if len(where) > 0 {
 		sql += " WHERE " + where
@@ -2040,7 +2063,7 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 			args = option["args"].([]interface{})
 		}
 	}
-	ret, err := DB.Exec(sql, args...)
+	ret, err := q.Exec(sql, args...)
 	if err == nil {
 		rows, err := ret.RowsAffected()
 		return int(rows), err
@@ -2054,7 +2077,7 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 	if err != nil {
 		return 0, err
 	}
-	count, err := table.DeleteMultiple(idField + `='` + id + `'`)
+	count, err := table.DeleteMultiple(idField+`='`+id+`'`, options...)
 	if count != 1 {
 		err = errors.New("record not found")
 	}
