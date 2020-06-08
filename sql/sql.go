@@ -2195,6 +2195,16 @@ func (store *DataStore) Load() {
 	store.Unlock()
 }
 
+// Range iterate datastore map and run callback
+func (store *DataStore) Range(cb func(key, val interface{}) bool) {
+	for key, val := range store.items {
+		res := cb(key, val)
+		if !res {
+			break
+		}
+	}
+}
+
 // Update data store by data
 func (store *DataStore) Update(cmd, id, data string) {
 	var itemPtr interface{}
