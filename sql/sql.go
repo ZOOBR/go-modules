@@ -1144,9 +1144,10 @@ type SchemaTable struct {
 	IDFieldName string
 	sqlSelect   string
 	SQLFields   []string
-	onUpdate    schemaTableUpdateCallback
-	LogChanges  bool
-	Struct      interface{}
+	// GenFields   []string
+	onUpdate   schemaTableUpdateCallback
+	LogChanges bool
+	Struct     interface{}
 }
 
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
@@ -1289,6 +1290,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		recType = infoType
 	}
 
+	// genFields := []string{}
 	idFieldName := ""
 	fields := make([]*SchemaField, 0)
 	if recType.Kind() == reflect.Struct {
@@ -1322,6 +1324,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 				idFieldName = name
 			}
 			fields = append(fields, field)
+			// if field.Default != "" || field.Auto != 0 {
+			// 	genFields = append(genFields, name)
+			// }
 		}
 	}
 
@@ -1344,6 +1349,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.LogChanges = logChanges
 	newSchemaTable.Struct = info
+	// newSchemaTable.GenFields = genFields
 	newSchemaTable.register()
 	return &newSchemaTable
 }
@@ -1921,6 +1927,9 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 	} else {
 		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
+	// if len(table.GenFields) > 0 {
+	// 	sql += ` RETURNING "` + strings.Join(table.GenFields, `","`) + `"`
+	// }
 
 	res, err := q.Exec(sql, args...)
 	if err == nil {
