@@ -57,6 +57,8 @@ const (
 	S3_FINES = "csx-fines"
 	// S3_OBJECT_DAMAGES = "csx-photo-damages"
 	S3_PUBLIC         = "csx-public"
+	S3_RENT_PHOTO     = "csx-rent-photo-200608"
+	S3_RENT_PHOTO_TH  = "csx-rent-photo-th-200608"
 	S3_SELFIE         = "csx-selfie"
 	S3_REGION         = "nl-ams"
 	S3_API_ACCESS_KEY = "SCWPT293A2FEE4NJZEW2"
@@ -69,8 +71,10 @@ var bucketsMap = map[string]string{
 	"docs-04102019": S3_CLIENT_DOCS_04102019,
 	"fines":         S3_FINES,
 	// "damages":       S3_OBJECT_DAMAGES,
-	"public": S3_PUBLIC,
-	"selfie": S3_SELFIE,
+	"public":              S3_PUBLIC,
+	"selfie":              S3_SELFIE,
+	"rentPhoto":           S3_RENT_PHOTO,
+	"rentPhotoThumbnails": S3_RENT_PHOTO_TH,
 }
 
 var bucketsMultiple = map[string]map[string]string{
