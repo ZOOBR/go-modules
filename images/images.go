@@ -83,12 +83,14 @@ var bucketsMultiple = map[string]map[string]string{
 }
 
 var regionsMap = map[string]string{
-	"docs":          "nl-ams",
-	"docs-04102019": "fr-par",
-	"fines":         "fr-par",
-	"damages":       "fr-par",
-	"public":        "nl-ams",
-	"selfie":        "fr-par",
+	"docs":                "nl-ams",
+	"docs-04102019":       "fr-par",
+	"fines":               "fr-par",
+	"damages":             "fr-par",
+	"public":              "nl-ams",
+	"selfie":              "fr-par",
+	"rentPhoto":           "nl-ams",
+	"rentPhotoThumbnails": "nl-ams",
 }
 
 func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
@@ -351,6 +353,7 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 			log.Error("Error upload file to s3", err)
 			return nil, err
 		}
+		savedBucketName = &bucket
 	}
 
 	var thBucket *string
@@ -371,27 +374,161 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 	return &res, nil
 }
 
-func UploadThumbnail(thumbnail []byte, path string) (*string, error) {
-	var err error
-	for bucket, region := range S3_BUCKET_THUMBNAILS {
-		th, err := session.NewSession(&aws.Config{
-			Region:      aws.String(region),
-			Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
-			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
-		})
+// UploadImageS3CustomThumb loads image to S3 storage with thumbnail to custom thumb bucket
+func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *string, thumbSize int64, rawData multipart.File, thBucket string) (*uploadedPhoto, error) {
+	var r io.Reader
+	if rawData == nil && photo != nil {
+		var err error
+		dec, err := base64.StdEncoding.DecodeString(*photo)
 		if err != nil {
+			log.Error("Error decode photo: ", err)
 			return nil, err
 		}
-		if len(thumbnail) > 0 {
-			_, err = s3.New(th).PutObject(&s3.PutObjectInput{
+		r = bytes.NewReader(dec)
+	} else {
+		r = rawData
+	}
+	dec, err := ioutil.ReadAll(r)
+	if err != nil {
+		log.Error("Error read buf: ", err)
+		return nil, err
+	}
+
+	var thumbnail []byte
+	if bucketName != "fines" {
+		var x *exif.Exif
+		x, err = exif.Decode(bytes.NewReader(dec))
+		if err != nil && existPath == nil {
+			log.Error("Error decode exif: ", err)
+			return nil, err
+		}
+		newThumbnail, err := MakeThumbnail(dec, x, thumbSize)
+		if err != nil {
+			return nil, err
+		} else if newThumbnail == nil {
+			return nil, errors.New("Empty thumbnail")
+		}
+		thumbnail = *newThumbnail
+	}
+
+	file := str.RandomString(10, false)
+	dest := strings.Join(strings.Split(file, ""), "/")
+	path := dest + "/" + file + ".jpg"
+
+	if existPath != nil {
+		path = *existPath
+	}
+	var savedBucketName *string
+	if bucketName == "docs" || bucketName == "damages" {
+		buckets, ok := bucketsMultiple[bucketName]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+		for bucket, region := range buckets {
+			s, err := session.NewSession(&aws.Config{
+				Region:      aws.String(region),
+				Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+				Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+			})
+			if err != nil {
+				log.Error("Error create s3 session", err)
+				return nil, err
+			}
+
+			_, err = s3.New(s).PutObject(&s3.PutObjectInput{
 				Bucket:             aws.String(bucket),
 				Key:                aws.String(path),
 				ACL:                aws.String("private"),
-				Body:               bytes.NewReader(thumbnail),
-				ContentLength:      aws.Int64(int64(len(thumbnail))),
-				ContentType:        aws.String(http.DetectContentType(thumbnail)),
+				Body:               bytes.NewReader(dec),
+				ContentLength:      aws.Int64(int64(len(dec))),
+				ContentType:        aws.String(http.DetectContentType(dec)),
 				ContentDisposition: aws.String("attachment"),
 			})
+			if err != nil {
+				log.Error("Error upload file to s3", err)
+			} else {
+				savedBucketName = &bucket
+				break
+			}
+		}
+	} else {
+		regionS3, ok := regionsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Region not found")
+		}
+
+		s, err := session.NewSession(&aws.Config{
+			Region:      aws.String(regionS3),
+			Endpoint:    aws.String("https://s3." + regionS3 + ".scw.cloud"),
+			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+		})
+		if err != nil {
+			log.Error("Error create s3 session", err)
+			return nil, err
+		}
+
+		bucket, ok := bucketsMap[bucketName]
+		if !ok {
+			return nil, errors.New("Bucket not found")
+		}
+
+		_, err = s3.New(s).PutObject(&s3.PutObjectInput{
+			Bucket:             aws.String(bucket),
+			Key:                aws.String(path),
+			ACL:                aws.String("private"),
+			Body:               bytes.NewReader(dec),
+			ContentLength:      aws.Int64(int64(len(dec))),
+			ContentType:        aws.String(http.DetectContentType(dec)),
+			ContentDisposition: aws.String("attachment"),
+		})
+		if err != nil {
+			log.Error("Error upload file to s3", err)
+			return nil, err
+		}
+		savedBucketName = &bucket
+	}
+	var thBucketS3Name *string
+	if bucketName != "fines" {
+		thBucketS3Name, err = UploadThumbnail(thumbnail, path, thBucket)
+		if err != nil {
+			log.Error("Error upload thumbnail: ", err)
+			return nil, err
+		}
+	}
+
+	res := uploadedPhoto{
+		Path:            path,
+		Bucket:          savedBucketName,
+		ThumbnailBucket: thBucketS3Name,
+		File:            file + ".jpg"}
+
+	return &res, nil
+}
+
+func UploadThumbnail(thumbnail []byte, path string, thBucket ...string) (*string, error) {
+	var err error
+	if len(thumbnail) == 0 {
+		return nil, errors.New("empty thumbnail")
+	}
+	if len(thBucket) > 0 && thBucket[0] != "" {
+		thBucketName := thBucket[0]
+		bucket, ok := bucketsMap[thBucketName]
+		if !ok {
+			return nil, errors.New("invalid thumbnail bucket: " + thBucketName)
+		}
+		region, ok := regionsMap[thBucketName]
+		if !ok {
+			return nil, errors.New("invalid thumbnail bucket region: " + thBucketName)
+		}
+		err := apiS3Put(bucket, region, path, thumbnail)
+		if err != nil {
+			log.Error("Error upload thumbnail to: ", bucket)
+		} else {
+			return &bucket, nil
+		}
+	} else {
+		for bucket, region := range S3_BUCKET_THUMBNAILS {
+			err := apiS3Put(bucket, region, path, thumbnail)
 			if err != nil {
 				log.Error("Error upload thumbnail to: ", bucket)
 			} else {
@@ -400,6 +537,27 @@ func UploadThumbnail(thumbnail []byte, path string) (*string, error) {
 		}
 	}
 	return nil, err
+}
+
+func apiS3Put(bucket, region, path string, data []byte) error {
+	th, err := session.NewSession(&aws.Config{
+		Region:      aws.String(region),
+		Endpoint:    aws.String("https://s3." + region + ".scw.cloud"),
+		Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = s3.New(th).PutObject(&s3.PutObjectInput{
+		Bucket:             aws.String(bucket),
+		Key:                aws.String(path),
+		ACL:                aws.String("private"),
+		Body:               bytes.NewReader(data),
+		ContentLength:      aws.Int64(int64(len(data))),
+		ContentType:        aws.String(http.DetectContentType(data)),
+		ContentDisposition: aws.String("attachment"),
+	})
+	return err
 }
 
 func GetImageS3(path string, bucketName string, isThumbnail bool, thBucket *string) (*[]byte, error) {
