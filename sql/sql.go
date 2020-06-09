@@ -1780,6 +1780,9 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			diff[name] = diffVal
 			diffPub[name] = val
 		}
+		if f.Type == "uuid[]" {
+			val = pq.Array(val)
+		}
 		if val != nil {
 			cnt++
 			argNum := "$" + strconv.Itoa(cnt)
