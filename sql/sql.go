@@ -100,8 +100,12 @@ func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, 
 	return queryObj.db.Exec(query, args...)
 }
 
-func (queryObj *Query) Select(dest interface{}, query string) error {
-	return queryObj.tx.Select(dest, query)
+func (queryObj *Query) Select(dest interface{}, query string, args ...interface{}) error {
+	return queryObj.tx.Select(dest, query, args...)
+}
+
+func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
+	return sqlx.In(query, args...)
 }
 
 var (
