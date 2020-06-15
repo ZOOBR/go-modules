@@ -1752,7 +1752,7 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 	for name := range data {
 		_, f := table.FindField(name)
 		if f == nil {
-			logrus.WithFields(logrus.Fields{"field": name}).Warn("invalid schema field")
+			logrus.WithFields(logrus.Fields{"table": table.Name, "field": name}).Warn("invalid field")
 			continue
 		}
 		val := data[name]
