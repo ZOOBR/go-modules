@@ -599,6 +599,8 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 		}
 
 		var updV string
+		var rawValue interface{}
+
 		switch val := f.Interface().(type) {
 		case bool:
 			resultMap[tag] = f.Bool()
@@ -623,6 +625,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
 		default:
+			rawValue = val
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
 			updV = string(valJSON)
@@ -638,7 +641,11 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 					diffVal = append(diffVal, oldMap[tag])
 				}
 				diff[tag] = diffVal
-				diffPub[tag] = tagVal
+				if rawValue != nil {
+					diffPub[tag] = rawValue
+				} else {
+					diffPub[tag] = tagVal
+				}
 			}
 			if auto {
 				cntAuto++
@@ -714,6 +721,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 //example UPDATE thing SET ? WHERE id = 123
 func (queryObj *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
+	diffPub := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 
@@ -742,20 +750,27 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
+			diffPub[tag] = resultMap[tag]
 		case uint, uint8, uint16, uint32, uint64:
 			resultMap[tag] = f.Uint()
+			diffPub[tag] = resultMap[tag]
 		case float32, float64:
 			resultMap[tag] = f.Float()
+			diffPub[tag] = resultMap[tag]
 		case []byte:
 			v := string(f.Bytes())
 			resultMap[tag] = v
+			diffPub[tag] = resultMap[tag]
 		case string:
 			resultMap[tag] = f.String()
+			diffPub[tag] = resultMap[tag]
 		case time.Time:
 			resultMap[tag] = val.Format(time.RFC3339Nano)
+			diffPub[tag] = resultMap[tag]
 		default:
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
+			diffPub[tag] = val
 		}
 		prepFields = append(prepFields, `"`+tag+`"`)
 		prepValues = append(prepValues, ":"+tag)
@@ -786,7 +801,7 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 			golog.Error("amqp updates, invalid args:", settings)
 			return nil
 		}
-		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", resultMap)
+		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", diffPub)
 	}
 	return nil
 }
