@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -999,4 +1000,155 @@ func (pos *FlatPosition) CopyTo(newPos *FlatPosition, extinfo bool) *FlatPositio
 // Copy position full or partial
 func (pos *FlatPosition) Copy(extinfo bool) *FlatPosition {
 	return pos.CopyTo(nil, extinfo)
+}
+
+// TmtField is a base struct for filter params
+type TmtField struct {
+	Field string
+	Code  uint16
+	Value float64
+}
+
+// TmtFilter is a base struct for parsing filters
+type TmtFilter struct {
+	FilterType string
+	Pos        []TmtField
+}
+
+// ParseTelemetryParams parses filtered params from URL
+func ParseTelemetryParams(filtered string) (res []TmtFilter) {
+	filters := strings.Split(filtered, "$")
+	for _, kv := range filters {
+		if kv == "" {
+			continue
+		}
+		filterArray := []TmtField{}
+		keyValue := strings.Split(kv, "->")
+		if len(keyValue) < 2 {
+			continue
+		}
+		filterType := keyValue[0]
+		f := strings.Split(keyValue[1], "~")
+		if len(f) < 2 {
+			continue
+		}
+		valueStr := f[1]
+		numFields := strings.Split(f[0], ",")
+		lenMultiFields := len(numFields)
+		if lenMultiFields > 1 {
+			for i := 0; i < lenMultiFields; i++ {
+				multiField := numFields[i]
+				fieldCode := strings.Split(multiField, ".")
+				if len(fieldCode) < 2 {
+					continue
+				}
+				field := fieldCode[0]
+				codeStr := fieldCode[1]
+				code, err := strconv.Atoi(codeStr)
+				if err != nil {
+					continue
+				}
+				v, err := strconv.ParseFloat(valueStr, 64)
+				if err != nil {
+					continue
+				}
+				filterArray = append(filterArray, TmtField{
+					Field: field,
+					Code:  uint16(code),
+					Value: v,
+				})
+			}
+		} else if len(numFields) > 0 {
+			fieldCode := strings.Split(numFields[0], ".")
+			if len(fieldCode) < 2 {
+				continue
+			}
+			field := fieldCode[0]
+			codeStr := fieldCode[1]
+			code, err := strconv.Atoi(codeStr)
+			if err != nil {
+				continue
+			}
+			v, err := strconv.ParseFloat(valueStr, 64)
+			if err != nil {
+				continue
+			}
+			filterArray = append(filterArray, TmtField{
+				Field: field,
+				Code:  uint16(code),
+				Value: v,
+			})
+		}
+		res = append(res, TmtFilter{
+			FilterType: filterType,
+			Pos:        filterArray,
+		})
+	}
+	return res
+}
+
+// CheckFilter checks object position by provided filters
+func (pos *FlatPosition) CheckFilter(filters []TmtFilter) bool {
+	numFilters := len(filters)
+	isChecked := false
+	for i := 0; i < numFilters; i++ {
+		filter := filters[i]
+		numFilterParams := len(filter.Pos)
+		if numFilterParams > 1 {
+			for j := 0; j < numFilterParams; j++ {
+				filteredParam := filter.Pos[j]
+				isChecked = pos.CheckCondition(filter.FilterType, filteredParam.Field, filteredParam.Code, filteredParam.Value)
+				if isChecked {
+					break
+				}
+			}
+		} else if numFilterParams > 0 {
+			filteredParam := filter.Pos[0]
+			isChecked = pos.CheckCondition(filter.FilterType, filteredParam.Field, filteredParam.Code, filteredParam.Value)
+		}
+	}
+	return isChecked
+}
+
+// CheckCondition checks field of position by code , filterType and value
+func (pos *FlatPosition) CheckCondition(filterType, field string, code uint16, v float64) bool {
+	var comparedValue float64
+	var ok bool
+	switch field {
+	case "p":
+		comparedValue, ok = pos.P[code]
+		if !ok {
+			return false
+		}
+		break
+	case "t":
+		comparedValue = pos.Time
+		break
+	case "z":
+		break
+	}
+
+	switch filterType {
+	case "eq":
+		return comparedValue == v
+	case "noteq":
+		return comparedValue != v
+	case "mask":
+		return int64(comparedValue)&int64(v) > 0
+	case "notMask":
+		return int64(comparedValue)&int64(v) == 0
+	case "lte":
+		return comparedValue <= v
+	case "lten":
+		return comparedValue <= v || !ok
+	case "gte":
+		return comparedValue >= v
+	case "gten":
+		return comparedValue >= v || ok
+	case "lt":
+		return comparedValue < v
+	case "gt":
+		return comparedValue > v
+	}
+	return false
 }
