@@ -1827,22 +1827,6 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 	return args, values, fields, itemID, diff, diffPub
 }
 
-func (table *SchemaTable) prepareTableData(data interface{}) (map[string]interface{}, error) {
-	dataMap, ok := data.(map[string]interface{})
-	if !ok {
-		return nil, errors.New("data must be a map[string]interface{}")
-	}
-
-	prepared := make(map[string]interface{})
-	for k, v := range dataMap {
-		_, f := table.FindField(k)
-		if f != nil {
-			prepared[k] = v
-		}
-	}
-	return prepared, nil
-}
-
 func excludeFields(diff map[string]interface{}, diffPub map[string]interface{}, options ...map[string]interface{}) {
 	ignoreDiff := []string{}
 	if len(options) > 0 {
@@ -1948,9 +1932,9 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 	var fields, values, itemID string
 	var args []interface{}
 	if recType.Kind() == reflect.Map {
-		dataMap, err := table.prepareTableData(data)
-		if err != nil {
-			return nil, err
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("element must be a map[string]interface")
 		}
 		args, values, fields, itemID, diff, diffPub = table.prepareArgsMap(dataMap, nil, idField)
 	} else if recType.Kind() == reflect.Struct {
@@ -2024,13 +2008,13 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	var fields, values string
 	var args []interface{}
 	if recType.Kind() == reflect.Map {
-		dataMap, err := table.prepareTableData(data)
-		if err != nil {
-			return nil, nil, err
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, nil, errors.New("data must be a map[string]interface")
 		}
-		oldDataMap, err := table.prepareTableData(oldData)
-		if err != nil {
-			return nil, nil, err
+		oldDataMap, ok := oldData.(map[string]interface{})
+		if !ok {
+			return nil, nil, errors.New("oldData must be a map[string]interface")
 		}
 		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 	} else if recType.Kind() == reflect.Struct {
