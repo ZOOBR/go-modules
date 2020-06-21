@@ -20,12 +20,12 @@ type Sender struct {
 type TerminalResponse struct {
 	Id        string                 `json:"id"`
 	Result    int32                  `json:"result"`
-	Errors    []CommandError         `json:"errors"`
-	Telemetry map[string]interface{} `json:"telemetry"`
-	Driver    string                 `json:"driver"`
-	Device    string                 `json:"device"`
-	Token     string                 `json:"token"`
-	Expired   uint64                 `json:"expired"`
+	Errors    []CommandError         `json:"errors,omitempty"`
+	Telemetry map[string]interface{} `json:"telemetry,omitempty"`
+	Driver    string                 `json:"driver,omitempty"`
+	Device    string                 `json:"device,omitempty"`
+	Token     string                 `json:"token,omitempty"`
+	Expired   uint64                 `json:"expired,omitempty"`
 }
 
 // CommandAction ---
