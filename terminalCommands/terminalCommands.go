@@ -98,6 +98,7 @@ var ErrorCodes = map[int32]string{
 	1112: "OtherError",
 	-101: "ServiceUnavailable",
 	-102: "InvalidResponse",
+	-103: "ProcessError",
 	-1:   "fail",
 	-2:   "notimpl",
 	-3:   "CommandTimeout",
