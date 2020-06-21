@@ -115,7 +115,11 @@ func (response *TerminalResponse) SetError(code int32) {
 		response.Errors = make([]CommandError, 0)
 	}
 	response.Errors = append(response.Errors, CommandError{code, ErrorCodes[code]})
-	response.Result = -1
+	if code < 0 {
+		response.Result = code
+	} else {
+		response.Result = -1
+	}
 }
 
 // Run send command request and wait answer
