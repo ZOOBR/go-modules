@@ -138,7 +138,7 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 	b, err := json.Marshal(cmd)
 	if err != nil {
 		log.Error(err)
-		response.Result = -1
+		response.Result = -103
 	} else {
 		r := bytes.NewReader(b)
 		resp, err := sender.http.Post(*sender.terminalURL, "application/json", r)
