@@ -20,6 +20,7 @@ type Sender struct {
 type TerminalResponse struct {
 	Id        string                 `json:"id"`
 	Result    int32                  `json:"result"`
+	Stage     int32                  `json:"stage,omitempty"`
 	Errors    []CommandError         `json:"errors,omitempty"`
 	Telemetry map[string]interface{} `json:"telemetry,omitempty"`
 	Driver    string                 `json:"driver,omitempty"`
@@ -30,12 +31,14 @@ type TerminalResponse struct {
 
 // CommandAction ---
 type CommandAction struct {
-	Id    string                 `json:"id"`
-	Index uint32                 `json:"index"`
-	Act   uint32                 `json:"act"`
-	Ton   uint32                 `json:"ton"`
-	Toff  uint32                 `json:"toff"`
-	Args  map[string]interface{} `json:"args"`
+	Id     string                 `json:"id"`
+	Index  uint32                 `json:"index,omitempty"`
+	Act    uint32                 `json:"act,omitempty"`
+	Ton    uint32                 `json:"ton,omitempty"`
+	Toff   uint32                 `json:"toff,omitempty"`
+	Args   map[string]interface{} `json:"args,omitempty"`
+	Next   []interface{}          `json:"next,omitempty"`
+	Result *int                   `json:"result,omitempty"`
 }
 
 // Command ---
