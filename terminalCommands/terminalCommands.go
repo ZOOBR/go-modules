@@ -112,6 +112,7 @@ var ErrorCodes = map[int32]string{
 	-8:   "terminate",
 	-11:  "CommandTimeout",
 	-12:  "CommandIncomplete",
+	-13:  "ExpectedResult",
 }
 
 // SetError ---
