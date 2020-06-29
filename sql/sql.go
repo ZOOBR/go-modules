@@ -2182,9 +2182,13 @@ func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) 
 		val := reflect.Indirect(reflect.ValueOf(propVal))
 		if val.IsValid() {
 			id := val.String()
-			result, ok = store.items[id]
-			if !ok {
-				logrus.Warn("store '"+store.name+"' not found: ", id)
+			if id == "" {
+				ok = false
+			} else {
+				result, ok = store.items[id]
+				if !ok {
+					logrus.Warn("store '"+store.name+"' not found: ", id)
+				}
 			}
 		}
 	} else {
