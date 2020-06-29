@@ -51,8 +51,8 @@ func Assign(from, to interface{}) interface{} {
 	}
 
 	// Make the interface a reflect.Value
-	fromValue := reflect.ValueOf(from)
-	toValue := reflect.ValueOf(to)
+	fromValue := reflect.ValueOf(from).Elem()
+	toValue := reflect.ValueOf(to).Elem()
 	// Recursively copy the original.
 	CopyRecursive(fromValue, toValue)
 
