@@ -5,12 +5,43 @@ import (
 	"time"
 )
 
+// Interface for delegating copy process to type
+type Interface interface {
+	DeepCopy() interface{}
+}
+
+// Iface is an alias to Copy; this exists for backwards compatibility reasons.
+func Iface(iface interface{}) interface{} {
+	return Copy(iface)
+}
+
 // Unpstr return string from pointer
 func Unpstr(ref *string) string {
 	if ref != nil {
 		return *ref
 	}
 	return ""
+}
+
+// Copy creates a deep copy of whatever is passed to it and returns the copy
+// in an interface{}.  The returned value will need to be asserted to the
+// correct type.
+func Copy(src interface{}) interface{} {
+	if src == nil {
+		return nil
+	}
+
+	// Make the interface a reflect.Value
+	original := reflect.ValueOf(src)
+
+	// Make a copy of the same type as the original.
+	cpy := reflect.New(original.Type()).Elem()
+
+	// Recursively copy the original.
+	CopyRecursive(original, cpy)
+
+	// Return the copy as an interface.
+	return cpy.Interface()
 }
 
 // Assign assign properties
@@ -26,7 +57,7 @@ func Assign(from, to interface{}) interface{} {
 	CopyRecursive(fromValue, toValue)
 
 	// Return the copy as an interface.
-	return cpy.Interface()
+	return toValue.Interface()
 }
 
 // CopyRecursive does the actual copying of the interface. It currently has
@@ -51,7 +82,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 			return
 		}
 		cpy.Set(reflect.New(originalValue.Type()))
-		copyRecursive(originalValue, cpy.Elem())
+		CopyRecursive(originalValue, cpy.Elem())
 
 	case reflect.Interface:
 		// If this is a nil, don't do anything
@@ -63,7 +94,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 
 		// Get the value by calling Elem().
 		copyValue := reflect.New(originalValue.Type()).Elem()
-		copyRecursive(originalValue, copyValue)
+		CopyRecursive(originalValue, copyValue)
 		cpy.Set(copyValue)
 
 	case reflect.Struct:
@@ -80,7 +111,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 			if original.Type().Field(i).PkgPath != "" {
 				continue
 			}
-			copyRecursive(original.Field(i), cpy.Field(i))
+			CopyRecursive(original.Field(i), cpy.Field(i))
 		}
 
 	case reflect.Slice:
@@ -90,7 +121,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 		// Make a new slice and copy each element.
 		cpy.Set(reflect.MakeSlice(original.Type(), original.Len(), original.Cap()))
 		for i := 0; i < original.Len(); i++ {
-			copyRecursive(original.Index(i), cpy.Index(i))
+			CopyRecursive(original.Index(i), cpy.Index(i))
 		}
 
 	case reflect.Map:
@@ -101,7 +132,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 		for _, key := range original.MapKeys() {
 			originalValue := original.MapIndex(key)
 			copyValue := reflect.New(originalValue.Type()).Elem()
-			copyRecursive(originalValue, copyValue)
+			CopyRecursive(originalValue, copyValue)
 			copyKey := Copy(key.Interface())
 			cpy.SetMapIndex(reflect.ValueOf(copyKey), copyValue)
 		}
