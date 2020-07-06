@@ -23,6 +23,7 @@ type TerminalResponse struct {
 	Stage     int32                  `json:"stage,omitempty"`
 	Errors    []CommandError         `json:"errors,omitempty"`
 	Telemetry map[string]interface{} `json:"telemetry,omitempty"`
+	Info      map[string]interface{} `json:"info,omitempty"`
 	Driver    string                 `json:"driver,omitempty"`
 	Device    string                 `json:"device,omitempty"`
 	Token     string                 `json:"token,omitempty"`
