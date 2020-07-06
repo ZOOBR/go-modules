@@ -100,6 +100,7 @@ var ErrorCodes = map[int32]string{
 	1110: "BrakeError",
 	1111: "CommandDisabled",
 	1112: "OtherError",
+	-100: "Cancel",
 	-101: "ServiceUnavailable",
 	-102: "InvalidResponse",
 	-103: "ProcessError",
