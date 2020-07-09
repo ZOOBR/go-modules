@@ -4,18 +4,30 @@ package amqpconnector
 
 import (
 	"encoding/json"
-	"fmt"
-	"log"
+	"errors"
 	"os"
+	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
+	strUtil "gitlab.com/battler/modules/strings"
+)
+
+var (
+	consumers     sync.Map
+	consumersLock sync.Mutex
+
+	updateExch  = os.Getenv("EXCHANGE_UPDATES")
+	amqpURI     = os.Getenv("AMQP_URI")
+	envName     = os.Getenv("CSX_ENV")
+	consumerTag = os.Getenv("SERVICE_NAME")
 )
 
 // Update struc for send updates msg to services
 type Update struct {
-	Id      string      `json:"id"`
-	ExtId   string      `json:"extId"`
+	ID      string      `json:"id"`
+	ExtID   string      `json:"extId"`
 	Cmd     string      `json:"cmd"`
 	Data    string      `json:"data"`
 	Groups  []string    `json:"groups"`
@@ -24,15 +36,42 @@ type Update struct {
 
 //Consumer structure for NewConsumer result
 type Consumer struct {
-	conn         *amqp.Connection
-	Channel      *amqp.Channel
-	tag          string
-	Done         chan error
-	Deliveries   <-chan amqp.Delivery
-	Exchange     string
-	ExchangeType string
-	Uri          string
+	conn     *amqp.Connection
+	channel  *amqp.Channel
+	done     chan error
+	exchange *Exchange
+	queue    *Queue
+	uri      string
+	name     string // consumer name for logs
+	handlers []func(*Delivery)
 }
+
+// Exchange struct for receive exchange params
+type Exchange struct {
+	Name       string
+	Type       string
+	Durable    bool
+	AutoDelete bool
+	Internal   bool
+	NoWait     bool
+	Args       map[string]interface{}
+}
+
+// Queue struct for receive queue params
+type Queue struct {
+	Name        string
+	AutoDelete  bool
+	Durable     bool
+	ConsumerTag string
+	Keys        []string
+	NoAck       bool
+	NoLocal     bool
+	Exclusive   bool
+	NoWait      bool
+	Args        map[string]interface{}
+}
+
+type Delivery amqp.Delivery
 
 // TODO:: Get from env
 var (
@@ -40,191 +79,283 @@ var (
 	lifetime  = time.Duration(0)
 )
 
-//NewConsumer create simple consumer for read messages with ack
-func NewConsumer(amqpURI, exchange, exchangeType, queueName, key, ctag string, options ...map[string]interface{}) (*Consumer, error) {
-	c := &Consumer{
-		conn:    nil,
-		Channel: nil,
-		tag:     ctag,
-		Done:    make(chan error),
-	}
-	queueAutoDelete := false
-	queueDurable := true
-	var queueKeys []string
-	if len(options) > 0 {
-		optionsQueue := options[0]
-		if val, ok := optionsQueue["queueAutoDelete"]; ok {
-			queueAutoDelete = val.(bool)
+func (c *Consumer) logInfo(log string) string {
+	return "[" + c.name + "]" + log
+}
+
+// ExchangeDeclare dial amqp server, decrare echange an queue if set
+func (c *Consumer) ExchangeDeclare() (string, error) {
+	if c.exchange != nil {
+		logrus.Info(c.logInfo("amqp declaring exchange: "), c.exchange.Name, " type: ", c.exchange.Type, " durable: ", c.exchange.Durable, " autodelete: ", c.exchange.AutoDelete)
+		if err := c.channel.ExchangeDeclare(
+			c.exchange.Name,       // name of the exchange
+			c.exchange.Type,       // type
+			c.exchange.Durable,    // durable
+			c.exchange.AutoDelete, // delete when complete
+			c.exchange.Internal,   // internal
+			c.exchange.NoWait,     // noWait
+			c.exchange.Args,       // arguments
+		); err != nil {
+			return "", err
 		}
-		if val, ok := optionsQueue["queueDurable"]; ok {
-			queueDurable = val.(bool)
+		return c.exchange.Name, nil
+	}
+	return "", nil
+}
+
+// BindKeys dial amqp server, decrare echange an queue if set
+func (c *Consumer) BindKeys(keys []string) error {
+	if len(keys) > 0 {
+		if len(c.queue.Keys) == 0 {
+			c.queue.Keys = make([]string, 0)
 		}
-		if val, ok := optionsQueue["queueKeys"]; ok {
-			queueKeys = val.([]string)
-		}
-	}
-
-	var err error
-
-	log.Printf("dialing %q", amqpURI)
-	c.conn, err = amqp.Dial(amqpURI)
-	if err != nil {
-		return nil, fmt.Errorf("Dial: %s", err)
-	}
-
-	go func() {
-		fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
-	}()
-
-	log.Printf("got Connection, getting Channel")
-	c.Channel, err = c.conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("Channel: %s", err)
-	}
-
-	log.Printf("got Channel, declaring Exchange (%q)", exchange)
-	if err = c.Channel.ExchangeDeclare(
-		exchange,     // name of the exchange
-		exchangeType, // type
-		true,         // durable
-		false,        // delete when complete
-		false,        // internal
-		false,        // noWait
-		nil,          // arguments
-	); err != nil {
-		return nil, fmt.Errorf("Exchange Declare: %s", err)
-	}
-
-	log.Printf("declared Exchange, declaring Queue %q", queueName)
-	queue, err := c.Channel.QueueDeclare(
-		queueName,       // name of the queue
-		queueDurable,    // durable
-		queueAutoDelete, // delete when unused
-		false,           // exclusive
-		false,           // noWait
-		nil,             // arguments
-	)
-	if err != nil {
-		return nil, fmt.Errorf("Queue Declare: %s", err)
-	}
-
-	log.Printf("declared Queue (%q %d messages, %d consumers), binding to Exchange (key %q)",
-		queue.Name, queue.Messages, queue.Consumers, key)
-
-	if len(queueKeys) > 0 {
-		for _, key := range queueKeys {
-			if err = c.Channel.QueueBind(
-				queue.Name, // name of the queue
-				key,        // bindingKey
-				exchange,   // sourceExchange
-				false,      // noWait
-				nil,        // arguments
+		for _, key := range keys {
+			keyExists := false
+			for _, oldKey := range c.queue.Keys {
+				if oldKey == key {
+					keyExists = true
+					break
+				}
+			}
+			if !keyExists {
+				c.queue.Keys = append(c.queue.Keys, key)
+			}
+			newKey := key
+			if err := c.channel.QueueBind(
+				c.queue.Name,    // name of the queue
+				newKey,          // bindingKey
+				c.exchange.Name, // sourceExchange
+				c.queue.NoWait,  // noWait
+				c.queue.Args,    // arguments
 			); err != nil {
-				return nil, fmt.Errorf("Queue Bind: %s", err)
+				return err
 			}
 		}
-	} else {
-		if err = c.Channel.QueueBind(
-			queue.Name, // name of the queue
-			key,        // bindingKey
-			exchange,   // sourceExchange
-			false,      // noWait
-			nil,        // arguments
-		); err != nil {
-			return nil, fmt.Errorf("Queue Bind: %s", err)
+		logrus.Info(c.logInfo("amqp bind keys: "), keys, " to queue: ", c.queue.Name)
+	}
+	return nil
+}
+
+// QueueDeclare dial amqp server, decrare echange an queue if set
+func (c *Consumer) QueueDeclare(exchange string) (<-chan amqp.Delivery, error) {
+	// declare and bind queue
+	if c.queue != nil {
+		logrus.Info(c.logInfo("amqp declare queue: "), c.queue.Name, " durable: ", c.queue.Durable, " autodelete: ", c.queue.AutoDelete)
+		_, err := c.channel.QueueDeclare(
+			c.queue.Name,       // name of the queue
+			c.queue.Durable,    // durable
+			c.queue.AutoDelete, // delete when unused
+			c.queue.Exclusive,  // exclusive
+			c.queue.NoWait,     // noWait
+			c.queue.Args,       // arguments
+		)
+		if err != nil {
+			return nil, err
 		}
-	}
+		if len(c.queue.Keys) > 0 {
+			err = c.BindKeys(c.queue.Keys)
+		} else {
+			err = c.BindKeys([]string{c.queue.ConsumerTag})
+		}
 
-	log.Printf("Queue bound to Exchange, starting Consume (consumer tag %q)", c.tag)
-	deliveries, err := c.Channel.Consume(
-		queue.Name, // name
-		c.tag,      // consumerTag,
-		false,      // noAck
-		false,      // exclusive
-		false,      // noLocal
-		false,      // noWait
-		nil,        // arguments
-	)
-	if err != nil {
-		return nil, fmt.Errorf("Queue Consume: %s", err)
+		if err != nil {
+			return nil, err
+		}
+		logrus.Info(c.logInfo("starting consume for queue: "), c.queue.Name)
+		deliveries, err := c.channel.Consume(
+			c.queue.Name,        // name
+			c.queue.ConsumerTag, // consumerTag,
+			c.queue.NoAck,       // noAck
+			c.queue.Exclusive,   // exclusive
+			c.queue.NoLocal,     // noLocal
+			c.queue.NoWait,      // noWait
+			c.queue.Args,        // arguments
+		)
+		if err != nil {
+			return nil, err
+		}
+		return deliveries, nil
+
 	}
-	c.Deliveries = deliveries
-	return c, nil
+	return nil, nil
 }
 
-func NewPublisher(amqpURI, exchange, exchangeType, key, ctag string) (*Consumer, error) {
-	c := &Consumer{
-		conn:         nil,
-		Channel:      nil,
-		tag:          ctag,
-		Done:         make(chan error),
-		Uri:          amqpURI,
-		Exchange:     exchange,
-		ExchangeType: exchangeType,
-	}
-
+// Connect dial amqp server, decrare echange an queue if set
+func (c *Consumer) Connect(reconnect bool) (<-chan amqp.Delivery, error) {
 	var err error
-
-	log.Printf("dialing %q", amqpURI)
-	c.conn, err = amqp.Dial(amqpURI)
+	logrus.Info(c.logInfo("amqp connect to: "), c.uri)
+	c.conn, err = amqp.Dial(c.uri)
 	if err != nil {
-		return nil, fmt.Errorf("Dial: %s", err)
+		return nil, err
 	}
 
+	logrus.Info(c.logInfo("amqp get channel"))
+	c.channel, err = c.conn.Channel()
+	if err != nil {
+		return nil, err
+	}
+	// declare exchange
+	exchange, err := c.ExchangeDeclare()
+	if err != nil {
+		return nil, err
+	}
+	// declare queue and bind routing keys
+	deliveries, err := c.QueueDeclare(exchange)
+	if err != nil {
+		return nil, err
+	}
+	if !reconnect {
+		go c.handleDeliveries(deliveries)
+	}
 	go func() {
-		fmt.Printf("closing: %s", <-c.conn.NotifyClose(make(chan *amqp.Error)))
+		logrus.Error(c.logInfo("amqp connection err: "), <-c.conn.NotifyClose(make(chan *amqp.Error)))
+		c.done <- errors.New(c.logInfo("channel closed"))
 	}()
-
-	log.Printf("got Connection, getting Channel")
-	c.Channel, err = c.conn.Channel()
-	if err != nil {
-		return nil, fmt.Errorf("Channel: %s", err)
-	}
-
-	log.Printf("got Channel, declaring Exchange (%q)", exchange)
-	if err = c.Channel.ExchangeDeclare(
-		exchange,     // name of the exchange
-		exchangeType, // type
-		true,         // durable
-		false,        // delete when complete
-		false,        // internal
-		false,        // noWait
-		nil,          // arguments
-	); err != nil {
-		return nil, fmt.Errorf("Exchange Declare: %s", err)
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("Queue Consume: %s", err)
-	}
-	return c, nil
+	return deliveries, nil
 }
 
-func (consumer *Consumer) Publish(msg []byte, options ...string) error {
+// Reconnect reconnect to amqp server
+func (c *Consumer) Reconnect() <-chan amqp.Delivery {
+	if err := c.Shutdown(); err != nil {
+		logrus.Error(c.logInfo("error during shutdown: "), err)
+	}
+	reconnectInterval := 30
+	logrus.Warn(c.logInfo("consumer wait reconnect"), " next try in ", reconnectInterval, "s")
+	time.Sleep(time.Duration(reconnectInterval) * time.Second)
+	deliveries, err := c.Connect(true)
+	if err != nil {
+		logrus.Error(c.logInfo("consumer reconnect err: "), err.Error(), " next try in ", reconnectInterval, "s")
+		return c.Reconnect()
+	}
+	return deliveries
+}
+
+//NewConsumer create simple consumer for read messages with ack
+func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handlers []func(*Delivery)) (*Consumer, error) {
+	c := &Consumer{
+		exchange: exchange,
+		queue:    queue,
+		done:     make(chan error),
+		uri:      amqpURI,
+		name:     name,
+	}
+	if len(handlers) > 0 {
+		c.handlers = handlers
+	}
+	_, err := c.Connect(false)
+	return c, err
+}
+
+// NewPublisher create publisher for send amqp messages
+func NewPublisher(amqpURI, name string, exchange Exchange) (*Consumer, error) {
+	c := &Consumer{
+		exchange: &exchange,
+		uri:      amqpURI,
+		name:     name,
+	}
+	_, err := c.Connect(false)
+	return c, err
+}
+
+// PublishWithHeaders sends messages and reconnects in case of error
+func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map[string]interface{}) error {
 	content := amqp.Publishing{
 		ContentType: "text/plain",
 		Body:        msg,
 	}
-	routingKey := ""
-	if len(options) > 0 {
-		routingKey = options[0]
+	if headers != nil {
+		content.Headers = headers
 	}
-	if len(options) > 2 {
-		content.Headers = make(map[string]interface{})
-		content.Headers[options[1]] = options[2]
+	err := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
+	if err != nil {
+		logrus.Error(c.logInfo("try reconnect after publish err: "), err)
+		c.Reconnect()
+		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
-	err := consumer.Channel.Publish(consumer.Exchange, routingKey, false, false, content)
-	return err
+	return nil
+}
+
+// Publish sends messages and reconnects in case of error
+func (c *Consumer) Publish(msg []byte, routingKey string) error {
+	return c.PublishWithHeaders(msg, routingKey, nil)
+}
+
+// GetConsumer get or create publish/consume consumer
+func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler func(*Delivery)) (consumer *Consumer, err error) {
+	consumersLock.Lock()
+	defer consumersLock.Unlock()
+	consumerInt, ok := consumers.Load(name)
+	if !ok {
+		if queue == nil {
+			exch := Exchange{}
+			if exchange != nil {
+				exch = *exchange
+			}
+			consumer, err = NewPublisher(amqpURI, name, exch)
+		} else {
+			consumer, err = NewConsumer(amqpURI, name, exchange, queue, []func(*Delivery){handler})
+		}
+		if err != nil {
+			return nil, err
+		}
+		consumers.Store(name, consumer)
+	} else {
+		consumer = consumerInt.(*Consumer)
+		var err error
+		if queue != nil {
+			if queue.Keys != nil && len(queue.Keys) > 0 {
+				err = consumer.BindKeys(queue.Keys)
+			} else {
+				err = consumer.BindKeys([]string{queue.ConsumerTag})
+			}
+			if err != nil {
+				return consumer, err
+			}
+		}
+	}
+	return consumer, nil
+}
+
+// Publish simple publisher with unique name and one connect
+func Publish(amqpURI, consumerName, exchangeName, exchangeType, routingKey string, msg []byte, headers map[string]interface{}) error {
+	consumer, err := GetConsumer(amqpURI, consumerName, &Exchange{Name: exchangeName, Type: exchangeType, Durable: true}, nil, nil)
+	if err != nil {
+		return err
+	}
+	if len(headers) > 0 {
+		return consumer.PublishWithHeaders(msg, routingKey, headers)
+	}
+	return consumer.Publish(msg, routingKey)
+}
+
+// PublishDirect simple publisher with unique name and one connect
+func PublishDirect(amqpURI, consumerName, exchangeName, routingKey string, msg []byte) error {
+	return Publish(amqpURI, consumerName, exchangeName, "direct", routingKey, msg, nil)
+}
+
+// PublishTopic simple publisher with unique name and one connect
+func PublishTopic(amqpURI, consumerName, exchangeName, routingKey string, msg []byte) error {
+	return Publish(amqpURI, consumerName, exchangeName, "topic", routingKey, msg, nil)
+}
+
+// PublishFanout simple publisher with unique name and one connect
+func PublishFanout(amqpURI, consumerName, exchangeName, routingKey string, msg []byte) error {
+	return Publish(amqpURI, consumerName, exchangeName, "fanout", routingKey, msg, nil)
+}
+
+// PublishHeader simple publisher with unique name and one connect
+func PublishHeader(amqpURI, consumerName, exchangeName string, msg []byte, headers map[string]interface{}) error {
+	return Publish(amqpURI, consumerName, exchangeName, "header", "", msg, nil)
 }
 
 // SendUpdate Send rpc update command to services
-func SendUpdate(amqpURI, table, id, method string, data interface{}) error {
+func SendUpdate(amqpURI, collection, id, method string, data interface{}) error {
 	objectJSON, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 	msg := Update{
-		Id:   id,
+		ID:   id,
 		Cmd:  method,
 		Data: string(objectJSON),
 	}
@@ -232,138 +363,110 @@ func SendUpdate(amqpURI, table, id, method string, data interface{}) error {
 	if err != nil {
 		return err
 	}
-	return Publish(amqpURI, "csx.updates", "direct", table, string(msgJSON), false)
+	var consumer *Consumer
+	consumerInt, ok := consumers.Load("SendUpdate")
+	if !ok {
+		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: "csx.updates", Type: "direct", Durable: true})
+		if err != nil {
+			return err
+		}
+		consumers.Store("SendUpdate", consumer)
+	} else {
+		consumer = consumerInt.(*Consumer)
+	}
+	return consumer.Publish(msgJSON, collection)
+}
+
+func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
+	for {
+		logrus.Info(c.logInfo("handle deliveries"))
+		go func() {
+			for d := range deliveries {
+				for i := 0; i < len(c.handlers); i++ {
+					cb := c.handlers[i]
+					dv := Delivery(d)
+					cb(&dv)
+				}
+				d.Ack(false)
+			}
+		}()
+		if <-c.done != nil {
+			logrus.Error(c.logInfo("deliveries channel closed"))
+			deliveries = c.Reconnect()
+			continue
+		}
+	}
+}
+
+// AddConsumeHandler add handler for queue consumer
+func (c *Consumer) AddConsumeHandler(handler func(*Delivery)) {
+	if len(c.handlers) == 0 {
+		c.handlers = []func(*Delivery){handler}
+	} else {
+		c.handlers = append(c.handlers, handler)
+	}
+}
+
+// GenerateName generate random name for queue and exchange
+func GenerateName(prefix string) string {
+	queueName := prefix
+	if envName != "" {
+		queueName += "." + envName
+	}
+	if consumerTag != "" {
+		queueName += "." + consumerTag
+	} else {
+		queueName += "." + *strUtil.NewId()
+	}
+	return queueName
 }
 
 // OnUpdates Listener to get models events update, create and delete
-func OnUpdates(cb func(consumer *Consumer), queue string, options map[string]interface{}) {
-	for {
-		updateExch := os.Getenv("EXCHANGE_UPDATES")
-		if updateExch == "" {
-			updateExch = "csx.updates"
-		}
-		cUpdates, err := NewConsumer(os.Getenv("AMQP_URI"), updateExch, "direct", queue, "", "csx.updates", options)
-		if err != nil {
-			log.Printf("error init consumer: %s", err)
-			log.Printf("try reconnect to rabbitmq after %s", reconTime)
-			time.Sleep(reconTime)
-			continue
-		}
-		go cb(cUpdates)
-		if lifetime > 0 {
-			log.Printf("running for %s", lifetime)
-			time.Sleep(lifetime)
-		} else {
-			log.Printf("running forever")
-			select {
-			case <-cUpdates.Done:
-				log.Printf("try reconnect to rabbitmq after %s", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-		}
-
-		log.Printf("shutting down")
-		if err := cUpdates.Shutdown(); err != nil {
-			log.Fatalf("error during shutdown: %s", err)
-		}
+func OnUpdates(cb func(data *Delivery), keys []string) {
+	if updateExch == "" {
+		updateExch = "csx.updates"
 	}
-}
-
-// TODO:: NOT USE THIS!!! Need seng msg in one connect. Use NewPublisher
-func Publish(amqpURI, exchange, exchangeType, routingKey, body string, reliable bool) error {
-
-	// This function dials, connects, declares, publishes, and tears down,
-	// all in one go. In a real service, you probably want to maintain a
-	// long-lived connection as state, and publish against that.
-
-	log.Printf("dialing %q", amqpURI)
-	connection, err := amqp.Dial(amqpURI)
-	if err != nil {
-		return fmt.Errorf("Dial: %s", err)
+	exchange := Exchange{Name: updateExch, Type: "direct", Durable: true}
+	queueName := GenerateName("onUpdates")
+	queue := Queue{
+		Name:        queueName,
+		ConsumerTag: queueName,
+		AutoDelete:  true,
+		Durable:     false,
+		Keys:        keys,
 	}
-	defer connection.Close()
-
-	log.Printf("got Connection, getting Channel")
-	channel, err := connection.Channel()
-	if err != nil {
-		return fmt.Errorf("Channel: %s", err)
+	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, cb)
+	if err != nil || cUpdates == nil {
+		logrus.Error("[OnUpdates] consumer init err: ", err)
+		logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
+		time.Sleep(reconTime)
+		OnUpdates(cb, keys)
+		return
 	}
 
-	log.Printf("got Channel, declaring %q Exchange (%q)", exchangeType, exchange)
-	if err := channel.ExchangeDeclare(
-		exchange,     // name
-		exchangeType, // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // noWait
-		nil,          // arguments
-	); err != nil {
-		return fmt.Errorf("Exchange Declare: %s", err)
-	}
-
-	// Reliable publisher confirms require confirm.select support from the
-	// connection.
-	if reliable {
-		log.Printf("enabling publishing confirms.")
-		if err := channel.Confirm(false); err != nil {
-			return fmt.Errorf("Channel could not be put into confirm mode: %s", err)
-		}
-
-		confirms := channel.NotifyPublish(make(chan amqp.Confirmation, 1))
-
-		defer confirmOne(confirms)
-	}
-
-	log.Printf("declared Exchange, publishing %dB body (%q)", len(body), body)
-	if err = channel.Publish(
-		exchange,   // publish to an exchange
-		routingKey, // routing to 0 or more queues
-		false,      // mandatory
-		false,      // immediate
-		amqp.Publishing{
-			Headers:         amqp.Table{},
-			ContentType:     "text/plain",
-			ContentEncoding: "",
-			Body:            []byte(body),
-			DeliveryMode:    amqp.Transient, // 1=non-persistent, 2=persistent
-			Priority:        0,              // 0-9
-			// a bunch of application/implementation-specific fields
-		},
-	); err != nil {
-		return fmt.Errorf("Exchange Publish: %s", err)
-	}
-
-	return nil
-}
-
-// One would typically keep a channel of publishings, a sequence number, and a
-// set of unacknowledged sequence numbers and loop until the publishing channel
-// is closed.
-func confirmOne(confirms <-chan amqp.Confirmation) {
-	log.Printf("waiting for confirmation of one publishing")
-
-	if confirmed := <-confirms; confirmed.Ack {
-		log.Printf("confirmed delivery with delivery tag: %d", confirmed.DeliveryTag)
+	if cUpdates.handlers == nil || len(cUpdates.handlers) == 0 {
+		cUpdates.handlers = make([]func(*Delivery), 0)
+		cUpdates.handlers = append(cUpdates.handlers, cb)
 	} else {
-		log.Printf("failed delivery of delivery tag: %d", confirmed.DeliveryTag)
+		cUpdates.handlers = append(cUpdates.handlers, cb)
 	}
 }
 
-//Shutdown channel on set app time tio live
+//Shutdown channel on set app time to live
 func (c *Consumer) Shutdown() error {
 	// will close() the deliveries channel
-	if err := c.Channel.Cancel(c.tag, true); err != nil {
-		return fmt.Errorf("Consumer cancel failed: %s", err)
+	if err := c.channel.Cancel("", true); err != nil {
+		logrus.Error(c.logInfo("[Shutdown] consumer cancel err: "), err)
+		return err
 	}
 
 	if err := c.conn.Close(); err != nil {
-		return fmt.Errorf("AMQP connection close error: %s", err)
+		logrus.Error(c.logInfo("[Shutdown] AMQP connection close err: "), err)
+		return err
 	}
 
-	defer log.Printf("AMQP shutdown OK")
+	defer logrus.Warn(c.logInfo("[Shutdown] AMQP shutdown OK"))
 
 	// wait for handle() to exit
-	return <-c.Done
+	return <-c.done
 }

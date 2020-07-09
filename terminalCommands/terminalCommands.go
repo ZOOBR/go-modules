@@ -6,40 +6,51 @@ import (
 	"net/http"
 	"strings"
 
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
+// Sender ---
 type Sender struct {
 	http        *http.Client
 	terminalURL *string
 }
 
+// TerminalResponse ---
 type TerminalResponse struct {
-	Id          string                 `json:"id"`
-	Result      int32                  `json:"result"`
-	Errors      []CommandError         `json:"errors"`
-	Telemetry   map[string]interface{} `json:"telemetry"`
-	Driver      string                 `json:"driver"`
-	Device      string                 `json:"device"`
-	VersionSoft int                    `json:"version_soft"`
-	VersionHard int                    `json:"version_hard"`
+	Id        string                 `json:"id"`
+	Result    int32                  `json:"result"`
+	Stage     int32                  `json:"stage,omitempty"`
+	Errors    []CommandError         `json:"errors,omitempty"`
+	Telemetry map[string]interface{} `json:"telemetry,omitempty"`
+	Info      map[string]interface{} `json:"info,omitempty"`
+	Driver    string                 `json:"driver,omitempty"`
+	Device    string                 `json:"device,omitempty"`
+	Token     string                 `json:"token,omitempty"`
+	Expired   uint64                 `json:"expired,omitempty"`
 }
 
+// CommandAction ---
 type CommandAction struct {
-	Id    string `json:"id"`
-	Index uint16 `json:"index"`
-	Act   uint8  `json:"act"`
-	Ton   uint32 `json:"ton"`
-	Toff  uint32 `json:"toff"`
+	Id     string                 `json:"id"`
+	Index  uint32                 `json:"index,omitempty"`
+	Act    uint32                 `json:"act,omitempty"`
+	Ton    uint32                 `json:"ton,omitempty"`
+	Toff   uint32                 `json:"toff,omitempty"`
+	Args   map[string]interface{} `json:"args,omitempty"`
+	Next   []interface{}          `json:"next,omitempty"`
+	Result *int                   `json:"result,omitempty"`
 }
 
+// Command ---
 type Command struct {
 	Id      string        `json:"id"`
 	Target  string        `json:"target"`
 	Command CommandAction `json:"command"`
 	Timeout int           `json:"timeout"`
 }
+
+// CommandError ---
 type CommandError struct {
 	Code    int32  `json:"code"`
 	Message string `json:"message"`
@@ -74,6 +85,7 @@ const (
 	command_error_invalid_crc  = 0x2000000
 )
 
+// ErrorCodes ---
 var ErrorCodes = map[int32]string{
 	1100: "TurnOffIgnition",
 	1101: "TurnOnParking",
@@ -88,8 +100,10 @@ var ErrorCodes = map[int32]string{
 	1110: "BrakeError",
 	1111: "CommandDisabled",
 	1112: "OtherError",
+	-100: "Cancel",
 	-101: "ServiceUnavailable",
 	-102: "InvalidResponse",
+	-103: "ProcessError",
 	-1:   "fail",
 	-2:   "notimpl",
 	-3:   "CommandTimeout",
@@ -99,20 +113,31 @@ var ErrorCodes = map[int32]string{
 	-7:   "invalid_format",
 	-8:   "terminate",
 	-11:  "CommandTimeout",
+	-12:  "CommandIncomplete",
+	-13:  "ExpectedResult",
 }
 
+// SetError ---
 func (response *TerminalResponse) SetError(code int32) {
 	if response.Errors == nil {
 		response.Errors = make([]CommandError, 0)
 	}
 	response.Errors = append(response.Errors, CommandError{code, ErrorCodes[code]})
-	response.Result = -1
+	if code < 0 {
+		response.Result = code
+	} else {
+		response.Result = -1
+	}
 }
 
-func (sender *Sender) Run(obj *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+// Run send command request and wait answer
+func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+	if drv != "" {
+		obj = drv + ":" + obj
+	}
 	cmd := Command{
-		Id:      uuid.Must(uuid.NewV4()).String(),
-		Target:  *obj,
+		Id:      uuid.New().String(),
+		Target:  obj,
 		Command: *action,
 	}
 	if len(timeout) > 0 {
@@ -121,7 +146,7 @@ func (sender *Sender) Run(obj *string, action *CommandAction, timeout ...int) (r
 	b, err := json.Marshal(cmd)
 	if err != nil {
 		log.Error(err)
-		response.Result = -1
+		response.Result = -103
 	} else {
 		r := bytes.NewReader(b)
 		resp, err := sender.http.Post(*sender.terminalURL, "application/json", r)
@@ -146,49 +171,64 @@ func (sender *Sender) Run(obj *string, action *CommandAction, timeout ...int) (r
 	return response
 }
 
-func (sender *Sender) Protection(obj *string, on uint8) TerminalResponse {
+// Protection ---
+func (sender *Sender) Protection(obj string, drv string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
-		Act: on,
+		Act: uint32(on),
 	}
 
-	return sender.Run(obj, &action)
+	return sender.Run(obj, drv, &action)
 }
 
-func (sender *Sender) Engine(obj *string, on uint8) TerminalResponse {
+// Engine ---
+func (sender *Sender) Engine(obj string, drv string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "engine",
-		Act: on,
+		Act: uint32(on),
 	}
 
-	return sender.Run(obj, &action)
+	return sender.Run(obj, drv, &action)
 }
 
-func (sender *Sender) Relay(idx uint16, obj *string, on uint8, ton uint32, toff uint32) TerminalResponse {
+// Relay ---
+func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
-		Index: idx,
-		Act:   uint8(on),
+		Index: uint32(idx),
+		Act:   uint32(on),
 		Ton:   ton,
 		Toff:  toff,
 	}
-	return sender.Run(obj, &action)
+	return sender.Run(obj, drv, &action)
 }
 
-func (sender *Sender) State(obj *string) TerminalResponse {
+// State ---
+func (sender *Sender) State(obj string, drv string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
-	return sender.Run(obj, &action)
+	return sender.Run(obj, drv, &action)
 }
 
-func (sender *Sender) Reset(obj *string) TerminalResponse {
+// Reset ---
+func (sender *Sender) Reset(obj string, drv string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
 	}
-	return sender.Run(obj, &action)
+	return sender.Run(obj, drv, &action)
 }
 
+// Auth - update auth token
+func (sender *Sender) Auth(obj string, drv string) TerminalResponse {
+	action := CommandAction{
+		Id:  "guard",
+		Act: 100,
+	}
+	return sender.Run(obj, drv, &action)
+}
+
+// SetBitErrors ---
 func (response *TerminalResponse) SetBitErrors() {
 	if response.Errors == nil {
 		response.Errors = make([]CommandError, 0)
@@ -266,6 +306,7 @@ func (response *TerminalResponse) SetBitErrors() {
 
 }
 
+// GetErrorsText ---
 func (response *TerminalResponse) GetErrorsText() string {
 	res := "<unknown>"
 	if len(response.Errors) == 0 {
@@ -279,10 +320,10 @@ func (response *TerminalResponse) GetErrorsText() string {
 	}
 }
 
-func NewSender(url string) Sender {
-	sender := Sender{
+// NewSender ---
+func NewSender(url string) *Sender {
+	return &Sender{
 		http:        &http.Client{Timeout: 40000000000},
 		terminalURL: &url,
 	}
-	return sender
 }

@@ -2,10 +2,10 @@ package strings
 
 import (
 	"math/rand"
+	"reflect"
 	"strings"
 
-	"github.com/prometheus/common/log"
-	uuid "github.com/satori/go.uuid"
+	"github.com/google/uuid"
 )
 
 func RandomString(n int, onlyDigits bool) string {
@@ -24,17 +24,12 @@ func RandomString(n int, onlyDigits bool) string {
 }
 
 func IsValidUUID(u string) bool {
-	_, err := uuid.FromString(u)
+	_, err := uuid.Parse(u)
 	return err == nil
 }
 
 func NewId() (res *string) {
-	u2, err := uuid.NewV4()
-	if err != nil {
-		log.Error("error generate uuid:", err)
-		return res
-	}
-	uuidVal := u2.String()
+	uuidVal := uuid.New().String()
 	return &uuidVal
 }
 
@@ -58,4 +53,22 @@ func GetIdsStr(ids string) string {
 		idsArray[key] = "'" + idsArray[key] + "'"
 	}
 	return strings.Join(idsArray, ",")
+}
+
+// GetStructFields extract all json fields from structure
+func GetStructFields(s interface{}) []string {
+	rt := reflect.TypeOf(s)
+	out := []string{}
+	for i := 0; i < rt.NumField(); i++ {
+		field := rt.Field(i)
+		jsonKeys := strings.Split(field.Tag.Get("json"), ",")
+		if len(jsonKeys) == 0 {
+			continue
+		}
+		jsonKey := jsonKeys[0]
+		if jsonKey != "" {
+			out = append(out, jsonKey)
+		}
+	}
+	return out
 }

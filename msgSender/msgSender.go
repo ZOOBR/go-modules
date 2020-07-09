@@ -3,6 +3,7 @@ package msgsender
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +37,7 @@ var (
 	notificationPublisher *amqp.Consumer
 	reconTime             = time.Second * 20
 	botProxy              = os.Getenv("BOT_HTTP_PROXY")
+	emailSender           = os.Getenv("EMAIL_SENDER")
 
 	// PublisherInitWait - wait initialization of publisher
 	PublisherInitWait = NewInitWait()
@@ -88,62 +90,50 @@ func initEventsPublisher() {
 	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
 	if amqpURI != "" && amqpTelemetryExchange != "" {
 		var err error
-		for {
-			publisher, err = amqp.NewPublisher(amqpURI, amqpTelemetryExchange, "topic", "csx.events", "csx.events")
-			if err != nil {
-				log.Error("init events publisher err:", err)
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-			PublisherInitWait.Process(err)
-			log.Info("events publisher running")
-			select {
-			case <-publisher.Done:
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
+		publisher, err = amqp.NewPublisher(amqpURI, "initEventsPublisher", amqp.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
+		if err != nil {
+			log.Error("init events publisher err:", err)
+			log.Warn("try reconnect to rabbitmq after:", reconTime)
+			time.Sleep(reconTime)
+			initEventsPublisher()
 		}
+		PublisherInitWait.Process(err)
+		log.Info("events publisher running")
 	}
 }
 
 func initNotificationsPublisher() {
 	if amqpURI != "" && mailingsExchange != "" {
 		var err error
-		for {
-			notificationPublisher, err = amqp.NewPublisher(amqpURI, mailingsExchange, "direct", "", "csx.notifications")
-			if err != nil {
-				log.Error("init notification publisher err:", err)
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
-			log.Info("notification publisher running")
-			select {
-			case <-notificationPublisher.Done:
-				log.Warn("try reconnect to rabbitmq after:", reconTime)
-				time.Sleep(reconTime)
-				continue
-			}
+		notificationPublisher, err = amqp.NewPublisher(amqpURI, "initNotificationsPublisher", amqp.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
+		if err != nil {
+			log.Error("init notification publisher err:", err)
+			log.Warn("try reconnect to rabbitmq after:", reconTime)
+			time.Sleep(reconTime)
+			initNotificationsPublisher()
 		}
+		log.Info("notification publisher running")
 	}
 }
 
 // Message is a common simple message struct
 type Message struct {
-	Mode    int         `json:"mode"`
-	Msg     string      `json:"msg"`
-	Title   string      `json:"title"`
-	Lang    string      `json:"lang"`
-	Phones  []string    `json:"phones"`
-	Tokens  []string    `json:"tokens"`
-	Addrs   []string    `json:"addrs"`
-	Sender  string      `json:"sender"`
-	Payload interface{} `json:"payload"`
-	Trigger string      `json:"trigger"`
-	BotID   string      `json:"bot"`
-	ChatID  string      `json:"chat"`
+	Mode       int         `json:"mode"`
+	Msg        string      `json:"msg"`
+	Title      string      `json:"title"`
+	Lang       string      `json:"lang"`
+	Phones     []string    `json:"phones"`
+	Tokens     []string    `json:"tokens"`
+	Addrs      []string    `json:"addrs"`
+	Images     []string    `json:"images"`
+	Sender     string      `json:"sender"`
+	Payload    interface{} `json:"payload"`
+	Trigger    string      `json:"trigger"`
+	BotID      string      `json:"bot"`
+	ChatID     string      `json:"chat"`
+	Type       int         `json:"type"`
+	MsgId      *string     `json:"msgId"`
+	SenderName *string     `json:"senderName"`
 }
 
 // SMS is a basic SMS struct
@@ -151,17 +141,22 @@ type SMS struct {
 	Phone string  `json:"phone"`
 	Msg   string  `json:"msg"`
 	MsgID *string `json:"msgId"`
+	Type  string  `json:"type"`
 }
 
 // Mail is a basic email struct
 type Mail struct {
-	From        string   `json:"from"`
-	To          string   `json:"to"`
-	Subject     string   `json:"subject"`
-	Images      []string `json:"images"`
-	Bucket      string   `json:"bucket"`
-	Body        string   `json:"body"`
-	ContentType string   `json:"contentType"`
+	From            string      `json:"from"`
+	SenderName      string      `json:"senderName"` // name of E-mail sender
+	To              string      `json:"to"`
+	Subject         string      `json:"subject"`
+	Images          []string    `json:"images"`
+	Bucket          string      `json:"bucket"`
+	Body            string      `json:"body"`
+	ContentType     string      `json:"contentType"`
+	Template        string      `json:"template"`
+	TemplateType    string      `json:"templateType"`
+	TemplateContext interface{} `json:"templateContext"`
 }
 
 // Push is a basic push struct
@@ -180,11 +175,11 @@ type Push struct {
 // contentType - email content type
 // images - array of paths to images (nil if without images)
 // bucket - optional for email with images
-func SendEmail(to, subject, mail string, contentType string, images *[]string, bucket ...string) {
+func SendEmail(to, subject, mail string, contentType string, images *[]string, options map[string]string, data interface{}, bucket ...string) {
 	log.Info("[msgSender-SendEmail] ", "Try send notification to: ", to)
 
 	newMail := Mail{
-		From:        os.Getenv("EMAIL_SENDER"),
+		From:        emailSender,
 		To:          to,
 		Subject:     subject,
 		Body:        mail,
@@ -197,6 +192,23 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 	if len(bucket) > 0 {
 		newMail.Bucket = bucket[0]
 	}
+	if senderName, ok := options["senderName"]; ok {
+		newMail.SenderName = senderName
+	} else {
+		newMail.SenderName = newMail.From
+	}
+	if _, ok := options["templateName"]; ok {
+		newMail.Template = options["templateName"]
+	}
+	if _, ok := options["templateType"]; ok {
+		newMail.TemplateType = options["templateType"]
+	}
+	if _, ok := options["bucket"]; ok {
+		newMail.Bucket = options["bucket"]
+	}
+	if newMail.Template != "" {
+		newMail.TemplateContext = data
+	}
 	m, err := json.Marshal(newMail)
 	if err != nil {
 		log.Warn("msgSender-sendEmail error json marshal: ", err)
@@ -208,11 +220,14 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, b
 // SendSMS is using for sending SMS messages
 // phone - recepient phone
 // msg - message body
-func SendSMS(phone, msg string, msgId ...string) {
+func SendSMS(phone, msg string, options ...string) {
 	log.Info("[msgSender-SendSMS] ", "Try send SMS to: ", phone)
 	newSms := SMS{Phone: phone, Msg: msg}
-	if len(msgId) > 0 {
-		newSms.MsgID = &msgId[0]
+	if len(options) > 0 && options[0] != "" {
+		newSms.MsgID = &options[0]
+	}
+	if len(options) > 1 {
+		newSms.Type = options[1]
 	}
 	m, err := json.Marshal(newSms)
 	if err != nil {
@@ -297,6 +312,7 @@ func SendBot(msg, title string, botID, chatID string) {
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
 	var text, typ, title, info string
+	var options map[string]string
 	if msg.Mode != MessageModeWebPush {
 		text = msg.Msg
 		isTemplate := false
@@ -304,7 +320,7 @@ func (msg *Message) Send(data interface{}) {
 			text = text[1:]
 			isTemplate = true
 		}
-		text, typ, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
+		text, typ, options, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
 			"isTemplate": isTemplate,
 		})
 		if len(msg.Title) > 0 && (msg.Mode&(MessageModePush|MessageModeMail|MessageModeBot)) != 0 {
@@ -314,7 +330,7 @@ func (msg *Message) Send(data interface{}) {
 				title = title[1:]
 				isTemplate = true
 			}
-			title, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
+			title, _, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
 				"isTemplate": isTemplate,
 			})
 		}
@@ -325,7 +341,11 @@ func (msg *Message) Send(data interface{}) {
 				info += ","
 			}
 			info += phone
-			SendSMS(phone, text)
+			msgID := ""
+			if msg.MsgId != nil {
+				msgID = *msg.MsgId
+			}
+			SendSMS(phone, text, msgID, fmt.Sprintf("%d", msg.Type))
 		}
 	}
 	if (msg.Mode&MessageModePush) != 0 && len(msg.Tokens) > 0 {
@@ -348,51 +368,61 @@ func (msg *Message) Send(data interface{}) {
 		} else {
 			contentType = "text/plain"
 		}
+		if msg.SenderName != nil {
+			options["senderName"] = *msg.SenderName
+		}
 		for _, addr := range msg.Addrs {
 			if len(info) > 0 {
 				info += ","
 			}
 			info += addr
-			SendEmail(addr, title, text, contentType, nil)
+			SendEmail(addr, title, text, contentType, &msg.Images, options, data)
 		}
+		return
 	}
 	log.Debug("Message", " [Send] ", info+": ", text)
 }
 
 // NewMessage create new message structure
-func NewMessage(lang, msg, title string, phones, tokens, mails []string) *Message {
+func NewMessage(lang, msg, title string, phones, tokens, mails, images []string, msgType int, msgID, senderName *string) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
 	return &Message{
-		Mode:   mode,
-		Msg:    msg,
-		Title:  title,
-		Lang:   lang,
-		Phones: phones,
-		Tokens: tokens,
-		Addrs:  mails,
+		Mode:       mode,
+		Msg:        msg,
+		Title:      title,
+		Lang:       lang,
+		Phones:     phones,
+		Tokens:     tokens,
+		Addrs:      mails,
+		Images:     images,
+		Type:       msgType,
+		MsgId:      msgID,
+		SenderName: senderName,
 	}
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail
-func SendMessage(lang, msg, title string, phones, tokens, mails []string, data interface{}) {
-	NewMessage(lang, msg, title, phones, tokens, mails).Send(data)
+func SendMessage(lang, msg, title string, phones, tokens, mails, images []string, data interface{}, payload interface{}, msgType int, msgID, senderName *string) {
+	message := NewMessage(lang, msg, title, phones, tokens, mails, images, msgType, msgID, senderName)
+	message.Payload = payload
+	message.Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
-func SendMessageSMS(lang, msg, title, phone string, data interface{}) {
-	NewMessage(lang, msg, title, []string{phone}, nil, nil).Send(data)
+func SendMessageSMS(lang, msg, title, phone string, data interface{}, msgType int, msgID *string) {
+	NewMessage(lang, msg, title, []string{phone}, nil, nil, nil, msgType, msgID, nil).Send(data)
 }
 
 // SendMessagePush format and send universal message by phone push
-func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}) {
-	message := NewMessage(lang, msg, title, nil, []string{token}, nil)
+func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}, msgType int, msgID *string) {
+	message := NewMessage(lang, msg, title, nil, []string{token}, nil, nil, msgType, msgID, nil)
 	message.Payload = payload
 	message.Send(data)
 }
 
 // SendMessageMail format and send universal message by e-mail
-func SendMessageMail(lang, msg, title, addr string, data interface{}) {
-	NewMessage(lang, msg, title, nil, nil, []string{addr}).Send(data)
+func SendMessageMail(lang, msg, title, addr string, data interface{}, msgType int, msgID, senderName *string) {
+	NewMessage(lang, msg, title, nil, nil, []string{addr}, nil, msgType, msgID, senderName).Send(data)
 }
 
 // Init initializes initEventsPublisher

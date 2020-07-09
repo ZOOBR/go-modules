@@ -21,7 +21,10 @@ import (
 	"github.com/kataras/golog"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
+	deepcopier "github.com/mohae/deepcopy"
 	"github.com/prometheus/common/log"
+	"github.com/sirupsen/logrus"
+
 	amqp "gitlab.com/battler/modules/amqpconnector"
 	strUtil "gitlab.com/battler/modules/strings"
 )
@@ -75,20 +78,34 @@ func NewQuery(tx bool) (q Query, err error) {
 	return q, err
 }
 
-func (this *Query) Commit() (err error) {
-	return this.tx.Commit()
+func (queryObj *Query) Commit() (err error) {
+	return queryObj.tx.Commit()
 }
 
-func (this *Query) Rollback() (err error) {
-	return this.tx.Rollback()
+func (queryObj *Query) Rollback() (err error) {
+	return queryObj.tx.Rollback()
 }
 
-func (this *Query) ExecWithArg(arg interface{}, query string) (err error) {
-	return this.tx.Get(arg, query)
+func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
+	if queryObj.tx != nil {
+		return queryObj.tx.Get(arg, query)
+	}
+	return queryObj.db.Get(arg, query)
 }
 
-func (this *Query) Exec(query string) (res sql.Result, err error) {
-	return this.tx.Exec(query)
+func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, err error) {
+	if queryObj.tx != nil {
+		return queryObj.tx.Exec(query, args...)
+	}
+	return queryObj.db.Exec(query, args...)
+}
+
+func (queryObj *Query) Select(dest interface{}, query string, args ...interface{}) error {
+	return queryObj.tx.Select(dest, query, args...)
+}
+
+func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
+	return sqlx.In(query, args...)
 }
 
 var (
@@ -116,8 +133,13 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 	return res
 }
 
-func (this *Query) saveLog(table string, item string, user string, data interface{}, diff map[string]interface{}) {
+// TODO:: Move save log to modelLog
+func (queryObj *Query) saveLog(table string, item string, user string, diff map[string]interface{}) {
 	if len(diff) > 0 {
+		if user == "" {
+			log.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
+			return
+		}
 		keys := []string{}
 		values := []string{}
 		for key := range diff {
@@ -125,13 +147,8 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 			values = append(values, ":"+key)
 		}
 		id := strUtil.NewId()
-		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","data","time") VALUES (:id,:table,:item,:user,:diff,:data,:time)`
+		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","time") VALUES (:id,:table,:item,:user,:diff,:time)`
 		diffByte, err := json.Marshal(diff)
-		if err != nil {
-			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
-			return
-		}
-		dataByte, err := json.Marshal(data)
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 			return
@@ -143,19 +160,17 @@ func (this *Query) saveLog(table string, item string, user string, data interfac
 			"item":  item,
 			"user":  user,
 			"diff":  string(diffByte),
-			"data":  string(dataByte),
 			"time":  now,
 		}
 
-		if this.tx != nil {
-			_, err = this.tx.NamedExec(query, logItem)
+		if queryObj.tx != nil {
+			_, err = queryObj.tx.NamedExec(query, logItem)
 		} else {
-			_, err = this.db.NamedExec(query, logItem)
+			_, err = queryObj.db.NamedExec(query, logItem)
 		}
 		if err != nil {
 			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
-		go amqp.SendUpdate(amqpURI, table, item, "update", diff)
 	}
 }
 
@@ -214,6 +229,7 @@ func ExecQuery(q *string, cb ...func(rows *sqlx.Rows)) QueryResult {
 		row := make(map[string]interface{})
 		err = rows.MapScan(row)
 		for k, v := range row {
+			//CRUTCH:: Type values get here uuid and arrays (return as string)
 			switch v.(type) {
 			case []byte:
 				var jsonMap map[string]*json.RawMessage
@@ -306,18 +322,19 @@ func SetValues(query *string, values *map[string]interface{}) error {
 	return nil
 }
 
-func (this *Query) Delete(query string) (err error) {
-	if this.tx != nil {
-		_, err = this.tx.Exec(query)
+func (queryObj *Query) Delete(query string) (err error) {
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
 	} else {
-		_, err = this.db.Exec(query)
+		_, err = queryObj.db.Exec(query)
 	}
 	return err
 }
 
 //SetStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
+//! DEPRECATED. Use InsertStructValues() for inserting or UpdateStructValues() for updating
+func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUpdate ...bool) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
@@ -364,7 +381,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 					case string:
 						oldMap[tag] = f.String()
 					case time.Time:
-						oldMap[tag] = val.Format(time.RFC3339)
+						oldMap[tag] = val.Format(time.RFC3339Nano)
 					case []string:
 						jsonArray, _ := json.Marshal(val)
 						oldMap[tag] = jsonArray
@@ -423,7 +440,7 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 			resultMap[tag] = f.String()
 			updV = resultMap[tag].(string)
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
 		case []string:
 			jsonArray, _ := json.Marshal(val)
@@ -462,17 +479,17 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
+	if queryObj.tx != nil {
 		if len(isUpdate) > 0 && isUpdate[0] {
-			_, err = this.tx.Exec(query)
+			_, err = queryObj.tx.Exec(query)
 		} else {
-			_, err = this.tx.NamedExec(query, resultMap)
+			_, err = queryObj.tx.NamedExec(query, resultMap)
 		}
 	} else {
 		if len(isUpdate) > 0 && isUpdate[0] {
-			_, err = this.db.Exec(query)
+			_, err = queryObj.db.Exec(query)
 		} else {
-			_, err = this.db.NamedExec(query, resultMap)
+			_, err = queryObj.db.NamedExec(query, resultMap)
 		}
 	}
 	if err != nil {
@@ -484,14 +501,15 @@ func (this *Query) SetStructValues(query string, structVal interface{}, isUpdate
 	return nil
 }
 
-//SetStructValues update helper with nodejs mysql style format
+//UpdateStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
+func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
 	oldMap := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 	diff := make(map[string]interface{})
+	diffPub := make(map[string]interface{})
 	cntAuto := 0
 
 	iValOld := reflect.ValueOf(structVal).Elem()
@@ -533,7 +551,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 				case string:
 					oldMap[tag] = f.String()
 				case time.Time:
-					oldMap[tag] = val.Format(time.RFC3339)
+					oldMap[tag] = val.Format(time.RFC3339Nano)
 				default:
 					valJSON, _ := json.Marshal(val)
 					oldMap[tag] = string(valJSON)
@@ -573,6 +591,7 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			if isPointer && oldMap[tag] != nil {
 				resultMap[tag] = nil
 				diff[tag] = nil
+				diffPub[tag] = nil
 				prepFields = append(prepFields, `"`+tag+`"`)
 				prepValues = append(prepValues, "NULL")
 			}
@@ -580,6 +599,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 		}
 
 		var updV string
+		var rawValue interface{}
+
 		switch val := f.Interface().(type) {
 		case bool:
 			resultMap[tag] = f.Bool()
@@ -601,9 +622,10 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			resultMap[tag] = f.String()
 			updV = resultMap[tag].(string)
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
 		default:
+			rawValue = val
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
 			updV = string(valJSON)
@@ -613,7 +635,17 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 			prepFields = append(prepFields, `"`+tag+`"`)
 			prepValues = append(prepValues, "'"+updV+"'")
 			if log {
-				diff[tag] = f.Interface()
+				tagVal := resultMap[tag]
+				diffVal := []interface{}{tagVal}
+				if oldMap[tag] != nil {
+					diffVal = append(diffVal, oldMap[tag])
+				}
+				diff[tag] = diffVal
+				if rawValue != nil {
+					diffPub[tag] = rawValue
+				} else {
+					diffPub[tag] = tagVal
+				}
 			}
 			if auto {
 				cntAuto++
@@ -661,7 +693,8 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 		if withLog {
 			if table != "" && id != "" {
-				this.saveLog(table, id, user, oldMap, diff)
+				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+				queryObj.saveLog(table, id, user, diff)
 			} else {
 				log.Error("missing table or id for save log", options)
 			}
@@ -670,11 +703,11 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
-		_, err = this.tx.Exec(query)
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
 
 	} else {
-		_, err = this.db.Exec(query)
+		_, err = queryObj.db.Exec(query)
 	}
 	if err != nil {
 		golog.Error(query)
@@ -684,10 +717,11 @@ func (this *Query) UpdateStructValues(query string, structVal interface{}, optio
 	return nil
 }
 
-//SetStructValues update helper with nodejs mysql style format
+//InsertStructValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
-func (this *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
+func (queryObj *Query) InsertStructValues(query string, structVal interface{}, options ...interface{}) error {
 	resultMap := make(map[string]interface{})
+	diffPub := make(map[string]interface{})
 	prepFields := make([]string, 0)
 	prepValues := make([]string, 0)
 
@@ -716,20 +750,27 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 		switch val := f.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			resultMap[tag] = f.Int()
+			diffPub[tag] = resultMap[tag]
 		case uint, uint8, uint16, uint32, uint64:
 			resultMap[tag] = f.Uint()
+			diffPub[tag] = resultMap[tag]
 		case float32, float64:
 			resultMap[tag] = f.Float()
+			diffPub[tag] = resultMap[tag]
 		case []byte:
 			v := string(f.Bytes())
 			resultMap[tag] = v
+			diffPub[tag] = resultMap[tag]
 		case string:
 			resultMap[tag] = f.String()
+			diffPub[tag] = resultMap[tag]
 		case time.Time:
-			resultMap[tag] = val.Format(time.RFC3339)
+			resultMap[tag] = val.Format(time.RFC3339Nano)
+			diffPub[tag] = resultMap[tag]
 		default:
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
+			diffPub[tag] = val
 		}
 		prepFields = append(prepFields, `"`+tag+`"`)
 		prepValues = append(prepValues, ":"+tag)
@@ -739,11 +780,11 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 
 	query = strings.Replace(query, "?", prepText, -1)
 	var err error
-	if this.tx != nil {
-		_, err = this.tx.NamedExec(query, resultMap)
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.NamedExec(query, resultMap)
 
 	} else {
-		_, err = this.db.NamedExec(query, resultMap)
+		_, err = queryObj.db.NamedExec(query, resultMap)
 	}
 	if err != nil {
 		golog.Error(query)
@@ -760,9 +801,58 @@ func (this *Query) InsertStructValues(query string, structVal interface{}, optio
 			golog.Error("amqp updates, invalid args:", settings)
 			return nil
 		}
-		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", resultMap)
+		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", diffPub)
 	}
 	return nil
+}
+
+// GetMapFromStruct return map from struct
+func GetMapFromStruct(structVal interface{}) map[string]interface{} {
+	iVal := reflect.Indirect(reflect.ValueOf(structVal))
+	typ := iVal.Type()
+	res := make(map[string]interface{})
+	for i := 0; i < iVal.NumField(); i++ {
+		f := iVal.Field(i)
+		if f.Kind() == reflect.Ptr {
+			f = reflect.Indirect(f)
+		}
+		ft := typ.Field(i)
+		tag := ft.Tag.Get("db")
+
+		if tag == "" || tag == "-" {
+			continue
+		}
+
+		if f.IsValid() {
+			switch val := f.Interface().(type) {
+			case bool:
+				res[tag] = f.Bool()
+			case int, int8, int16, int32, int64:
+				res[tag] = f.Int()
+			case uint, uint8, uint16, uint32, uint64:
+				res[tag] = f.Uint()
+			case float32, float64:
+				res[tag] = f.Float()
+			case []byte:
+				v := string(f.Bytes())
+				res[tag] = v
+			case string:
+				res[tag] = f.String()
+			case time.Time:
+				res[tag] = val.Format(time.RFC3339Nano)
+			case pq.StringArray:
+				arr := f.Interface().(pq.StringArray)
+				res[tag] = "{" + strings.Join(arr, ",") + "}"
+			default:
+				valJSON, _ := json.Marshal(val)
+				res[tag] = string(valJSON)
+			}
+		} else {
+			res[tag] = nil
+		}
+
+	}
+	return res
 }
 
 func GetStructValues(structVal interface{}, fields *[]string) map[string]interface{} {
@@ -862,62 +952,34 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 				if where != "" {
 					where += " AND "
 				}
-				fieldParts := strings.Split(f[0], ".")
-				var field string
-				if len(fieldParts) < 2 {
-					field = `"` + f[0] + `"`
-				} else {
-					field = f[0]
-				}
-				switch keyValue[0] {
-				case "similar":
-					where += field + ` SIMILAR TO '%` + v + "%'"
-				case "notsimilar":
-					where += field + ` NOT SIMILAR TO '%` + v + "%'"
-				case "text":
-					where += field + ` ILIKE '%` + v + "%'"
-				case "ilike":
-					where += field + ` ILIKE '%` + v + "%'"
-				case "notilike":
-					where += field + ` NOT ILIKE '%` + v + "%'"
-				case "date":
-					rangeDates := strings.Split(v, "_")
-					beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
-					if err != nil {
-						continue
-					}
-					tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
-					where += field + ` >= '` + tmBegin + "'"
-					if len(rangeDates) > 1 {
-						endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
-						if err != nil {
-							continue
+				multiFields := strings.Split(f[0], ",")
+				lenMultiFields := len(multiFields)
+				if lenMultiFields > 1 {
+					where += " ("
+					for i := 0; i < lenMultiFields; i++ {
+						mField := multiFields[i]
+						fieldParts := strings.Split(mField, ".")
+						var field string
+						if len(fieldParts) < 2 {
+							field = `"` + mField + `"`
+						} else {
+							field = mField
 						}
-						tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
-						where += ` AND ` + field + ` <= '` + tmEnd + "'"
-						// startDatePagination = tmBegin
-						// endDatePagination = tmEnd
+						addCondition(keyValue[0], field, v, &where)
+						if i != lenMultiFields-1 {
+							where += " OR "
+						}
 					}
-				case "select":
-					where += field + ` = '` + v + "'"
-				case "lte":
-					where += field + ` <= '` + v + "'"
-				case "lten":
-					where += `(` + field + ` IS NULL OR ` + field + ` <= '` + v + "')"
-				case "gte":
-					where += field + ` >= '` + v + "'"
-				case "gten":
-					where += `(` + field + ` IS NULL OR ` + field + ` >= '` + v + "')"
-				case "lt":
-					where += field + ` < '` + v + "'"
-				case "gt":
-					where += field + ` > '` + v + "'"
-				case "is":
-					where += field + ` IS ` + v
-				case "in":
-					where += field + ` IN (` + v + `)`
-				case "notin":
-					where += field + ` NOT IN(` + v + `)`
+					where += ") "
+				} else {
+					fieldParts := strings.Split(f[0], ".")
+					var field string
+					if len(fieldParts) < 2 {
+						field = `"` + f[0] + `"`
+					} else {
+						field = f[0]
+					}
+					addCondition(keyValue[0], field, v, &where)
 				}
 			}
 		}
@@ -931,19 +993,32 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	}
 	orderby := ""
 	if val, ok := req["sort"]; ok && val != "" && !isCount {
-		sortParams := strings.Split(val, "-")
 		orderby += "ORDER BY "
-		if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
-			orderby += sortParams[0]
-		} else {
-			orderby += `"` + sortParams[0] + `"`
+		sortFields := strings.Split(val, ",")
+		for iSort := 0; iSort < len(sortFields); iSort++ {
+			if iSort > 0 {
+				orderby += ","
+			}
+			sortParams := strings.Split(sortFields[iSort], "-")
+			if _, err := strconv.ParseInt(sortParams[0], 10, 16); err == nil {
+				orderby += sortParams[0]
+			} else {
+				sortFieldParts := strings.Split(sortParams[0], ".")
+				if len(sortFieldParts) > 1 { // 2 parts: <table name>.<field name>
+					orderby += `"` + sortFieldParts[0] + `"."` + sortFieldParts[1] + `"`
+				} else {
+					orderby += `"` + sortParams[0] + `"`
+				}
+
+			}
+			if len(sortParams) > 1 {
+				orderby += " " + sortParams[1]
+			}
+			if v, o := req["nulls"]; o && v != "" {
+				orderby += ` NULLS ` + v
+			}
 		}
-		if len(sortParams) > 1 {
-			orderby += " " + sortParams[1]
-		}
-		if v, o := req["nulls"]; o && v != "" {
-			orderby += ` NULLS ` + v
-		}
+
 	}
 	paginationQuery := ""
 	prevPaginationQuery := ""
@@ -966,6 +1041,67 @@ func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 
 	// fmt.Println(fullReq)
 	return fullReq
+}
+
+func addCondition(fieldType, field, v string, where *string) {
+	switch fieldType {
+	case "similar":
+		*where += field + ` SIMILAR TO '%` + v + "%'"
+	case "notsimilar":
+		*where += field + ` NOT SIMILAR TO '%` + v + "%'"
+	case "text":
+		// CRUTCH:: This is necessary for working with numeric fields.
+		// It is necessary to add normal filtering by number fields with comparison on > and <
+		*where += field + `::varchar ILIKE '%` + v + "%'"
+	case "ilike":
+		// CRUTCH:: This is necessary for working with numeric fields.
+		// It is necessary to add normal filtering by number fields with comparison on > and <
+		*where += field + `::varchar ILIKE '%` + v + "%'"
+	case "notilike":
+		*where += field + ` NOT ILIKE '%` + v + "%'"
+	case "date":
+		rangeDates := strings.Split(v, "_")
+		beginDate, err := strconv.ParseInt(rangeDates[0], 10, 64)
+		if err != nil {
+			return
+		}
+		tmBegin := time.Unix(beginDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+		*where += field + ` >= '` + tmBegin + "'"
+		if len(rangeDates) > 1 {
+			endDate, err := strconv.ParseInt(rangeDates[1], 10, 64)
+			if err != nil {
+				return
+			}
+			tmEnd := time.Unix(endDate/1000, 0).UTC().Format("2006-01-02 15:04:05")
+			*where += ` AND ` + field + ` <= '` + tmEnd + "'"
+			// startDatePagination = tmBegin
+			// endDatePagination = tmEnd
+		}
+	case "select":
+		*where += field + ` = '` + v + "'"
+	case "mask":
+		*where += field + ` & ` + v + " > 0"
+	case "notMask":
+		*where += field + ` & ` + v + " = 0"
+	case "lte":
+		*where += field + ` <= '` + v + "'"
+	case "lten":
+		*where += `(` + field + ` IS NULL OR ` + field + ` <= '` + v + "')"
+	case "gte":
+		*where += field + ` >= '` + v + "'"
+	case "gten":
+		*where += `(` + field + ` IS NULL OR ` + field + ` >= '` + v + "')"
+	case "lt":
+		*where += field + ` < '` + v + "'"
+	case "gt":
+		*where += field + ` > '` + v + "'"
+	case "is":
+		*where += field + ` IS ` + v
+	case "in":
+		*where += field + ` IN (` + v + `)`
+	case "notin":
+		*where += field + ` NOT IN(` + v + `)`
+	}
 }
 
 // Init open connection to database
@@ -1007,23 +1143,30 @@ func Init() {
 
 // SchemaField is definition of sql field
 type SchemaField struct {
-	Name    string
-	Type    string
-	Length  int
-	IsNull  bool
-	Default string
-	Key     int
-	checked bool
+	Name      string
+	Type      string
+	IndexType string
+	Length    int
+	IsNull    bool
+	IsUUID    bool
+	Default   string
+	Key       int
+	Auto      int
+	checked   bool
 }
 
 // SchemaTable is definition of sql table
 type SchemaTable struct {
-	Name       string
-	Fields     []*SchemaField
-	initalized bool
-	sqlSelect  string
-	SQLFields  []string
+	Name        string
+	Fields      []*SchemaField
+	initalized  bool
+	IDFieldName string
+	sqlSelect   string
+	SQLFields   []string
+	// GenFields   []string
 	onUpdate   schemaTableUpdateCallback
+	LogChanges bool
+	Struct     interface{}
 }
 
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
@@ -1062,7 +1205,7 @@ func registerSchemaPrepare() {
 			golog.Debug(`Table "` + reg.table.Name + `" schema check successfully`)
 		}
 	}
-	golog.Info(`Database schema check successfully`)
+	logrus.Info(`Database schema check successfully`)
 }
 
 func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallback, internal bool) error {
@@ -1080,44 +1223,49 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 	reg.callbacks = append(reg.callbacks, cb)
 	if !reg.isConnector {
 		reg.isConnector = true
-		queueName := "csx.api." + tableName
+		queueName := "csx.sql." + tableName
 		envName := os.Getenv("CSX_ENV")
+		consumerTag := os.Getenv("SERVICE_NAME")
 		if envName != "" {
 			queueName += "." + envName
 		}
-		go amqp.OnUpdates(registerSchemaOnUpdate, queueName, map[string]interface{}{
-			"queueAutoDelete": true,
-			"queueDurable":    false,
-			"queueKeys":       []string{tableName},
-		})
+		if consumerTag != "" {
+			queueName += "." + consumerTag
+		} else {
+			queueName += "." + *strUtil.NewId()
+		}
+		go amqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
 	}
 	return nil
 }
 
-func registerSchemaOnUpdate(consumer *amqp.Consumer) {
-	deliveries := consumer.Deliveries
-	done := consumer.Done
-	log.Debug("HandleUpdates: deliveries channel open")
-	for d := range deliveries {
-		msg := amqp.Update{}
-		err := json.Unmarshal(d.Body, &msg)
-		if err != nil {
-			log.Error("HandleUpdates", "Error parse json: ", err)
-			continue
-		}
-		registerSchema.RLock()
-		name := d.RoutingKey
-		reg, ok := registerSchema.tables[name]
-		if ok {
-			for _, cb := range reg.callbacks {
-				cb(reg.table, msg)
-			}
-		}
-		registerSchema.RUnlock()
-		d.Ack(false)
+func registerSchemaOnUpdate(d *amqp.Delivery) {
+	msg := amqp.Update{}
+	err := json.Unmarshal(d.Body, &msg)
+	if err != nil {
+		log.Error("HandleUpdates", "Error parse json: ", err)
+		return
 	}
-	log.Debug("HandleUpdates: deliveries channel closed")
-	done <- nil
+	registerSchema.RLock()
+	name := d.RoutingKey
+	reg, ok := registerSchema.tables[name]
+	if ok {
+		for _, cb := range reg.callbacks {
+			cb(reg.table, msg)
+		}
+	}
+	registerSchema.RUnlock()
+}
+
+// GetSchemaTable get schema table by table name
+func GetSchemaTable(table string) (*SchemaTable, bool) {
+	registerSchema.RLock()
+	schema, ok := registerSchema.tables[table]
+	registerSchema.RUnlock()
+	if !ok {
+		return nil, ok
+	}
+	return schema.table, ok
 }
 
 // NewSchemaField create SchemaTable definition
@@ -1161,18 +1309,22 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		recType = infoType
 	}
 
+	// genFields := []string{}
+	idFieldName := ""
 	fields := make([]*SchemaField, 0)
 	if recType.Kind() == reflect.Struct {
 		fcnt := recType.NumField()
 		for i := 0; i < fcnt; i++ {
 			f := recType.Field(i)
 			name := f.Tag.Get("db")
-			if len(name) == 0 || name == "-" {
+			dbFieldTag := f.Tag.Get("dbField")
+			if len(name) == 0 || name == "-" || dbFieldTag == "-" {
 				continue
 			}
 			field := new(SchemaField)
 			field.Name = name
 			field.Type = f.Tag.Get("type")
+			field.IndexType = f.Tag.Get("index")
 			if len(field.Type) == 0 {
 				field.Type = f.Type.Name()
 				if len(field.Type) == 0 || field.Type == "string" {
@@ -1182,25 +1334,41 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
 			field.Default = f.Tag.Get("def")
+			field.Auto, _ = strconv.Atoi(f.Tag.Get("auto"))
 			if f.Type.Kind() == reflect.Ptr {
 				field.IsNull = true
 			}
+			field.IsUUID = field.Type == "uuid"
+			if (field.Key == 1 || name == "id") && field.IsUUID {
+				idFieldName = name
+			}
 			fields = append(fields, field)
+			// if field.Default != "" || field.Auto != 0 {
+			// 	genFields = append(genFields, name)
+			// }
 		}
 	}
 
 	var onUpdate schemaTableUpdateCallback
+	var logChanges bool
 	for key, val := range options {
-		if key == "onUpdate" {
+		switch key {
+		case "onUpdate":
 			if reflect.TypeOf(val).Kind() == reflect.Func {
 				onUpdate = val.(func(table *SchemaTable, msg interface{}))
 			}
+		case "logChanges":
+			logChanges = val.(bool)
 		}
 	}
 	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
+	newSchemaTable.IDFieldName = idFieldName
 	newSchemaTable.onUpdate = onUpdate
+	newSchemaTable.LogChanges = logChanges
+	newSchemaTable.Struct = info
+	// newSchemaTable.GenFields = genFields
 	newSchemaTable.register()
 	return &newSchemaTable
 }
@@ -1234,7 +1402,7 @@ func (field *SchemaField) sql() string {
 
 func (table *SchemaTable) create() error {
 	var keys string
-	skeys := []string{}
+	skeys := []*SchemaField{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
 	for index, field := range table.Fields {
 		if index > 0 {
@@ -1247,8 +1415,8 @@ func (table *SchemaTable) create() error {
 			}
 			keys += field.Name
 		}
-		if (field.Key & 2) != 0 {
-			skeys = append(skeys, field.Name)
+		if (field.Key&2) != 0 || field.IndexType != "" {
+			skeys = append(skeys, field)
 		}
 	}
 	sql += `)`
@@ -1260,15 +1428,23 @@ func (table *SchemaTable) create() error {
 		schemaLogSQL(sql, err)
 	}
 	if err == nil && len(skeys) > 0 {
-		for _, fieldName := range skeys {
-			table.createIndex(fieldName)
+		for _, field := range skeys {
+			table.createIndex(field)
 		}
 	}
 	return err
 }
 
-func (table *SchemaTable) createIndex(fieldName string) error {
-	sql := `CREATE INDEX "` + table.Name + "_" + fieldName + `_idx" ON "` + table.Name + `" USING btree ("` + fieldName + `")`
+func (table *SchemaTable) createIndex(field *SchemaField) error {
+	indexType := field.IndexType
+	if indexType == "" {
+		if field.Type == "json" || field.Type == "jsonb" {
+			indexType = "GIN"
+		} else {
+			indexType = "btree"
+		}
+	}
+	sql := `CREATE INDEX "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
 	_, err := DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	return err
@@ -1290,8 +1466,8 @@ func (table *SchemaTable) alter(cols []string) error {
 			if err != nil {
 				break
 			}
-			if (field.Key & 2) != 0 {
-				table.createIndex(field.Name)
+			if (field.Key&2) != 0 || field.IndexType != "" {
+				table.createIndex(field)
 			}
 			field.checked = true
 		}
@@ -1308,7 +1484,12 @@ func (table *SchemaTable) prepare() error {
 		if index > 0 {
 			table.sqlSelect += ", "
 		}
-		fieldName := `"` + field.Name + `" `
+		fieldName := ""
+		if field.Type == "geometry" {
+			fieldName = "st_asgeojson(" + field.Name + `) as "` + field.Name + `"`
+		} else {
+			fieldName = `"` + field.Name + `" `
+		}
 		table.sqlSelect += fieldName
 		table.SQLFields = append(table.SQLFields, fieldName)
 	}
@@ -1352,7 +1533,7 @@ func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
 
 // QueryParams execute  sql query with params
 func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) error {
-	var fields, where, order *[]string
+	var fields, where, order, groupby *[]string
 
 	if len(params) > 0 {
 		where = &params[0]
@@ -1365,33 +1546,36 @@ func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) erro
 	} else {
 		fields = &table.SQLFields
 	}
-	if len(params) > 3 {
+	if len(params) > 3 && params[3] != nil {
 		join := &params[3]
 		return table.QueryJoin(recs, fields, where, order, join)
 	}
+	if len(params) > 4 {
+		groupby = &params[4]
+	}
 
-	return table.Query(recs, fields, where, order)
+	return table.Query(recs, fields, where, order, groupby)
 }
 
-// `Query` execute sql query with params
-func (table *SchemaTable) Query(recs interface{}, fields, where, order *[]string, args ...interface{}) error {
+// Query execute sql query with params
+func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[]string, args ...interface{}) error {
 	qparams := &QueryParams{
 		Select: fields,
 		From:   &table.Name,
 		Where:  where,
 		Order:  order,
+		Group:  group,
 	}
 
 	query, err := MakeQuery(qparams)
 	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error(*query)
-		fmt.Println(err)
+		log.Error("err: ", err, " query:", *query)
 		return err
 	}
 	return nil
 }
 
-// `QueryJoin` execute sql query with params
+// QueryJoin execute sql query with params
 func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join *[]string, args ...interface{}) error {
 	if join == nil || len(*join) == 0 {
 		return errors.New("join arg is empty")
@@ -1451,72 +1635,312 @@ func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error
 }
 
 // Insert execute insert sql string
-func (table *SchemaTable) Insert(data interface{}) error {
-	_, err := table.CheckInsert(data, nil)
+func (table *SchemaTable) Insert(data interface{}, options ...map[string]interface{}) error {
+	_, err := table.CheckInsert(data, nil, options...)
 	return err
 }
 
-// CheckInsert execute insert sql string if not exist where expression
-func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Result, error) {
-	// if where != nil {
-	// 	ok, err := table.Exists(*where)
-	// 	if err != nil || ok {
-	// 		return err
-	// 	}
-	// }
-	// return table.Insert(data)
-
-	rec := reflect.ValueOf(data)
-	recType := rec.Type()
-	/*
-		recCnt := 1
-		switch recType.Kind() {
-		case reflect.Slice:
-			recType = recType.Elem()
-			recCnt = rec.Len()
-		case reflect.Array:
-			recType = recType.Elem()
-			recCnt = rec.Len()
+func (table *SchemaTable) getIDField(id string, options []map[string]interface{}) (idField, newID string, err error) {
+	idField = table.IDFieldName
+	newID = id
+	if len(options) > 0 {
+		option := options[0]
+		if option != nil && option["idField"] != nil {
+			idField = option["idField"].(string)
 		}
-	*/
 
-	if recType.Kind() == reflect.Ptr {
-		rec = reflect.Indirect(rec)
-		recType = rec.Type()
+		index, field := table.FindField(idField)
+		if index == -1 {
+			return "", "", errors.New("invalid id field: " + idField)
+		}
+		if field.Type == "uuid" && id == "" {
+			newID = *strUtil.NewId()
+		}
 	}
-	if recType.Kind() != reflect.Struct {
-		return nil, errors.New("element must be struct")
+	if idField == "" {
+		idField = "id"
 	}
+	return idField, newID, nil
+}
 
-	var args = []interface{}{}
-	var fields, values string
+// UpsertMultiple execute insert or update sql string
+func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
+	result, err := table.CheckInsert(data, &where, options...)
+	if err != nil {
+		return count, err
+	}
+	count, err = result.RowsAffected()
+	if err != nil {
+		_, _, err = table.UpdateMultiple(nil, data, where, options...)
+	}
+	return count, err
+}
+
+// Upsert execute insert or update sql string
+func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[string]interface{}) error {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return err
+	}
+	where := `"` + idField + `"='` + id + "'"
+	result, err := table.CheckInsert(data, &where, options...)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err == nil && rows == 0 {
+		err = table.Update(id, data, options...)
+	}
+	return err
+}
+
+func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
+	diff = make(map[string]interface{})
+	diffPub = make(map[string]interface{})
+	args = []interface{}{}
 	cnt := 0
+	recType := rec.Type()
 	fcnt := recType.NumField()
+	oldRec := reflect.ValueOf(oldData)
+	compareWithOldRec := oldRec.IsValid()
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
+		fType := f.Tag.Get("type")
 		if len(name) == 0 || name == "-" {
 			continue
 		}
-		/*
-			_, field := table.FindField(name)
-			if field == nil {
-				continue
+		newFld := rec.FieldByName(f.Name)
+		var oldFldInt interface{}
+		if compareWithOldRec {
+			oldFld := oldRec.FieldByName(f.Name)
+			if oldFld.IsValid() {
+				oldFldInt = oldFld.Interface()
+				if oldFldInt == newFld.Interface() {
+					continue
+				}
 			}
-		*/
+		}
+		if checkExcludeFields(name, options...) {
+			continue
+		}
 		if cnt > 0 {
 			fields += ","
 			values += ","
 		}
 		cnt++
 		fields += `"` + name + `"`
-		fld := rec.FieldByName(f.Name)
-		if fld.IsValid() {
-			values += "$" + strconv.Itoa(cnt)
-			args = append(args, fld.Interface())
+		fldInt := newFld.Interface()
+		if newFld.IsValid() {
+			if fType == "geometry" {
+				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else {
+				values += "$" + strconv.Itoa(cnt)
+			}
+			if name == idField {
+				itemID = fmt.Sprintf("%v", fldInt)
+			}
+			if name != idField || oldFldInt == nil {
+				diffVal := []interface{}{fldInt}
+				if oldFldInt != nil {
+					diffVal = append(diffVal, oldFldInt)
+				}
+				diff[name] = diffVal
+				diffPub[name] = fldInt
+			}
+			args = append(args, fldInt)
 		} else {
 			values += "NULL"
 		}
+	}
+	excludeFields(diff, diffPub, options...)
+	return args, values, fields, itemID, diff, diffPub
+}
+
+func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
+	diff = make(map[string]interface{})
+	diffPub = make(map[string]interface{})
+	args = []interface{}{}
+	cnt := 0
+	cntField := 0
+	compareWithOldRec := oldData != nil
+	for name := range data {
+		_, f := table.FindField(name)
+		if f == nil {
+			logrus.WithFields(logrus.Fields{"table": table.Name, "field": name}).Warn("invalid field")
+			continue
+		}
+		val := data[name]
+		oldVal := oldData[name]
+		if f.IsUUID {
+			if str, ok := val.(string); ok && str == "" {
+				val = nil
+			}
+		}
+		if compareWithOldRec && val == oldVal {
+			continue
+		}
+		if checkExcludeFields(name, options...) {
+			continue
+		}
+		if cntField > 0 {
+			fields += ","
+			values += ","
+		}
+		fields += `"` + name + `"`
+		if name == idField {
+			itemID = fmt.Sprintf("%v", val)
+		}
+		if name != idField || oldVal == nil {
+			diffVal := []interface{}{val}
+			if oldVal != nil {
+				diffVal = append(diffVal, oldVal)
+			}
+			diff[name] = diffVal
+			diffPub[name] = val
+		}
+		if f.Type == "uuid[]" {
+			val = pq.Array(val)
+		}
+		if val != nil {
+			cnt++
+			argNum := "$" + strconv.Itoa(cnt)
+			if f.Type == "geometry" {
+				values += "ST_GeomFromGeoJSON(" + argNum + ")"
+			} else if f.Type == "jsonb" {
+				valJSON, err := json.Marshal(val)
+				if err != nil {
+					logrus.Error("invalid jsonb value: ", val, " of field: ", name)
+				}
+				val = valJSON
+				values += argNum
+			} else {
+				values += argNum
+			}
+			args = append(args, val)
+		} else {
+			values += "NULL"
+		}
+		cntField++
+	}
+	excludeFields(diff, diffPub, options...)
+	return args, values, fields, itemID, diff, diffPub
+}
+
+func excludeFields(diff map[string]interface{}, diffPub map[string]interface{}, options ...map[string]interface{}) {
+	ignoreDiff := []string{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["ignoreDiff"] != nil {
+			ignoreDiff = option["ignoreDiff"].([]string)
+		}
+	}
+	for i := 0; i < len(ignoreDiff); i++ {
+		field := ignoreDiff[i]
+		delete(diff, field)
+		delete(diffPub, field)
+	}
+}
+
+func checkExcludeFields(fieldName string, options ...map[string]interface{}) bool {
+	ignoreDiff := []string{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["ignoreDiff"] != nil {
+			ignoreDiff = option["ignoreDiff"].([]string)
+		}
+	}
+	for i := 0; i < len(ignoreDiff); i++ {
+		f := ignoreDiff[i]
+		if f == fieldName {
+			return true
+		}
+	}
+	return false
+}
+
+// SelectMap select multiple items from db to []map[string]interfaces
+func (table *SchemaTable) SelectMap(where string) ([]map[string]interface{}, error) {
+	q := table.sqlSelect
+	if len(where) > 0 {
+		q += " WHERE " + where
+	}
+	results := make([]map[string]interface{}, 0)
+	rows, err := DB.Queryx(q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		row := make(map[string]interface{})
+		err = rows.MapScan(row)
+		for k, v := range row {
+			switch v.(type) {
+			case []byte:
+				var jsonMap map[string]*json.RawMessage
+				err := json.Unmarshal(v.([]byte), &jsonMap)
+				if err != nil {
+					row[k] = string(v.([]byte))
+				} else {
+					row[k] = jsonMap
+				}
+			}
+		}
+		results = append(results, row)
+	}
+	return results, nil
+}
+
+// GetMap get one item form db and return as map[string]interfaces
+func (table *SchemaTable) GetMap(q string) (map[string]interface{}, error) {
+	results, err := table.SelectMap(q)
+	if err != nil {
+		return nil, err
+	}
+	lenResults := len(results)
+	if lenResults > 1 {
+		return nil, errors.New("multiple results for GetMap query not allowed")
+	} else if lenResults == 0 {
+		return nil, nil
+	} else {
+		return results[0], nil
+	}
+}
+
+// CheckInsert execute insert sql string if not exist where expression
+func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
+	var diff, diffPub map[string]interface{}
+	idField, _, err := table.getIDField("", options)
+	if err != nil {
+		return nil, err
+	}
+	rec := reflect.ValueOf(data)
+	recType := rec.Type()
+
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.Indirect(rec)
+		recType = rec.Type()
+	}
+	var fields, values, itemID string
+	var args []interface{}
+	if recType.Kind() == reflect.Map {
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("element must be a map[string]interface")
+		}
+		args, values, fields, itemID, diff, diffPub = table.prepareArgsMap(dataMap, nil, idField)
+	} else if recType.Kind() == reflect.Struct {
+		args, values, fields, itemID, diff, diffPub = table.prepareArgsStruct(rec, nil, idField)
+	} else {
+		return nil, errors.New("element must be struct or map[string]interface")
 	}
 
 	sql := `INSERT INTO "` + table.Name + `" (` + fields + `)`
@@ -1525,101 +1949,423 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string) (sql.Resu
 	} else {
 		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
+	// if len(table.GenFields) > 0 {
+	// 	sql += ` RETURNING "` + strings.Join(table.GenFields, `","`) + `"`
+	// }
 
-	return DB.Exec(sql, args...)
+	res, err := q.Exec(sql, args...)
+	if err == nil {
+		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub)
+		table.SaveLog(itemID, diff, options)
+	}
+	return res, err
 }
 
-// Update execute update sql string
-func (table *SchemaTable) Update(oldData, data interface{}, where string) error {
-	diff := make(map[string]interface{})
-	itemID := ""
+// SaveLog save model logs to database
+func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, options []map[string]interface{}) error {
+	withLog := table.LogChanges
+	if len(options) > 0 {
+		option := options[0]
+		if option["withLog"] != nil {
+			withLog = option["withLog"].(bool)
+		}
+		if withLog {
+			id := itemID
+			user := ""
+			if option["idField"] != nil {
+				id = option["idField"].(string)
+			}
+			if option["user"] != nil {
+				user = option["user"].(string)
+			}
+			query, err := NewQuery(false)
+			if err != nil {
+				return err
+			}
+			query.saveLog(table.Name, id, user, diff)
+		}
+	}
+	return nil
+}
+
+// UpdateMultiple execute update sql string
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, err error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
-	oldRec := reflect.ValueOf(oldData)
-	compareWithOldRec := oldRec.IsValid()
 
 	if recType.Kind() == reflect.Ptr {
 		rec = reflect.Indirect(rec)
 		recType = rec.Type()
 	}
-	if recType.Kind() != reflect.Struct {
-		return errors.New("element must be struct")
-	}
-	if compareWithOldRec {
+	var fields, values string
+	var args []interface{}
+	if recType.Kind() == reflect.Map {
+		dataMap, ok := data.(map[string]interface{})
+		if !ok {
+			return nil, nil, errors.New("data must be a map[string]interface")
+		}
+		oldDataMap, ok := oldData.(map[string]interface{})
+		if !ok {
+			return nil, nil, errors.New("oldData must be a map[string]interface")
+		}
+		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
+	} else if recType.Kind() == reflect.Struct {
+		oldRec := reflect.ValueOf(oldData)
 		oldRecType := oldRec.Type()
+
 		if oldRecType.Kind() == reflect.Ptr {
 			oldRec = reflect.Indirect(oldRec)
 			oldRecType = oldRec.Type()
 		}
-		if oldRecType.Kind() != reflect.Struct {
-			return errors.New("oldData element must be struct")
-		}
-	}
-
-	var args = []interface{}{}
-	var fields, values string
-	cnt := 0
-	fcnt := recType.NumField()
-	for i := 0; i < fcnt; i++ {
-		f := recType.Field(i)
-		name := f.Tag.Get("db")
-		if len(name) == 0 || name == "-" {
-			continue
-		}
-
-		newFld := rec.FieldByName(f.Name)
-		if compareWithOldRec {
-			oldFld := oldRec.FieldByName(f.Name)
-			if oldFld.IsValid() && newFld.IsValid() && oldFld.Interface() == newFld.Interface() {
-				if name == "id" {
-					itemID = newFld.String()
-				}
-				continue
-			}
-		}
-
-		if cnt > 0 {
-			fields += ","
-			values += ","
-		}
-		cnt++
-		fields += `"` + name + `"`
-
-		if newFld.IsValid() {
-			values += "$" + strconv.Itoa(cnt)
-			v := newFld.Interface()
-			diff[name] = v
-			args = append(args, v)
+		//if oldData is map and rec is struct - convert rec to map
+		if oldRecType.Kind() == reflect.Map {
+			str := GetMapFromStruct(data)
+			args, values, fields, _, diff, diffPub = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
 		} else {
-			values += "NULL"
+			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
-
-	}
-	var sql string
-	if cnt == 1 {
-		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
 	} else {
+		return nil, nil, errors.New("element must be struct or map[string]interface")
+	}
+
+	var sql string
+	lenDiff := len(diff)
+	if lenDiff == 1 {
+		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
+	} else if lenDiff > 0 {
 		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
 	}
-	_, err := DB.Exec(sql, args...)
-	if err == nil && itemID != "" {
-		go amqp.SendUpdate(amqpURI, table.Name, itemID, "update", diff)
+	if lenDiff > 0 {
+		_, err = q.Exec(sql, args...)
+	}
+	return diff, diffPub, err
+}
+
+// Update update one item by id
+func (table *SchemaTable) Update(id string, data interface{}, options ...map[string]interface{}) error {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return err
+	}
+	var oldData map[string]interface{}
+	if len(options) > 0 {
+		if _, ok := options[0]["oldData"]; ok {
+			oldData = options[0]["oldData"].(map[string]interface{})
+		}
+	}
+	where := `"` + idField + `"='` + id + `'`
+	if oldData == nil {
+		oldData, err = table.GetMap(where)
+		if err != nil {
+			return err
+		}
+	}
+	diff, diffPub, err := table.UpdateMultiple(oldData, data, where, options...)
+	if err == nil && len(diff) > 0 {
+		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
+		table.SaveLog(id, diff, options)
 	}
 	return err
 }
 
-// Delete records with where sql string
-func (table *SchemaTable) Delete(where string, args ...interface{}) (int, error) {
+// DeleteMultiple  delete all records with where sql string
+func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]interface{}) (int, error) {
+	q := Query{db: DB}
+	if len(options) > 0 {
+		option := options[0]
+		if _, ok := option["queryObj"]; ok {
+			q = option["queryObj"].(Query)
+		}
+	}
+
 	sql := `DELETE FROM "` + table.Name + `"`
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
-	ret, err := DB.Exec(sql, args...)
+	var args []interface{}
+	if len(options) > 0 {
+		option := options[0]
+		if option["args"] != nil {
+			args = option["args"].([]interface{})
+		}
+	}
+	ret, err := q.Exec(sql, args...)
 	if err == nil {
 		rows, err := ret.RowsAffected()
 		return int(rows), err
 	}
 	return -1, err
+}
+
+// Delete delete one record by id
+func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (int, error) {
+	idField, id, err := table.getIDField(id, options)
+	if err != nil {
+		return 0, err
+	}
+	count, err := table.DeleteMultiple(idField+`='`+id+`'`, options...)
+	if count != 1 {
+		err = errors.New("record not found")
+	}
+	if err == nil {
+		var data interface{}
+		if len(options) > 0 {
+			data = options[0]["data"]
+		}
+		if data == nil {
+			data = struct{}{}
+		}
+		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data)
+		//table.SaveLog(id, diff, options)
+	}
+	return count, err
+}
+
+//---------------------------------------------------------------------------
+
+// DataStore store local data
+type DataStore struct {
+	sync.RWMutex
+	name        string
+	propID      string
+	propIndexes []string
+	load        DataStoreLoadProc
+	items       map[string]interface{}
+	indexes     map[string]map[interface{}]interface{}
+}
+
+// DataStoreLoadProc load store items function
+type DataStoreLoadProc func(id *string) (interface{}, error)
+
+// NewDataStore create DataStore
+func NewDataStore(storeName, propID string, indexes []string, load DataStoreLoadProc) *DataStore {
+	return &DataStore{
+		name:        storeName,
+		propID:      propID,
+		propIndexes: indexes,
+		load:        load,
+	}
+}
+
+// Find data store search element by id
+func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) {
+	var propID string
+	var propVal interface{}
+	argcnt := len(args)
+	if argcnt > 1 {
+		propVal = args[0]
+		propIDValue := reflect.Indirect(reflect.ValueOf(args[1]))
+		if propIDValue.IsValid() {
+			propID = propIDValue.String()
+		}
+		if propID == "" {
+			logrus.Error("store '" + store.name + "' invalid index id")
+			return nil, false
+		}
+	} else if argcnt > 0 {
+		propVal = args[0]
+	}
+	if propVal == nil {
+		return nil, false
+	}
+
+	store.RLock()
+	if propID == "" {
+		val := reflect.Indirect(reflect.ValueOf(propVal))
+		if val.IsValid() {
+			id := val.String()
+			if id == "" {
+				ok = false
+			} else {
+				result, ok = store.items[id]
+				if !ok {
+					logrus.Warn("store '"+store.name+"' not found: ", id)
+				}
+			}
+		}
+	} else {
+		index, isIndex := store.indexes[propID]
+		if isIndex {
+			result, ok = index[propVal]
+		} else {
+			logrus.Error("store '"+store.name+"' not found index: ", propID)
+		}
+	}
+	store.RUnlock()
+	return result, ok
+}
+
+// Load data store from source
+func (store *DataStore) Load() {
+	items, err := store.load(nil)
+	if err != nil {
+		panic("store '" + store.name + "' load " + err.Error())
+	}
+	itemsVal := reflect.ValueOf(items)
+	cnt := itemsVal.Len()
+	store.Lock()
+	cntIndexes := len(store.propIndexes)
+	store.items = make(map[string]interface{})
+	store.indexes = make(map[string]map[interface{}]interface{})
+	for i := 0; i < cntIndexes; i++ {
+		store.indexes[store.propIndexes[i]] = make(map[interface{}]interface{})
+	}
+	for i := 0; i < cnt; i++ {
+		itemVal := itemsVal.Index(i)
+		itemPtr := itemVal.Addr().Interface()
+		itemID := itemVal.FieldByName(store.propID).String()
+		store.items[itemID] = itemPtr
+		if cntIndexes > 0 {
+			store.updateIndexies(itemVal, itemPtr, nil)
+		}
+	}
+	store.Unlock()
+}
+
+// Range iterate datastore map and run callback
+func (store *DataStore) Range(cb func(key, val interface{}) bool) {
+	for key, val := range store.items {
+		res := cb(key, val)
+		if !res {
+			break
+		}
+	}
+}
+
+// Update data store by data
+func (store *DataStore) Update(cmd, id, data string) {
+	var itemPtr interface{}
+	var itemVal reflect.Value
+	var oldValues []interface{}
+	cntIndexes := len(store.propIndexes)
+	isUpdate := cmd == "update"
+	if isUpdate {
+		var ok bool
+		store.RLock()
+		itemPtr, ok = store.items[id]
+		store.RUnlock()
+		if !ok || itemPtr == nil {
+			logrus.Error("store '"+store.name+"' not found: ", id)
+			return
+		}
+	}
+	if itemPtr == nil {
+		items, err := store.load(&id)
+		if err != nil {
+			logrus.Error("store '"+store.name+"' load: ", id, " ", err)
+		} else {
+			itemsVal := reflect.ValueOf(items)
+			if itemsVal.Len() == 0 {
+				logrus.Error("store '"+store.name+"' not found: ", id)
+			} else {
+				itemVal = itemsVal.Index(0)
+				itemPtr = itemVal.Addr().Interface()
+			}
+		}
+	} else {
+		var err error
+		if cntIndexes > 0 {
+			itemVal = reflect.ValueOf(itemPtr)
+			if itemVal.Kind() == reflect.Ptr {
+				itemVal = reflect.Indirect(itemVal)
+			}
+			oldValues = store.readIndexies(itemVal, itemPtr)
+		}
+		writeItem(itemPtr, func(locked bool) {
+			if !locked {
+				// Делаем полную копию, если у элемента нет методов блокировки (можно использовать только для чтения)
+				itemPtr = deepcopier.Copy(itemPtr)
+				itemVal = reflect.Indirect(reflect.ValueOf(itemPtr))
+			}
+			err = json.Unmarshal([]byte(data), itemPtr)
+		})
+		if err != nil {
+			logrus.Error("store '"+store.name+"' unmarshal: ", id, " ", err)
+			itemPtr = nil
+		}
+	}
+	if itemPtr != nil {
+		store.Lock()
+		store.items[id] = itemPtr
+		if cntIndexes > 0 {
+			store.updateIndexies(itemVal, itemPtr, oldValues)
+		}
+		store.Unlock()
+		logrus.Warn("store '"+store.name+"' update: ", id, " ", data)
+	}
+}
+
+func (store *DataStore) readIndexies(itemVal reflect.Value, itemPtr interface{}) []interface{} {
+	cnt := len(store.propIndexes)
+	result := make([]interface{}, cnt)
+	readItem(itemPtr, func() {
+		for i := 0; i < cnt; i++ {
+			propID := store.propIndexes[i]
+			prop := reflect.Indirect(itemVal.FieldByName(propID))
+			if !prop.IsValid() {
+				continue
+			}
+			result[i] = prop.Interface()
+		}
+	})
+	return result
+}
+
+func (store *DataStore) updateIndexies(itemVal reflect.Value, itemPtr interface{}, oldValues []interface{}) {
+	cnt := len(store.propIndexes)
+	for i := 0; i < cnt; i++ {
+		propID := store.propIndexes[i]
+		prop := reflect.Indirect(itemVal.FieldByName(propID))
+		index, isIndex := store.indexes[propID]
+		if !isIndex || !prop.IsValid() {
+			continue
+		}
+		propVal := prop.Interface()
+		if oldValues != nil {
+			oldVal := oldValues[i]
+			if oldVal != propVal && oldVal != nil {
+				delete(index, oldVal)
+			}
+		}
+		if propVal != nil {
+			index[propVal] = itemPtr
+		}
+	}
+}
+
+func writeItem(itemPtr interface{}, cb func(locked bool)) {
+	itemVal := reflect.ValueOf(itemPtr)
+	lock := itemVal.MethodByName("Lock")
+	locked := lock.IsValid()
+	if locked {
+		lock.Call([]reflect.Value{})
+	}
+	cb(locked)
+	if locked {
+		unlock := itemVal.MethodByName("Unlock")
+		unlock.Call([]reflect.Value{})
+	}
+}
+
+func readItem(itemPtr interface{}, cb func()) {
+	itemVal := reflect.ValueOf(itemPtr)
+	lock := itemVal.MethodByName("RLock")
+	if lock.IsValid() {
+		lock.Call([]reflect.Value{})
+	}
+	cb()
+	if lock.IsValid() {
+		unlock := itemVal.MethodByName("RUnlock")
+		unlock.Call([]reflect.Value{})
+	}
 }
 
 //---------------------------------------------------------------------------

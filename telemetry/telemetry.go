@@ -5,9 +5,25 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+)
+
+const (
+	// base
+	ParamLat      = 1101
+	ParamLon      = 1102
+	ParamAngle    = 1104
+	ParamOdometer = 1201
+	// can
+	ParamCanStatus = 2200
+	ParamCanSpeed  = 2202
+	// calculated
+	ParamCalcOdo  = 3001
+	ParamSpeedAvg = 3005
 )
 
 var mapParamsPrecision = map[uint16]float64{
@@ -122,8 +138,19 @@ var (
 	binaryID = []rune("bt")
 )
 
-type Position struct {
-	Time int64 `json:"time"`
+// PositionInfo - position info (base check content)
+type PositionInfo struct {
+	Time float64       `json:"time"`
+	ID   string        `json:"id"`
+	Type string        `json:"type"`
+	Data *FlatPosition `json:"data"`
+	Auth *Auth         `json:"auth"`
+}
+
+// Auth - auth token info
+type Auth struct {
+	Token   string  `json:"token"`
+	Expired float64 `json:"expired"`
 }
 
 type ParamsFloat32 struct {
@@ -160,38 +187,22 @@ type BinaryPosition struct {
 	E    []uint16
 }
 
-//FlatPosition compact position format
+// ZoneInfo zone information
+type ZoneInfo struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Path     string   `json:"path"`
+	Type     string   `json:"tid"`
+	Additive *float64 `json:"additive,omitempty"`
+	Distance *float64 `json:"distance,omitempty"`
+}
+
+// FlatPosition compact position format
 type FlatPosition struct {
-	Time float64            `db:"t" json:"t"`
-	P    map[uint16]float64 `db:"p" json:"p"`
-	E    []uint16           `db:"e" json:"e"`
-	Z    []string           `db:"z" json:"z"`
-	K    []int              `db:"k" json:"k"`
-}
-
-func (pos *FlatPosition) Scan(src interface{}) error {
-	val, ok := src.([]byte)
-	if !ok {
-		log.Warn("unable scan flat pos:", src)
-		return errors.New("unable scan flat pos")
-	}
-	err := json.Unmarshal(val, &pos)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// UTC translate position time to Time UTC
-func (pos *FlatPosition) UTC() time.Time {
-	sec := pos.Time / 1000
-	nsec := (sec - math.Floor(sec)) * 1000000000
-	return time.Unix(int64(sec), int64(nsec)).UTC()
-}
-
-// TimeStr format position time
-func (pos *FlatPosition) TimeStr() string {
-	return time.Unix(int64(pos.Time/1000), 0).Format("2006-01-02 15:04:05")
+	Time  float64            `json:"t"`
+	P     map[uint16]float64 `json:"p,omitempty"`
+	E     []uint16           `json:"e,omitempty"`
+	Zones []ZoneInfo         `json:"zones,omitempty"`
 }
 
 // PrettyPosition struct for user friendly
@@ -243,6 +254,117 @@ type BinaryData struct {
 	Day  string
 	Time float64
 	Data []byte
+}
+
+type param struct {
+	P uint16 // param code
+	T uint16 // linked time code or zero
+	H bool   // need load history if parameter not exists
+}
+
+// Params map with telemetry params
+var Params = map[string]param{
+	"paramTimeCan":        {8, 0, false},
+	"paramTimeReceive":    {9, 0, false},
+	"paramTimeFuel":       {10, 0, false},
+	"paramTimeFuel2":      {11, 0, false},
+	"paramStatus":         {1020, 0, false},
+	"paramBatteryV":       {1022, 0, false},
+	"paramAngle":          {1104, 0, false},
+	"paramSpeed":          {1105, 0, false},
+	"paramLat":            {1101, 0, true},
+	"paramLon":            {1102, 0, true},
+	"paramOdometer":       {1201, 0, true},
+	"paramMileageReserve": {1203, 0, false},
+	"paramCanStatus":      {2200, 0, false},
+	"paramCanTempr":       {2201, 0, false},
+	"paramCanSpeed":       {2202, 0, false},
+	"paramAdc0":           {2000, 0, false},
+	"paramAdc1":           {2001, 0, false},
+
+	"paramCalcOdo":    {3001, 0, false},
+	"paramDriftLevel": {3004, 0, false},
+	"paramSpeedAvg":   {3005, 0, false},
+	"paramFuel":       {3400, 0, true},
+	"paramFuel2":      {3401, 0, false},
+	"paramAvgFuel":    {3500, 0, true},
+	"paramAvgFuel2":   {3501, 0, false},
+}
+
+// GetParamCode prepare uit16 code from interface
+func GetParamCode(id interface{}) uint16 {
+	switch id.(type) {
+	case int:
+		return uint16(id.(int))
+	case uint:
+		return uint16(id.(uint))
+	case uint16:
+		return uint16(id.(uint16))
+	case float64:
+		return uint16(id.(float64))
+	case string:
+		sid := id.(string)
+		if val, err := strconv.Atoi(sid); err == nil {
+			return uint16(val)
+		} else if p, ok := Params[sid]; ok {
+			return p.P
+		}
+	}
+	return 0
+}
+
+// Get position param value by name
+func (pos *FlatPosition) Get(id interface{}) (float64, bool) {
+	code := GetParamCode(id)
+	if code > 0 {
+		val, ok := pos.P[code]
+		return val, ok
+	}
+	return 0, false
+}
+
+// GetVal position param value by name
+func (pos *FlatPosition) GetVal(id interface{}) float64 {
+	val, _ := pos.Get(id)
+	return val
+}
+
+// Set position param value by name
+func (pos *FlatPosition) Set(id interface{}, val float64, index ...int) {
+	code := GetParamCode(id)
+	if len(index) > 0 {
+		code += uint16(index[0])
+	}
+	pos.P[code] = val
+}
+
+// ParamCode get param code by name
+func ParamCode(name string) uint16 {
+	return Params[name].P
+}
+
+// FuelParams array with fuel params
+var FuelParams = []uint16{
+	ParamCode("paramFuel"),
+	ParamCode("paramFuel2"),
+}
+
+// FuelAvgParams array with avg fuel params
+var FuelAvgParams = []uint16{
+	ParamCode("paramAvgFuel"),
+	ParamCode("paramAvgFuel2"),
+}
+
+// FindZone is search zone by id
+func FindZone(list []ZoneInfo, id string) *ZoneInfo {
+	cnt := len(list)
+	for i := 0; i < cnt; i++ {
+		zone := list[i]
+		if zone.ID == id {
+			return &zone
+		}
+	}
+	return nil
 }
 
 func TranslatePos(p *FlatPosition) map[string]interface{} {
@@ -816,7 +938,48 @@ func NewReader() *BinaryReader {
 	return &reader
 }
 
-func (pos *FlatPosition) CopyTo(newPos *FlatPosition) *FlatPosition {
+// Scan - database field scan json
+func (pos *FlatPosition) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		log.Warn("unable scan flat pos:", src)
+		return errors.New("unable scan flat pos")
+	}
+	err := json.Unmarshal(val, &pos)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// Scan - database field scan json
+func (auth *Auth) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		log.Warn("unable scan auth:", src)
+		return errors.New("unable scan auth")
+	}
+	err := json.Unmarshal(val, &auth)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// UTC translate position time to Time UTC
+func (pos *FlatPosition) UTC() time.Time {
+	sec := pos.Time / 1000
+	nsec := (sec - math.Floor(sec)) * 1000000000
+	return time.Unix(int64(sec), int64(nsec)).UTC()
+}
+
+// TimeStr format position time
+func (pos *FlatPosition) TimeStr() string {
+	return time.Unix(int64(pos.Time/1000), 0).Format("2006-01-02 15:04:05")
+}
+
+// CopyTo position full or partial
+func (pos *FlatPosition) CopyTo(newPos *FlatPosition, extinfo bool) *FlatPosition {
 	if newPos == nil {
 		newPos = new(FlatPosition)
 	}
@@ -827,9 +990,167 @@ func (pos *FlatPosition) CopyTo(newPos *FlatPosition) *FlatPosition {
 	}
 	newPos.E = make([]uint16, len(pos.E))
 	copy(newPos.E, pos.E)
+	if extinfo {
+		// Copy as constant reference
+		if len(pos.Zones) > 0 {
+			newPos.Zones = pos.Zones
+		}
+	}
 	return newPos
 }
 
-func (pos *FlatPosition) Copy() *FlatPosition {
-	return pos.CopyTo(nil)
+// Copy position full or partial
+func (pos *FlatPosition) Copy(extinfo bool) *FlatPosition {
+	return pos.CopyTo(nil, extinfo)
+}
+
+// TmtField is a base struct for filter params
+type TmtField struct {
+	Field string
+	Code  uint16
+	Value float64
+}
+
+// TmtFilter is a base struct for parsing filters
+type TmtFilter struct {
+	FilterType string
+	Pos        []TmtField
+}
+
+// ParseTelemetryParams parses filtered params from URL
+func ParseTelemetryParams(filtered string) (res []TmtFilter) {
+	filters := strings.Split(filtered, "$")
+	for _, kv := range filters {
+		if kv == "" {
+			continue
+		}
+		filterArray := []TmtField{}
+		keyValue := strings.Split(kv, "->")
+		if len(keyValue) < 2 {
+			continue
+		}
+		filterType := keyValue[0]
+		f := strings.Split(keyValue[1], "~")
+		if len(f) < 2 {
+			continue
+		}
+		valueStr := f[1]
+		numFields := strings.Split(f[0], ",")
+		lenMultiFields := len(numFields)
+		if lenMultiFields > 1 {
+			for i := 0; i < lenMultiFields; i++ {
+				multiField := numFields[i]
+				fieldCode := strings.Split(multiField, ".")
+				if len(fieldCode) < 2 {
+					continue
+				}
+				field := fieldCode[0]
+				codeStr := fieldCode[1]
+				code, err := strconv.Atoi(codeStr)
+				if err != nil {
+					continue
+				}
+				v, err := strconv.ParseFloat(valueStr, 64)
+				if err != nil {
+					continue
+				}
+				filterArray = append(filterArray, TmtField{
+					Field: field,
+					Code:  uint16(code),
+					Value: v,
+				})
+			}
+		} else if len(numFields) > 0 {
+			fieldCode := strings.Split(numFields[0], ".")
+			if len(fieldCode) < 2 {
+				continue
+			}
+			field := fieldCode[0]
+			codeStr := fieldCode[1]
+			code, err := strconv.Atoi(codeStr)
+			if err != nil {
+				continue
+			}
+			v, err := strconv.ParseFloat(valueStr, 64)
+			if err != nil {
+				continue
+			}
+			filterArray = append(filterArray, TmtField{
+				Field: field,
+				Code:  uint16(code),
+				Value: v,
+			})
+		}
+		res = append(res, TmtFilter{
+			FilterType: filterType,
+			Pos:        filterArray,
+		})
+	}
+	return res
+}
+
+// CheckFilter checks object position by provided filters
+func (pos *FlatPosition) CheckFilter(filters []TmtFilter) bool {
+	numFilters := len(filters)
+	isChecked := false
+	for i := 0; i < numFilters; i++ {
+		filter := filters[i]
+		numFilterParams := len(filter.Pos)
+		if numFilterParams > 1 {
+			for j := 0; j < numFilterParams; j++ {
+				filteredParam := filter.Pos[j]
+				isChecked = pos.CheckCondition(filter.FilterType, filteredParam.Field, filteredParam.Code, filteredParam.Value)
+				if isChecked {
+					break
+				}
+			}
+		} else if numFilterParams > 0 {
+			filteredParam := filter.Pos[0]
+			isChecked = pos.CheckCondition(filter.FilterType, filteredParam.Field, filteredParam.Code, filteredParam.Value)
+		}
+	}
+	return isChecked
+}
+
+// CheckCondition checks field of position by code , filterType and value
+func (pos *FlatPosition) CheckCondition(filterType, field string, code uint16, v float64) bool {
+	var comparedValue float64
+	var ok bool
+	switch field {
+	case "p":
+		comparedValue, ok = pos.P[code]
+		if !ok {
+			return false
+		}
+		break
+	case "t":
+		comparedValue = pos.Time
+		break
+	case "z":
+		break
+	}
+
+	switch filterType {
+	case "eq":
+		return comparedValue == v
+	case "noteq":
+		return comparedValue != v
+	case "mask":
+		return int64(comparedValue)&int64(v) > 0
+	case "notMask":
+		return int64(comparedValue)&int64(v) == 0
+	case "lte":
+		return comparedValue <= v
+	case "lten":
+		return comparedValue <= v || !ok
+	case "gte":
+		return comparedValue >= v
+	case "gten":
+		return comparedValue >= v || ok
+	case "lt":
+		return comparedValue < v
+	case "gt":
+		return comparedValue > v
+	}
+	return false
 }

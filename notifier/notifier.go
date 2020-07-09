@@ -122,7 +122,12 @@ func startNotify(n models.Notification, lang string, clientID string, phones, to
 		logrus.Error("error save open notification: ", err)
 		return
 	}
-	newMessage := sender.NewMessage(lang, n.Template, n.TitleTemplate, phones, tokens, mails)
+	senderName, err := models.GetFirmParam(n.Firm, "emailSenderName", false)
+	if err != nil {
+		logrus.Error("[notifier-startNotify]", "Error getting E-mail sender name: ", err)
+	}
+
+	newMessage := sender.NewMessage(lang, n.Template, n.TitleTemplate, phones, tokens, mails, models.INFO_MESSAGE, nil, &senderName)
 	newMessage.Mode = n.Mask
 	newMessage.Send(data)
 	if n.RepeatCount <= 1 || n.RepeatTime == 0 {
@@ -251,7 +256,12 @@ func startNotifyTimer(n models.Notification, openNotificationID, lang, clientID 
 			go stopNotify(clientID, n.Id)
 			return
 		}
-		newMessage := sender.NewMessage(lang, n.RepeatTemplate, n.TitleTemplate, phones, tokens, mails)
+		senderName, err := models.GetFirmParam(n.Firm, "emailSenderName", false)
+		if err != nil {
+			logrus.Error("[notifier-startNotifyTimer]", "Error getting E-mail sender name: ", err)
+		}
+
+		newMessage := sender.NewMessage(lang, n.RepeatTemplate, n.TitleTemplate, phones, tokens, mails, models.INFO_MESSAGE, nil, &senderName)
 		newMessage.Mode = n.Mask
 		newMessage.Send(data)
 		curNotification.Count++
