@@ -1268,6 +1268,17 @@ func GetSchemaTable(table string) (*SchemaTable, bool) {
 	return schema.table, ok
 }
 
+// GetSchemaTablesIds return tables names array
+func GetSchemaTablesIds() (res []string) {
+	res = make([]string, 0)
+	registerSchema.Lock()
+	for _, schemaReg := range registerSchema.tables {
+		res = append(res, schemaReg.table.Name)
+	}
+	registerSchema.Unlock()
+	return res
+}
+
 // NewSchemaField create SchemaTable definition
 func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	field := new(SchemaField)
