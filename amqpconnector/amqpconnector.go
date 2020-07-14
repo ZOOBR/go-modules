@@ -119,16 +119,15 @@ func (c *Consumer) BindKeys(keys []string) error {
 			}
 			if !keyExists {
 				c.queue.Keys = append(c.queue.Keys, key)
-			}
-			newKey := key
-			if err := c.channel.QueueBind(
-				c.queue.Name,    // name of the queue
-				newKey,          // bindingKey
-				c.exchange.Name, // sourceExchange
-				c.queue.NoWait,  // noWait
-				c.queue.Args,    // arguments
-			); err != nil {
-				return err
+				if err := c.channel.QueueBind(
+					c.queue.Name,    // name of the queue
+					key,             // bindingKey
+					c.exchange.Name, // sourceExchange
+					c.queue.NoWait,  // noWait
+					c.queue.Args,    // arguments
+				); err != nil {
+					return err
+				}
 			}
 		}
 		logrus.Info(c.logInfo("amqp bind keys: "), keys, " to queue: ", c.queue.Name)
