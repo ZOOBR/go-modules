@@ -26,12 +26,13 @@ var (
 
 // Update struc for send updates msg to services
 type Update struct {
-	ID      string      `json:"id"`
-	ExtID   string      `json:"extId"`
-	Cmd     string      `json:"cmd"`
-	Data    string      `json:"data"`
-	Groups  []string    `json:"groups"`
-	ExtData interface{} `json:"extData"`
+	ID         string      `json:"id"`
+	ExtID      string      `json:"extId"`
+	Cmd        string      `json:"cmd"`
+	Collection string      `json:"collection"`
+	Data       string      `json:"data"`
+	Groups     []string    `json:"groups"`
+	ExtData    interface{} `json:"extData"`
 }
 
 //Consumer structure for NewConsumer result
@@ -354,9 +355,10 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 		return err
 	}
 	msg := Update{
-		ID:   id,
-		Cmd:  method,
-		Data: string(objectJSON),
+		ID:         id,
+		Cmd:        method,
+		Data:       string(objectJSON),
+		Collection: collection,
 	}
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
