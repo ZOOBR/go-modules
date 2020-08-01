@@ -13,6 +13,7 @@ import (
 // Sender ---
 type Sender struct {
 	http        *http.Client
+	Loggers     []func(TerminalResponse, error)
 	terminalURL *string
 }
 
@@ -32,14 +33,15 @@ type TerminalResponse struct {
 
 // CommandAction ---
 type CommandAction struct {
-	Id     string                 `json:"id"`
-	Index  uint32                 `json:"index,omitempty"`
-	Act    uint32                 `json:"act,omitempty"`
-	Ton    uint32                 `json:"ton,omitempty"`
-	Toff   uint32                 `json:"toff,omitempty"`
-	Args   map[string]interface{} `json:"args,omitempty"`
-	Next   []interface{}          `json:"next,omitempty"`
-	Result *int                   `json:"result,omitempty"`
+	Id      string                 `json:"id"`
+	Index   uint32                 `json:"index,omitempty"`
+	Act     uint32                 `json:"act,omitempty"`
+	Ton     uint32                 `json:"ton,omitempty"`
+	Toff    uint32                 `json:"toff,omitempty"`
+	Args    map[string]interface{} `json:"args,omitempty"`
+	Next    []interface{}          `json:"next,omitempty"`
+	Result  *int                   `json:"result,omitempty"`
+	Timeout uint32                 `json:"timeout,omitempty"`
 }
 
 // Command ---
@@ -140,8 +142,10 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 		Target:  obj,
 		Command: *action,
 	}
-	if len(timeout) > 0 {
+	if len(timeout) > 0 && timeout[0] > 0 {
 		cmd.Timeout = timeout[0]
+	} else {
+		cmd.Timeout = int(action.Timeout)
 	}
 	b, err := json.Marshal(cmd)
 	if err != nil {
@@ -166,6 +170,11 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 			}
 			log.Debug(response)
 			log.Info("cmd response ", resp)
+		}
+	}
+	if sender.Loggers != nil && len(sender.Loggers) > 0 {
+		for _, cb := range sender.Loggers {
+			cb(response, err)
 		}
 	}
 	return response
@@ -226,6 +235,11 @@ func (sender *Sender) Auth(obj string, drv string) TerminalResponse {
 		Act: 100,
 	}
 	return sender.Run(obj, drv, &action)
+}
+
+// SetLogger - add log consumer function
+func (sender *Sender) SetLogger(log func(TerminalResponse, error)) {
+	sender.Loggers = append(sender.Loggers, log)
 }
 
 // SetBitErrors ---
