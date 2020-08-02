@@ -38,8 +38,8 @@ type uploadedPhoto struct {
 
 var (
 	S3_BUCKET_THUMBNAILS = map[string]string{
-		"csx-docs-tn-051019": "fr-par",
 		"csx-docs-tn":        "nl-ams",
+		"csx-docs-tn-051019": "fr-par",
 	}
 	S3_CLIENT_DOCS = map[string]string{
 		"csx-docs041019": "fr-par",
