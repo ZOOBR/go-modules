@@ -13,7 +13,7 @@ import (
 // Sender ---
 type Sender struct {
 	http        *http.Client
-	Loggers     []func(TerminalResponse, error)
+	Loggers     []func(string, string, string, *CommandAction, *TerminalResponse, error)
 	terminalURL *string
 }
 
@@ -133,13 +133,14 @@ func (response *TerminalResponse) SetError(code int32) {
 }
 
 // Run send command request and wait answer
-func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+func (sender *Sender) Run(objID, imei, drv string, clientID *string, cmdID *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+	target := imei
 	if drv != "" {
-		obj = drv + ":" + obj
+		target = drv + ":" + target
 	}
 	cmd := Command{
 		Id:      uuid.New().String(),
-		Target:  obj,
+		Target:  target,
 		Command: *action,
 	}
 	if len(timeout) > 0 && timeout[0] > 0 {
@@ -173,35 +174,46 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 		}
 	}
 	if sender.Loggers != nil && len(sender.Loggers) > 0 {
+		var user, cmd string
+		if clientID != nil {
+			user = *clientID
+		} else {
+			user = "00000000-0000-0000-0000-000000000000"
+		}
+		if cmdID != nil {
+			cmd = *cmdID
+		} else {
+			cmd = action.Id
+		}
 		for _, cb := range sender.Loggers {
-			cb(response, err)
+			cb(objID, cmd, user, action, &response, err)
 		}
 	}
 	return response
 }
 
 // Protection ---
-func (sender *Sender) Protection(obj string, drv string, on uint8) TerminalResponse {
+func (sender *Sender) Protection(objID, imei, drv string, clientID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: uint32(on),
 	}
 
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // Engine ---
-func (sender *Sender) Engine(obj string, drv string, on uint8) TerminalResponse {
+func (sender *Sender) Engine(objID, imei, drv string, clientID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "engine",
 		Act: uint32(on),
 	}
 
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // Relay ---
-func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
+func (sender *Sender) Relay(objID, imei, drv string, clientID *string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
 		Index: uint32(idx),
@@ -209,36 +221,36 @@ func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton ui
 		Ton:   ton,
 		Toff:  toff,
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // State ---
-func (sender *Sender) State(obj string, drv string) TerminalResponse {
+func (sender *Sender) State(objID, imei, drv string, clientID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // Reset ---
-func (sender *Sender) Reset(obj string, drv string) TerminalResponse {
+func (sender *Sender) Reset(objID, imei, drv string, clientID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // Auth - update auth token
-func (sender *Sender) Auth(obj string, drv string) TerminalResponse {
+func (sender *Sender) Auth(objID, imei, drv string, clientID *string) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: 100,
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, clientID, nil, &action)
 }
 
 // SetLogger - add log consumer function
-func (sender *Sender) SetLogger(log func(TerminalResponse, error)) {
+func (sender *Sender) SetLogger(log func(string, string, string, *CommandAction, *TerminalResponse, error)) {
 	sender.Loggers = append(sender.Loggers, log)
 }
 
