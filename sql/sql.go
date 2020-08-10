@@ -66,8 +66,9 @@ type QueryResult struct {
 }
 
 type Query struct {
-	tx *sqlx.Tx
-	db *sqlx.DB
+	tx               *sqlx.Tx
+	db               *sqlx.DB
+	txCommitCallback func()
 }
 
 func NewQuery(tx bool) (q Query, err error) {
@@ -79,11 +80,19 @@ func NewQuery(tx bool) (q Query, err error) {
 }
 
 func (queryObj *Query) Commit() (err error) {
-	return queryObj.tx.Commit()
+	err = queryObj.tx.Commit()
+	if err == nil && queryObj.txCommitCallback != nil {
+		queryObj.txCommitCallback()
+	}
+	return err
 }
 
 func (queryObj *Query) Rollback() (err error) {
 	return queryObj.tx.Rollback()
+}
+
+func (queryObj *Query) BindTxCommitCallback(cb func()) {
+	queryObj.txCommitCallback = cb
 }
 
 func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
@@ -698,8 +707,15 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 				registerSchema.RUnlock()
 				if ok {
 					if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-						data := schemaTableReg.table.getAmqpUpdateData(id)
-						go amqp.SendUpdate(amqpURI, table, id, "update", data)
+						updateCallback := func() {
+							data := schemaTableReg.table.getAmqpUpdateData(id)
+							go amqp.SendUpdate(amqpURI, table, id, "update", data)
+						}
+						if queryObj.tx != nil {
+							queryObj.BindTxCommitCallback(updateCallback)
+						} else {
+							updateCallback()
+						}
 						return nil
 					}
 				}
@@ -818,8 +834,15 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		registerSchema.RUnlock()
 		if ok {
 			if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-				data := schemaTableReg.table.getAmqpUpdateData(id)
-				go amqp.SendUpdate(amqpURI, table, id, "create", data)
+				updateCallback := func() {
+					data := schemaTableReg.table.getAmqpUpdateData(id)
+					go amqp.SendUpdate(amqpURI, table, id, "create", data)
+				}
+				if queryObj.tx != nil {
+					queryObj.BindTxCommitCallback(updateCallback)
+				} else {
+					updateCallback()
+				}
 				return nil
 			}
 		}
