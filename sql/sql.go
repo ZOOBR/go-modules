@@ -66,23 +66,27 @@ type QueryResult struct {
 }
 
 type Query struct {
-	tx               *sqlx.Tx
-	db               *sqlx.DB
-	txCommitCallback func()
+	Tx                *sqlx.Tx // need for outer modules
+	tx                *sqlx.Tx
+	db                *sqlx.DB
+	txCommitCallbacks []func()
 }
 
 func NewQuery(tx bool) (q Query, err error) {
 	q = Query{db: DB}
 	if tx {
 		q.tx, err = DB.Beginx()
+		q.Tx = q.tx
 	}
 	return q, err
 }
 
 func (queryObj *Query) Commit() (err error) {
 	err = queryObj.tx.Commit()
-	if err == nil && queryObj.txCommitCallback != nil {
-		queryObj.txCommitCallback()
+	if err == nil && len(queryObj.txCommitCallbacks) > 0 {
+		for _, cb := range queryObj.txCommitCallbacks {
+			cb()
+		}
 	}
 	return err
 }
@@ -92,7 +96,7 @@ func (queryObj *Query) Rollback() (err error) {
 }
 
 func (queryObj *Query) BindTxCommitCallback(cb func()) {
-	queryObj.txCommitCallback = cb
+	queryObj.txCommitCallbacks = append(queryObj.txCommitCallbacks, cb)
 }
 
 func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
@@ -670,6 +674,21 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 	} else {
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
 	}
+
+	query = strings.Replace(query, "?", prepText, -1)
+	var err error
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
+
+	} else {
+		_, err = queryObj.db.Exec(query)
+	}
+	if err != nil {
+		golog.Error(query)
+		golog.Error(err)
+		return err
+	}
+
 	if len(options) > 0 {
 		var id, user string
 		withLog := true
@@ -725,20 +744,6 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 				log.Error("missing table or id for save log", options)
 			}
 		}
-	}
-
-	query = strings.Replace(query, "?", prepText, -1)
-	var err error
-	if queryObj.tx != nil {
-		_, err = queryObj.tx.Exec(query)
-
-	} else {
-		_, err = queryObj.db.Exec(query)
-	}
-	if err != nil {
-		golog.Error(query)
-		golog.Error(err)
-		return err
 	}
 	return nil
 }
