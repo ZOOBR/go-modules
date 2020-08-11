@@ -338,6 +338,7 @@ func (pos *FlatPosition) Set(id interface{}, val float64, index ...int) {
 	pos.P[code] = val
 }
 
+// IfEvent checks for an event in the list
 func (pos *FlatPosition) IfEvent(event uint16) bool {
 	if pos.E == nil {
 		return false
