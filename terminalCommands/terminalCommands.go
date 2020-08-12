@@ -13,7 +13,7 @@ import (
 // Sender ---
 type Sender struct {
 	http        *http.Client
-	Loggers     []func(string, string, string, *CommandAction, *TerminalResponse, error)
+	Loggers     []func(string, string, *string, *string, *CommandAction, *TerminalResponse, error)
 	terminalURL *string
 }
 
@@ -133,7 +133,7 @@ func (response *TerminalResponse) SetError(code int32) {
 }
 
 // Run send command request and wait answer
-func (sender *Sender) Run(objID, imei, drv string, clientID *string, cmdID *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmdID *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
 	target := imei
 	if drv != "" {
 		target = drv + ":" + target
@@ -174,46 +174,41 @@ func (sender *Sender) Run(objID, imei, drv string, clientID *string, cmdID *stri
 		}
 	}
 	if sender.Loggers != nil && len(sender.Loggers) > 0 {
-		var user, cmd string
-		if clientID != nil {
-			user = *clientID
-		} else {
-			user = "00000000-0000-0000-0000-000000000000"
-		}
+		var cmd string
 		if cmdID != nil {
 			cmd = *cmdID
 		} else {
 			cmd = action.Id
 		}
 		for _, cb := range sender.Loggers {
-			cb(objID, cmd, user, action, &response, err)
+			cb(objID, cmd, clientID, userID, action, &response, err)
 		}
 	}
 	return response
 }
 
 // Protection ---
-func (sender *Sender) Protection(objID, imei, drv string, clientID *string, on uint8) TerminalResponse {
+func (sender *Sender) Protection(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: uint32(on),
 	}
 
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Engine ---
-func (sender *Sender) Engine(objID, imei, drv string, clientID *string, on uint8) TerminalResponse {
+func (sender *Sender) Engine(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "engine",
 		Act: uint32(on),
 	}
 
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Relay ---
-func (sender *Sender) Relay(objID, imei, drv string, clientID *string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
+func (sender *Sender) Relay(objID, imei, drv string, userID *string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
 		Index: uint32(idx),
@@ -221,36 +216,36 @@ func (sender *Sender) Relay(objID, imei, drv string, clientID *string, idx uint1
 		Ton:   ton,
 		Toff:  toff,
 	}
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // State ---
-func (sender *Sender) State(objID, imei, drv string, clientID *string) TerminalResponse {
+func (sender *Sender) State(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Reset ---
-func (sender *Sender) Reset(objID, imei, drv string, clientID *string) TerminalResponse {
+func (sender *Sender) Reset(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
 	}
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Auth - update auth token
-func (sender *Sender) Auth(objID, imei, drv string, clientID *string) TerminalResponse {
+func (sender *Sender) Auth(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: 100,
 	}
-	return sender.Run(objID, imei, drv, clientID, nil, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // SetLogger - add log consumer function
-func (sender *Sender) SetLogger(log func(string, string, string, *CommandAction, *TerminalResponse, error)) {
+func (sender *Sender) SetLogger(log func(string, string, *string, *string, *CommandAction, *TerminalResponse, error)) {
 	sender.Loggers = append(sender.Loggers, log)
 }
 
