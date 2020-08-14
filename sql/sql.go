@@ -721,24 +721,25 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 
 		if withLog {
 			if table != "" && id != "" {
+				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
 				registerSchema.RLock()
 				schemaTableReg, ok := registerSchema.tables[table]
 				registerSchema.RUnlock()
 				if ok {
 					if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-						updateCallback := func() {
-							data := schemaTableReg.table.getAmqpUpdateData(id)
-							go amqp.SendUpdate(amqpURI, table, id, "update", data)
+						for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+							updateCallback := func() {
+								data := dataCallback(id)
+								go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
+							}
+							if queryObj.tx != nil {
+								queryObj.BindTxCommitCallback(updateCallback)
+							} else {
+								updateCallback()
+							}
 						}
-						if queryObj.tx != nil {
-							queryObj.BindTxCommitCallback(updateCallback)
-						} else {
-							updateCallback()
-						}
-						return nil
 					}
 				}
-				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
 				queryObj.saveLog(table, id, user, diff)
 			} else {
 				log.Error("missing table or id for save log", options)
@@ -834,24 +835,26 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		}
 		table := settings["table"]
 		id := settings["id"]
+		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
 		registerSchema.RLock()
 		schemaTableReg, ok := registerSchema.tables[table]
 		registerSchema.RUnlock()
 		if ok {
 			if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-				updateCallback := func() {
-					data := schemaTableReg.table.getAmqpUpdateData(id)
-					go amqp.SendUpdate(amqpURI, table, id, "create", data)
+				for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+					updateCallback := func() {
+						data := dataCallback(id)
+						go amqp.SendUpdate(amqpURI, routingKey, id, "create", data)
+					}
+					if queryObj.tx != nil {
+						queryObj.BindTxCommitCallback(updateCallback)
+					} else {
+						updateCallback()
+					}
 				}
-				if queryObj.tx != nil {
-					queryObj.BindTxCommitCallback(updateCallback)
-				} else {
-					updateCallback()
-				}
-				return nil
 			}
 		}
-		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
+
 	}
 	return nil
 }
@@ -1214,12 +1217,15 @@ type SchemaTable struct {
 	sqlSelect   string
 	SQLFields   []string
 	// GenFields   []string
-	getAmqpUpdateData func(id string) interface{}
+	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
+	ExtKeys           []string
 	onUpdate          schemaTableUpdateCallback
 	LogChanges        bool
 	Struct            interface{}
 }
 
+// SchemaTableAmqpDataCallback is using for get data for amqp update
+type SchemaTableAmqpDataCallback func(id string) interface{}
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
 type schemaTableUpdateCallback func(table *SchemaTable, msg interface{})
 type schemaTableReg struct {
@@ -1330,6 +1336,17 @@ func GetSchemaTablesIds() (res []string) {
 	return res
 }
 
+// GetSchemaTablesExtKeys return ext routing keys for amqp binding
+func GetSchemaTablesExtKeys() (res []string) {
+	res = make([]string, 0)
+	registerSchema.Lock()
+	for _, schemaReg := range registerSchema.tables {
+		res = append(res, schemaReg.table.ExtKeys...)
+	}
+	registerSchema.Unlock()
+	return res
+}
+
 // NewSchemaField create SchemaTable definition
 func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	field := new(SchemaField)
@@ -1412,8 +1429,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	}
 
 	var onUpdate schemaTableUpdateCallback
-	var getAmqpUpdateData func(id string) interface{}
+	var getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
 	var logChanges bool
+	var extKeys []string
 	for key, val := range options {
 		switch key {
 		case "onUpdate":
@@ -1423,7 +1441,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		case "logChanges":
 			logChanges = val.(bool)
 		case "getAmqpUpdateData":
-			getAmqpUpdateData = val.(func(id string) interface{})
+			getAmqpUpdateData = val.(map[string]SchemaTableAmqpDataCallback)
+		case "extKeys":
+			extKeys = val.([]string)
 		}
 	}
 	newSchemaTable := SchemaTable{}
@@ -1432,6 +1452,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable.IDFieldName = idFieldName
 	newSchemaTable.onUpdate = onUpdate
 	newSchemaTable.getAmqpUpdateData = getAmqpUpdateData
+	newSchemaTable.ExtKeys = extKeys
 	newSchemaTable.LogChanges = logChanges
 	newSchemaTable.Struct = info
 	// newSchemaTable.GenFields = genFields
