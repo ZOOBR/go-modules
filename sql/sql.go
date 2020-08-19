@@ -121,6 +121,21 @@ func (queryObj *Query) In(query string, args ...interface{}) (string, []interfac
 	return sqlx.In(query, args...)
 }
 
+type JsonB map[string]interface{}
+
+func (js *JsonB) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		return errors.New("unable scan jsonb")
+	}
+	return json.Unmarshal(val, js)
+}
+
+// Decode correct decoding `map[string]interface{}` for `iris.Context`
+func (js *JsonB) Decode(body []byte) error {
+	return json.Unmarshal(body, &js)
+}
+
 var (
 	baseQuery    = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Group}} {{.Order}}`
 	baseTemplate = template.Must(template.New("").Parse(baseQuery))
