@@ -1429,7 +1429,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
 			field.Default = f.Tag.Get("def")
 			field.Auto, _ = strconv.Atoi(f.Tag.Get("auto"))
-			if f.Type.Kind() == reflect.Ptr {
+			if f.Type.Kind() == reflect.Ptr || f.Type.Kind() == reflect.Map {
 				field.IsNull = true
 			}
 			field.IsUUID = field.Type == "uuid"
