@@ -13,6 +13,7 @@ import (
 // Sender ---
 type Sender struct {
 	http        *http.Client
+	Loggers     []func(string, string, *string, *string, *CommandAction, *TerminalResponse, error)
 	terminalURL *string
 }
 
@@ -32,14 +33,15 @@ type TerminalResponse struct {
 
 // CommandAction ---
 type CommandAction struct {
-	Id     string                 `json:"id"`
-	Index  uint32                 `json:"index,omitempty"`
-	Act    uint32                 `json:"act,omitempty"`
-	Ton    uint32                 `json:"ton,omitempty"`
-	Toff   uint32                 `json:"toff,omitempty"`
-	Args   map[string]interface{} `json:"args,omitempty"`
-	Next   []interface{}          `json:"next,omitempty"`
-	Result *int                   `json:"result,omitempty"`
+	Id      string                 `json:"id"`
+	Index   uint32                 `json:"index,omitempty"`
+	Act     uint32                 `json:"act,omitempty"`
+	Ton     uint32                 `json:"ton,omitempty"`
+	Toff    uint32                 `json:"toff,omitempty"`
+	Args    map[string]interface{} `json:"args,omitempty"`
+	Next    []interface{}          `json:"next,omitempty"`
+	Result  *int                   `json:"result,omitempty"`
+	Timeout uint32                 `json:"timeout,omitempty"`
 }
 
 // Command ---
@@ -104,14 +106,14 @@ var ErrorCodes = map[int32]string{
 	-101: "ServiceUnavailable",
 	-102: "InvalidResponse",
 	-103: "ProcessError",
-	-1:   "fail",
-	-2:   "notimpl",
+	-1:   "Fail",
+	-2:   "Notimpl",
 	-3:   "CommandTimeout",
-	-4:   "invalid_arg",
-	-5:   "invalid_cheksum",
-	-6:   "low_data",
-	-7:   "invalid_format",
-	-8:   "terminate",
+	-4:   "InvalidArg",
+	-5:   "InvalidCheksum",
+	-6:   "LowData",
+	-7:   "InvalidFormat",
+	-8:   "Terminate",
 	-11:  "CommandTimeout",
 	-12:  "CommandIncomplete",
 	-13:  "ExpectedResult",
@@ -131,17 +133,20 @@ func (response *TerminalResponse) SetError(code int32) {
 }
 
 // Run send command request and wait answer
-func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmdID *string, action *CommandAction, timeout ...int) (response TerminalResponse) {
+	target := imei
 	if drv != "" {
-		obj = drv + ":" + obj
+		target = drv + ":" + target
 	}
 	cmd := Command{
 		Id:      uuid.New().String(),
-		Target:  obj,
+		Target:  target,
 		Command: *action,
 	}
-	if len(timeout) > 0 {
+	if len(timeout) > 0 && timeout[0] > 0 {
 		cmd.Timeout = timeout[0]
+	} else {
+		cmd.Timeout = int(action.Timeout)
 	}
 	b, err := json.Marshal(cmd)
 	if err != nil {
@@ -168,31 +173,42 @@ func (sender *Sender) Run(obj string, drv string, action *CommandAction, timeout
 			log.Info("cmd response ", resp)
 		}
 	}
+	if sender.Loggers != nil && len(sender.Loggers) > 0 {
+		var cmd string
+		if cmdID != nil {
+			cmd = *cmdID
+		} else {
+			cmd = action.Id
+		}
+		for _, cb := range sender.Loggers {
+			cb(objID, cmd, clientID, userID, action, &response, err)
+		}
+	}
 	return response
 }
 
 // Protection ---
-func (sender *Sender) Protection(obj string, drv string, on uint8) TerminalResponse {
+func (sender *Sender) Protection(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: uint32(on),
 	}
 
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Engine ---
-func (sender *Sender) Engine(obj string, drv string, on uint8) TerminalResponse {
+func (sender *Sender) Engine(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
 		Id:  "engine",
 		Act: uint32(on),
 	}
 
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Relay ---
-func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
+func (sender *Sender) Relay(objID, imei, drv string, userID *string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
 		Id:    "relay",
 		Index: uint32(idx),
@@ -200,32 +216,37 @@ func (sender *Sender) Relay(obj string, drv string, idx uint16, on uint8, ton ui
 		Ton:   ton,
 		Toff:  toff,
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // State ---
-func (sender *Sender) State(obj string, drv string) TerminalResponse {
+func (sender *Sender) State(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "state",
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Reset ---
-func (sender *Sender) Reset(obj string, drv string) TerminalResponse {
+func (sender *Sender) Reset(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id: "reset",
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
 
 // Auth - update auth token
-func (sender *Sender) Auth(obj string, drv string) TerminalResponse {
+func (sender *Sender) Auth(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
 		Id:  "guard",
 		Act: 100,
 	}
-	return sender.Run(obj, drv, &action)
+	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
+}
+
+// SetLogger - add log consumer function
+func (sender *Sender) SetLogger(log func(string, string, *string, *string, *CommandAction, *TerminalResponse, error)) {
+	sender.Loggers = append(sender.Loggers, log)
 }
 
 // SetBitErrors ---

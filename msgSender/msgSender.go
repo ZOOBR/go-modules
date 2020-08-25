@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/amqpconnector"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	dbc "gitlab.com/battler/modules/sql"
 	"gitlab.com/battler/modules/templater"
 )
 
@@ -272,6 +273,15 @@ func SendWeb(routingKey string, payload interface{}) {
 			event.Groups = []string{firm.(string)}
 		}
 		break
+	case dbc.JsonB:
+		payload := payload.(dbc.JsonB)
+		event.Cmd = "notify"
+		event.ExtData = payload
+		if firm, ok := payload["firm"]; ok {
+			event.Groups = []string{firm.(string)}
+		}
+		break
+
 	default:
 		event.Cmd = "notify"
 		event.ExtData = payload

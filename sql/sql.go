@@ -66,24 +66,37 @@ type QueryResult struct {
 }
 
 type Query struct {
-	tx *sqlx.Tx
-	db *sqlx.DB
+	Tx                *sqlx.Tx // need for outer modules
+	tx                *sqlx.Tx
+	db                *sqlx.DB
+	txCommitCallbacks []func()
 }
 
 func NewQuery(tx bool) (q Query, err error) {
 	q = Query{db: DB}
 	if tx {
 		q.tx, err = DB.Beginx()
+		q.Tx = q.tx
 	}
 	return q, err
 }
 
 func (queryObj *Query) Commit() (err error) {
-	return queryObj.tx.Commit()
+	err = queryObj.tx.Commit()
+	if err == nil && len(queryObj.txCommitCallbacks) > 0 {
+		for _, cb := range queryObj.txCommitCallbacks {
+			cb()
+		}
+	}
+	return err
 }
 
 func (queryObj *Query) Rollback() (err error) {
 	return queryObj.tx.Rollback()
+}
+
+func (queryObj *Query) BindTxCommitCallback(cb func()) {
+	queryObj.txCommitCallbacks = append(queryObj.txCommitCallbacks, cb)
 }
 
 func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
@@ -106,6 +119,21 @@ func (queryObj *Query) Select(dest interface{}, query string, args ...interface{
 
 func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
 	return sqlx.In(query, args...)
+}
+
+type JsonB map[string]interface{}
+
+func (js *JsonB) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		return errors.New("unable scan jsonb")
+	}
+	return json.Unmarshal(val, js)
+}
+
+// Decode correct decoding `map[string]interface{}` for `iris.Context`
+func (js *JsonB) Decode(body []byte) error {
+	return json.Unmarshal(body, &js)
 }
 
 var (
@@ -661,6 +689,21 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 	} else {
 		prepText = " (" + strings.Join(prepFields, ",") + ") = (" + strings.Join(prepValues, ",") + ") "
 	}
+
+	query = strings.Replace(query, "?", prepText, -1)
+	var err error
+	if queryObj.tx != nil {
+		_, err = queryObj.tx.Exec(query)
+
+	} else {
+		_, err = queryObj.db.Exec(query)
+	}
+	if err != nil {
+		golog.Error(query)
+		golog.Error(err)
+		return err
+	}
+
 	if len(options) > 0 {
 		var id, user string
 		withLog := true
@@ -694,25 +737,29 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 		if withLog {
 			if table != "" && id != "" {
 				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+				registerSchema.RLock()
+				schemaTableReg, ok := registerSchema.tables[table]
+				registerSchema.RUnlock()
+				if ok {
+					if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
+						for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+							updateCallback := func() {
+								data := dataCallback(id)
+								go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
+							}
+							if queryObj.tx != nil {
+								queryObj.BindTxCommitCallback(updateCallback)
+							} else {
+								updateCallback()
+							}
+						}
+					}
+				}
 				queryObj.saveLog(table, id, user, diff)
 			} else {
 				log.Error("missing table or id for save log", options)
 			}
 		}
-	}
-
-	query = strings.Replace(query, "?", prepText, -1)
-	var err error
-	if queryObj.tx != nil {
-		_, err = queryObj.tx.Exec(query)
-
-	} else {
-		_, err = queryObj.db.Exec(query)
-	}
-	if err != nil {
-		golog.Error(query)
-		golog.Error(err)
-		return err
 	}
 	return nil
 }
@@ -801,7 +848,28 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 			golog.Error("amqp updates, invalid args:", settings)
 			return nil
 		}
-		go amqp.SendUpdate(amqpURI, settings["table"], settings["id"], "create", diffPub)
+		table := settings["table"]
+		id := settings["id"]
+		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
+		registerSchema.RLock()
+		schemaTableReg, ok := registerSchema.tables[table]
+		registerSchema.RUnlock()
+		if ok {
+			if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
+				for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+					updateCallback := func() {
+						data := dataCallback(id)
+						go amqp.SendUpdate(amqpURI, routingKey, id, "create", data)
+					}
+					if queryObj.tx != nil {
+						queryObj.BindTxCommitCallback(updateCallback)
+					} else {
+						updateCallback()
+					}
+				}
+			}
+		}
+
 	}
 	return nil
 }
@@ -1164,11 +1232,15 @@ type SchemaTable struct {
 	sqlSelect   string
 	SQLFields   []string
 	// GenFields   []string
-	onUpdate   schemaTableUpdateCallback
-	LogChanges bool
-	Struct     interface{}
+	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
+	ExtKeys           []string
+	onUpdate          schemaTableUpdateCallback
+	LogChanges        bool
+	Struct            interface{}
 }
 
+// SchemaTableAmqpDataCallback is using for get data for amqp update
+type SchemaTableAmqpDataCallback func(id string) interface{}
 type schemaTablePrepareCallback func(table *SchemaTable, event string)
 type schemaTableUpdateCallback func(table *SchemaTable, msg interface{})
 type schemaTableReg struct {
@@ -1268,6 +1340,28 @@ func GetSchemaTable(table string) (*SchemaTable, bool) {
 	return schema.table, ok
 }
 
+// GetSchemaTablesIds return tables names array
+func GetSchemaTablesIds() (res []string) {
+	res = make([]string, 0)
+	registerSchema.Lock()
+	for _, schemaReg := range registerSchema.tables {
+		res = append(res, schemaReg.table.Name)
+	}
+	registerSchema.Unlock()
+	return res
+}
+
+// GetSchemaTablesExtKeys return ext routing keys for amqp binding
+func GetSchemaTablesExtKeys() (res []string) {
+	res = make([]string, 0)
+	registerSchema.Lock()
+	for _, schemaReg := range registerSchema.tables {
+		res = append(res, schemaReg.table.ExtKeys...)
+	}
+	registerSchema.Unlock()
+	return res
+}
+
 // NewSchemaField create SchemaTable definition
 func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 	field := new(SchemaField)
@@ -1335,7 +1429,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
 			field.Default = f.Tag.Get("def")
 			field.Auto, _ = strconv.Atoi(f.Tag.Get("auto"))
-			if f.Type.Kind() == reflect.Ptr {
+			if f.Type.Kind() == reflect.Ptr || f.Type.Kind() == reflect.Map {
 				field.IsNull = true
 			}
 			field.IsUUID = field.Type == "uuid"
@@ -1350,7 +1444,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	}
 
 	var onUpdate schemaTableUpdateCallback
+	var getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
 	var logChanges bool
+	var extKeys []string
 	for key, val := range options {
 		switch key {
 		case "onUpdate":
@@ -1359,6 +1455,10 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			}
 		case "logChanges":
 			logChanges = val.(bool)
+		case "getAmqpUpdateData":
+			getAmqpUpdateData = val.(map[string]SchemaTableAmqpDataCallback)
+		case "extKeys":
+			extKeys = val.([]string)
 		}
 	}
 	newSchemaTable := SchemaTable{}
@@ -1366,6 +1466,8 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 	newSchemaTable.Fields = fields
 	newSchemaTable.IDFieldName = idFieldName
 	newSchemaTable.onUpdate = onUpdate
+	newSchemaTable.getAmqpUpdateData = getAmqpUpdateData
+	newSchemaTable.ExtKeys = extKeys
 	newSchemaTable.LogChanges = logChanges
 	newSchemaTable.Struct = info
 	// newSchemaTable.GenFields = genFields

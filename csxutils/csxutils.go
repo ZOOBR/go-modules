@@ -79,6 +79,7 @@ func CopyRecursive(original, cpy reflect.Value) {
 
 		// if  it isn't valid, return.
 		if !originalValue.IsValid() {
+			cpy.Set(reflect.Zero(original.Type()))
 			return
 		}
 		cpy.Set(reflect.New(originalValue.Type()))

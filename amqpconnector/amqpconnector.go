@@ -26,12 +26,13 @@ var (
 
 // Update struc for send updates msg to services
 type Update struct {
-	ID      string      `json:"id"`
-	ExtID   string      `json:"extId"`
-	Cmd     string      `json:"cmd"`
-	Data    string      `json:"data"`
-	Groups  []string    `json:"groups"`
-	ExtData interface{} `json:"extData"`
+	ID         string      `json:"id"`
+	ExtID      string      `json:"extId"`
+	Cmd        string      `json:"cmd"`
+	Collection string      `json:"collection"`
+	Data       string      `json:"data"`
+	Groups     []string    `json:"groups"`
+	ExtData    interface{} `json:"extData"`
 }
 
 //Consumer structure for NewConsumer result
@@ -64,6 +65,7 @@ type Queue struct {
 	Durable     bool
 	ConsumerTag string
 	Keys        []string
+	BindedKeys  []string
 	NoAck       bool
 	NoLocal     bool
 	Exclusive   bool
@@ -118,17 +120,17 @@ func (c *Consumer) BindKeys(keys []string) error {
 				}
 			}
 			if !keyExists {
+				err := c.channel.QueueBind(
+					c.queue.Name,    // name of the queue
+					key,             // bindingKey
+					c.exchange.Name, // sourceExchange
+					c.queue.NoWait,  // noWait
+					c.queue.Args,    // arguments
+				)
+				if err != nil {
+					return err
+				}
 				c.queue.Keys = append(c.queue.Keys, key)
-			}
-			newKey := key
-			if err := c.channel.QueueBind(
-				c.queue.Name,    // name of the queue
-				newKey,          // bindingKey
-				c.exchange.Name, // sourceExchange
-				c.queue.NoWait,  // noWait
-				c.queue.Args,    // arguments
-			); err != nil {
-				return err
 			}
 		}
 		logrus.Info(c.logInfo("amqp bind keys: "), keys, " to queue: ", c.queue.Name)
@@ -137,7 +139,7 @@ func (c *Consumer) BindKeys(keys []string) error {
 }
 
 // QueueDeclare dial amqp server, decrare echange an queue if set
-func (c *Consumer) QueueDeclare(exchange string) (<-chan amqp.Delivery, error) {
+func (c *Consumer) QueueDeclare(exchange string, keys []string) (<-chan amqp.Delivery, error) {
 	// declare and bind queue
 	if c.queue != nil {
 		logrus.Info(c.logInfo("amqp declare queue: "), c.queue.Name, " durable: ", c.queue.Durable, " autodelete: ", c.queue.AutoDelete)
@@ -152,8 +154,10 @@ func (c *Consumer) QueueDeclare(exchange string) (<-chan amqp.Delivery, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(c.queue.Keys) > 0 {
+		if len(c.queue.Keys) > 0 && keys == nil {
 			err = c.BindKeys(c.queue.Keys)
+		} else if keys != nil && len(keys) > 0 {
+			err = c.BindKeys(keys) // if reconnect or create new consumer cases
 		} else {
 			err = c.BindKeys([]string{c.queue.ConsumerTag})
 		}
@@ -181,7 +185,7 @@ func (c *Consumer) QueueDeclare(exchange string) (<-chan amqp.Delivery, error) {
 }
 
 // Connect dial amqp server, decrare echange an queue if set
-func (c *Consumer) Connect(reconnect bool) (<-chan amqp.Delivery, error) {
+func (c *Consumer) Connect(reconnect bool, keys []string) (<-chan amqp.Delivery, error) {
 	var err error
 	logrus.Info(c.logInfo("amqp connect to: "), c.uri)
 	c.conn, err = amqp.Dial(c.uri)
@@ -200,7 +204,7 @@ func (c *Consumer) Connect(reconnect bool) (<-chan amqp.Delivery, error) {
 		return nil, err
 	}
 	// declare queue and bind routing keys
-	deliveries, err := c.QueueDeclare(exchange)
+	deliveries, err := c.QueueDeclare(exchange, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -215,17 +219,17 @@ func (c *Consumer) Connect(reconnect bool) (<-chan amqp.Delivery, error) {
 }
 
 // Reconnect reconnect to amqp server
-func (c *Consumer) Reconnect() <-chan amqp.Delivery {
+func (c *Consumer) Reconnect(keys []string) <-chan amqp.Delivery {
 	if err := c.Shutdown(); err != nil {
 		logrus.Error(c.logInfo("error during shutdown: "), err)
 	}
 	reconnectInterval := 30
 	logrus.Warn(c.logInfo("consumer wait reconnect"), " next try in ", reconnectInterval, "s")
 	time.Sleep(time.Duration(reconnectInterval) * time.Second)
-	deliveries, err := c.Connect(true)
+	deliveries, err := c.Connect(true, keys)
 	if err != nil {
 		logrus.Error(c.logInfo("consumer reconnect err: "), err.Error(), " next try in ", reconnectInterval, "s")
-		return c.Reconnect()
+		return c.Reconnect(keys)
 	}
 	return deliveries
 }
@@ -242,7 +246,13 @@ func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 	if len(handlers) > 0 {
 		c.handlers = handlers
 	}
-	_, err := c.Connect(false)
+	var keys []string
+	if len(c.queue.Keys) > 0 {
+		keys = make([]string, len(c.queue.Keys))
+		copy(keys, c.queue.Keys)
+		c.queue.Keys = nil
+	}
+	_, err := c.Connect(false, keys)
 	return c, err
 }
 
@@ -253,7 +263,7 @@ func NewPublisher(amqpURI, name string, exchange Exchange) (*Consumer, error) {
 		uri:      amqpURI,
 		name:     name,
 	}
-	_, err := c.Connect(false)
+	_, err := c.Connect(false, nil)
 	return c, err
 }
 
@@ -269,7 +279,7 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 	err := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
 	if err != nil {
 		logrus.Error(c.logInfo("try reconnect after publish err: "), err)
-		c.Reconnect()
+		c.Reconnect(nil)
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
 	return nil
@@ -355,9 +365,10 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 		return err
 	}
 	msg := Update{
-		ID:   id,
-		Cmd:  method,
-		Data: string(objectJSON),
+		ID:         id,
+		Cmd:        method,
+		Data:       string(objectJSON),
+		Collection: collection,
 	}
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
@@ -392,7 +403,12 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 		}()
 		if <-c.done != nil {
 			logrus.Error(c.logInfo("deliveries channel closed"))
-			deliveries = c.Reconnect()
+			if len(c.queue.Keys) > 0 {
+				c.queue.BindedKeys = make([]string, len(c.queue.Keys))
+				copy(c.queue.BindedKeys, c.queue.Keys)
+				c.queue.Keys = nil
+			}
+			deliveries = c.Reconnect(c.queue.BindedKeys)
 			continue
 		}
 	}

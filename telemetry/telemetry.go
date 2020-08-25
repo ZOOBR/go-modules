@@ -338,6 +338,19 @@ func (pos *FlatPosition) Set(id interface{}, val float64, index ...int) {
 	pos.P[code] = val
 }
 
+// IfEvent checks for an event in the list
+func (pos *FlatPosition) IfEvent(event uint16) bool {
+	if pos.E == nil {
+		return false
+	}
+	for i := 0; i < len(pos.E); i++ {
+		if pos.E[i] == event {
+			return true
+		}
+	}
+	return false
+}
+
 // ParamCode get param code by name
 func ParamCode(name string) uint16 {
 	return Params[name].P
