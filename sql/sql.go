@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/reporter"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
@@ -63,6 +64,12 @@ type QueryResult struct {
 	Error  error
 	Query  string
 	Xlsx   []byte
+}
+
+type SchemaTableMetadata struct {
+	ID         string `db:"id" json:"id"`
+	Collection string `db:"collection" json:"collection"`
+	MetaData   JsonB  `db:"metadata" json:"metadata"`
 }
 
 type Query struct {
@@ -1236,6 +1243,8 @@ type SchemaTable struct {
 	ExtKeys           []string
 	onUpdate          schemaTableUpdateCallback
 	LogChanges        bool
+	ExportFields      string
+	ExportTables      string
 	Struct            interface{}
 }
 
@@ -1488,6 +1497,66 @@ func (table *SchemaTable) register() {
 	registerSchema.Unlock()
 }
 
+func (table *SchemaTable) registerMetadata() {
+	res := SchemaTableMetadata{}
+	err := DB.Get(&res, "SELECT id, collection, metadata FROM metadata WHERE collection = '"+table.Name+"'")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return
+		}
+		logrus.Error("error get schema table metadata for collection: ", table.Name, " error: ", err)
+		return
+	}
+	metadataInt, ok := res.MetaData["export"]
+	if !ok {
+		return
+	}
+	metadata, ok := metadataInt.(map[string]interface{})
+	if !ok {
+		return
+	}
+	table.registerExportMetadata(metadata)
+}
+
+func (table *SchemaTable) registerExportMetadata(metadata map[string]interface{}) {
+	exportFieldsInt, ok := metadata["fields"]
+	if !ok {
+		return
+	}
+	exportFields, ok := exportFieldsInt.(string)
+	if !ok {
+		return
+	}
+	table.ExportFields = exportFields
+	exportTablesInt, ok := metadata["tables"]
+	if !ok {
+		return
+	}
+	exportTables, ok := exportTablesInt.(string)
+	if !ok {
+		return
+	}
+	table.ExportTables = exportTables
+}
+
+// Export is using for get xlsx bytes
+func (table *SchemaTable) Export(params map[string]string, extConditions ...string) []byte {
+	params["limit"] = "100000"
+	params["fields"] = table.ExportFields
+	params["join"] = table.ExportTables
+	var query string
+	if len(extConditions) > 0 {
+		query = MakeQueryFromReq(params, extConditions[0])
+	} else {
+		query = MakeQueryFromReq(params)
+	}
+	xlsx := bytes.NewBuffer([]byte{})
+	_ = ExecQuery(&query, func(rows *sqlx.Rows) {
+		reporter.GenerateXLSXFromRows(rows, xlsx)
+	})
+	return xlsx.Bytes()
+}
+
 func (field *SchemaField) sql() string {
 	sql := `"` + field.Name + `" ` + field.Type
 	if field.Length > 0 {
@@ -1615,6 +1684,7 @@ func (table *SchemaTable) prepare() error {
 	if err == nil && table.onUpdate != nil {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
+	table.registerMetadata()
 	return err
 }
 

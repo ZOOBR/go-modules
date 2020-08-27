@@ -1,4 +1,4 @@
-package reporter
+package customtemplates
 
 import (
 	"strings"
