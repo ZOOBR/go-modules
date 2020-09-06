@@ -66,7 +66,7 @@ func Init() {
 		Password: envPass,
 		Database: envDB,
 		// MaxIdle:     0,
-		MaxActive: 0,
+		MaxActive: 1000000,
 		Timeout:   time.Duration(5) * time.Minute,
 		Prefix:    "",
 		Delim:     "_"}) // optionally configure the bridge between your redis server
