@@ -60,16 +60,22 @@ func Init() {
 		}
 	}
 
+	driver := redis.Redigo()
+	driver.MaxIdle = 100
+	driver.IdleTimeout = 1 * time.Minute
+	driver.Wait = true
+
 	redisDb := redis.New(redis.Config{
 		Network:  "tcp",
 		Addr:     envURI,
 		Password: envPass,
 		Database: envDB,
 		// MaxIdle:     0,
-		MaxActive: 1000000,
+		MaxActive: 10000,
 		Timeout:   time.Duration(5) * time.Minute,
 		Prefix:    "",
-		Delim:     "_"}) // optionally configure the bridge between your redis server
+		Delim:     "_",
+		Driver:    driver}) // optionally configure the bridge between your redis server
 
 	if redisDb == nil {
 		golog.Error("error connect to redis:" + envURI)
