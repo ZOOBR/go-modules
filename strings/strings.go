@@ -61,7 +61,11 @@ func GetStructFields(s interface{}) []string {
 	out := []string{}
 	for i := 0; i < rt.NumField(); i++ {
 		field := rt.Field(i)
-		jsonKeys := strings.Split(field.Tag.Get("json"), ",")
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "-" {
+			continue
+		}
+		jsonKeys := strings.Split(jsonTag, ",")
 		if len(jsonKeys) == 0 {
 			continue
 		}
