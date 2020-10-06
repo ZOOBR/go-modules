@@ -1241,6 +1241,7 @@ type SchemaTable struct {
 	// GenFields   []string
 	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
 	ExtKeys           []string
+	Extensions        []string
 	onUpdate          schemaTableUpdateCallback
 	LogChanges        bool
 	ExportFields      string
@@ -1412,6 +1413,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		recType = infoType
 	}
 
+	newSchemaTable := SchemaTable{
+		Extensions: []string{},
+	}
 	// genFields := []string{}
 	idFieldName := ""
 	fields := make([]*SchemaField, 0)
@@ -1446,6 +1450,10 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 				idFieldName = name
 			}
 			fields = append(fields, field)
+			extension := f.Tag.Get("ext")
+			if len(extension) > 0 {
+				newSchemaTable.Extensions = append(newSchemaTable.Extensions, extension)
+			}
 			// if field.Default != "" || field.Auto != 0 {
 			// 	genFields = append(genFields, name)
 			// }
@@ -1470,7 +1478,6 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			extKeys = val.([]string)
 		}
 	}
-	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
 	newSchemaTable.IDFieldName = idFieldName
@@ -1575,6 +1582,13 @@ func (table *SchemaTable) create() error {
 	var keys string
 	skeys := []*SchemaField{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
+	// enable extensions
+	for i := 0; i < len(table.Extensions); i++ {
+		ext := table.Extensions[i]
+		sql := `CREATE EXTENSION IF NOT EXISTS "` + ext + `"`
+		_, err := DB.Exec(sql)
+		schemaLogSQL(sql, err)
+	}
 	for index, field := range table.Fields {
 		if index > 0 {
 			sql += ", "
