@@ -1617,6 +1617,13 @@ func (table *SchemaTable) create() error {
 			table.createIndex(field)
 		}
 	}
+	// insert mandat info
+	sqlBaseMandat := `INSERT INTO "mandatInfo" ("id", "group", "subject")
+	SELECT uuid_generate_v4(), 'base', '` + table.Name + `'
+	WHERE NOT EXISTS (SELECT id FROM "mandatInfo" WHERE "subject" = '` + table.Name + `' and "group" = 'base')
+	RETURNING id;`
+	_, err = DB.Exec(sqlBaseMandat)
+	schemaLogSQL(sqlBaseMandat, err)
 	return err
 }
 
