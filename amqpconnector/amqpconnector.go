@@ -471,14 +471,18 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 //Shutdown channel on set app time to live
 func (c *Consumer) Shutdown() error {
 	// will close() the deliveries channel
-	if err := c.channel.Cancel("", true); err != nil {
-		logrus.Error(c.logInfo("[Shutdown] consumer cancel err: "), err)
-		return err
+	if c.channel != nil {
+		if err := c.channel.Cancel("", true); err != nil {
+			logrus.Error(c.logInfo("[Shutdown] consumer cancel err: "), err)
+			return err
+		}
 	}
 
-	if err := c.conn.Close(); err != nil {
-		logrus.Error(c.logInfo("[Shutdown] AMQP connection close err: "), err)
-		return err
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			logrus.Error(c.logInfo("[Shutdown] AMQP connection close err: "), err)
+			return err
+		}
 	}
 
 	defer logrus.Warn(c.logInfo("[Shutdown] AMQP shutdown OK"))
