@@ -741,32 +741,33 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			user = opts[1]
 		}
 
-		if withLog {
-			if table != "" && id != "" {
-				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
-				registerSchema.RLock()
-				schemaTableReg, ok := registerSchema.tables[table]
-				registerSchema.RUnlock()
-				if ok {
-					if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-						for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
-							updateCallback := func() {
-								data := dataCallback(id)
-								go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
-							}
-							if queryObj.tx != nil {
-								queryObj.BindTxCommitCallback(updateCallback)
-							} else {
-								updateCallback()
-							}
+		if table != "" && id != "" {
+			go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+			registerSchema.RLock()
+			schemaTableReg, ok := registerSchema.tables[table]
+			registerSchema.RUnlock()
+			if ok {
+				if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
+					for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+						updateCallback := func() {
+							data := dataCallback(id)
+							go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
+						}
+						if queryObj.tx != nil {
+							queryObj.BindTxCommitCallback(updateCallback)
+						} else {
+							updateCallback()
 						}
 					}
 				}
-				queryObj.saveLog(table, id, user, diff)
-			} else {
-				log.Error("missing table or id for save log", options)
 			}
+			if withLog {
+				queryObj.saveLog(table, id, user, diff)
+			}
+		} else {
+			log.Error("missing table or id for save log", options)
 		}
+
 	}
 	return nil
 }
