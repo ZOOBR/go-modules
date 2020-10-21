@@ -33,6 +33,7 @@ type Update struct {
 	Data       string      `json:"data"`
 	Groups     []string    `json:"groups"`
 	ExtData    interface{} `json:"extData"`
+	Recipients []string    `json:"recipients"`
 }
 
 //Consumer structure for NewConsumer result
@@ -359,7 +360,7 @@ func PublishHeader(amqpURI, consumerName, exchangeName string, msg []byte, heade
 }
 
 // SendUpdate Send rpc update command to services
-func SendUpdate(amqpURI, collection, id, method string, data interface{}) error {
+func SendUpdate(amqpURI, collection, id, method string, data interface{}, options ...map[string]interface{}) error {
 	objectJSON, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -369,6 +370,14 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 		Cmd:        method,
 		Data:       string(objectJSON),
 		Collection: collection,
+	}
+	if len(options) > 0 {
+		opts := options[0]
+		if recipientsInt, ok := opts["recipients"]; ok {
+			if recipients, ok := recipientsInt.([]string); ok {
+				msg.Recipients = recipients
+			}
+		}
 	}
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
