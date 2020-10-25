@@ -85,10 +85,10 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if !ok1 || !ok2 {
 					return false
 				}
-				if !s.Desc {
-					return str1 < str2
+				if s.Desc {
+					return str1 > str2
 				}
-				return str1 > str2
+				return str1 < str2
 			case *string:
 				str1, ok1 := val.(*string)
 				str2, ok2 := valJ.(*string)
@@ -98,10 +98,10 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if str1 == nil || str2 == nil {
 					return str1 != nil
 				}
-				if !s.Desc {
-					return *str1 < *str2
+				if s.Desc {
+					return *str1 > *str2
 				}
-				return *str1 > *str2
+				return *str1 < *str2
 			case *time.Time:
 				time1, ok1 := val.(*time.Time)
 				time2, ok2 := valJ.(*time.Time)
@@ -111,30 +111,30 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if time1 == nil || time2 == nil {
 					return time1 != nil
 				}
-				if !s.Desc {
-					return time1.Before(*time2)
+				if s.Desc {
+					return time1.After(*time2)
 				}
-				return time1.After(*time2)
+				return time1.Before(*time2)
 			case time.Time:
 				time1, ok1 := val.(time.Time)
 				time2, ok2 := valJ.(time.Time)
 				if !ok1 || !ok2 {
 					return false
 				}
-				if !s.Desc {
-					return time1.Before(time2)
+				if s.Desc {
+					return time1.After(time2)
 				}
-				return time1.After(time2)
+				return time1.Before(time2)
 			case int:
 				int1, ok1 := val.(int)
 				int2, ok2 := valJ.(int)
 				if !ok1 || !ok2 {
 					return false
 				}
-				if !s.Desc {
-					return int1 < int2
+				if s.Desc {
+					return int1 > int2
 				}
-				return int1 > int2
+				return int1 < int2
 			case *int:
 				int1, ok1 := val.(*int)
 				int2, ok2 := valJ.(*int)
@@ -144,20 +144,20 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if int1 == nil || int2 == nil {
 					return int1 != nil
 				}
-				if !s.Desc {
-					return *int1 < *int2
+				if s.Desc {
+					return *int1 > *int2
 				}
-				return *int1 > *int2
+				return *int1 < *int2
 			case float64:
 				float1, ok1 := val.(float64)
 				float2, ok2 := valJ.(float64)
 				if !ok1 || !ok2 {
 					return false
 				}
-				if !s.Desc {
-					return float1 < float2
+				if s.Desc {
+					return float1 > float2
 				}
-				return float1 > float2
+				return float1 < float2
 			case *float64:
 				float1, ok1 := val.(*float64)
 				float2, ok2 := valJ.(*float64)
@@ -167,10 +167,10 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if float1 == nil || float2 == nil {
 					return float1 != nil
 				}
-				if !s.Desc {
-					return *float1 < *float2
+				if s.Desc {
+					return *float1 > *float2
 				}
-				return *float1 > *float2
+				return *float1 < *float2
 			case *telemetry.FlatPosition:
 				if s.Param == 0 && s.Event == 0 {
 					return false
@@ -186,10 +186,10 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 				if s.Param != 0 {
 					p1 := pos1.P[s.Param]
 					p2 := pos2.P[s.Param]
-					if !s.Desc {
-						return p1 < p2
+					if s.Desc {
+						return p1 > p2
 					}
-					return p1 > p2
+					return p1 < p2
 				}
 				p1 := pos1.E[s.Param]
 				p2 := pos2.E[s.Param]
