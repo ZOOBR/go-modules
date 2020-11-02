@@ -50,6 +50,18 @@ func Apply(filters []Filter, fields map[string]interface{}) bool {
 // Apply function for apply one filter
 func (filter *Filter) Apply(fields map[string]interface{}) bool {
 	// TODO:: filtering
+	filterValueInt, ok := fields[filter.Field]
+	if !ok {
+		return false
+	}
+	filterValue, ok := filterValueInt.(*string)
+	if !ok {
+		return false
+	}
+	switch filter.Type {
+	case TypeIn:
+		return filterValue != nil && strings.Contains(filter.Value, *filterValue)
+	}
 	return true
 }
 
@@ -80,9 +92,9 @@ func FromReq(req string) (res []Filter) {
 		filterItems := strings.Split(filter, "->")
 		lenFilterItems := len(filterItems)
 		filterGroup := Filter{}
-		if lenFilterItems < 2 {
+		if lenFilterItems < 1 {
 			continue
-		} else if lenFilterItems > 2 {
+		} else if lenFilterItems > 1 {
 			groupType := filterItems[0]
 			filterGroup.Items = []Filter{}
 			if groupType == "or" {
