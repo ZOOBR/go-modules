@@ -287,13 +287,12 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 		c.Reconnect(nil)
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
-	channel, errChannel := c.conn.Channel()
-	if errChannel != nil {
-		logrus.Error(c.logInfo("c.conn.Channel() err: "), errChannel)
+	if c.channel == nil {
+		logrus.Error(c.logInfo("c.channel == nil"))
 		c.Reconnect(nil)
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
-	errPublish := channel.Publish(c.exchange.Name, routingKey, false, false, content)
+	errPublish := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
 	if errPublish != nil {
 		logrus.Error(c.logInfo("try reconnect after publish err: "), errPublish)
 		c.Reconnect(nil)
