@@ -1526,6 +1526,69 @@ func (table *SchemaTable) registerMetadata() {
 	table.registerExportMetadata(metadata)
 }
 
+// RestrictRolesRights return complex restrict query based on all roles
+func (table *SchemaTable) RestrictRolesRights(roles map[string]*JsonB) string {
+	restrictQuery := ""
+	for _, rights := range roles {
+		if restrictQuery != "" {
+			restrictQuery += " OR "
+		}
+		restrictVal := table.GetRestrictQuery(rights)
+		if restrictVal != "" {
+			restrictQuery += "( " + restrictVal + " )"
+		}
+	}
+	return restrictQuery
+}
+
+// GetRestrictQuery returns sql restrict query by roles rights
+func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
+	if rights == nil {
+		return ""
+	}
+	restrictFieldsInt, ok := (*rights)[table.Name]
+	if !ok {
+		// if entity collection not found in rights map is FULL ACCESS
+		return ""
+	}
+	restrictFields, ok := restrictFieldsInt.(map[string]interface{})
+	if !ok {
+		// ignore invalid rights
+		return ""
+	}
+	restrictQuery := ""
+	for field, value := range restrictFields {
+		restrictField := reflect.ValueOf(value)
+		if restrictField.Kind() == reflect.Ptr {
+			restrictField = reflect.Indirect(restrictField)
+		}
+		var restrictVal string
+
+		switch restrictField.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			restrictVal = strconv.FormatInt(restrictField.Int(), 10)
+		case uint, uint8, uint16, uint32, uint64:
+			restrictVal = strconv.FormatUint(restrictField.Uint(), 10)
+		case float32, float64:
+			restrictVal = strconv.FormatFloat(restrictField.Float(), 'E', -1, 64)
+		case string:
+			restrictVal = restrictField.String()
+		case bool:
+			restrictVal = strconv.FormatBool(restrictField.Bool())
+		default:
+			continue
+		}
+
+		if restrictVal != "" {
+			if restrictQuery != "" {
+				restrictQuery += " AND "
+			}
+			restrictQuery = table.Name + "." + field + " = '" + restrictVal + "'"
+		}
+	}
+	return restrictQuery
+}
+
 func (table *SchemaTable) registerExportMetadata(metadata map[string]interface{}) {
 	exportFieldsInt, ok := metadata["fields"]
 	if !ok {
