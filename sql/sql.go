@@ -1576,6 +1576,25 @@ func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
 		case bool:
 			restrictVal = strconv.FormatBool(restrictField.Bool())
 		default:
+			arrayValues, ok := value.([]interface{})
+			if !ok {
+				continue
+			}
+			inValues := ""
+			for i := 0; i < len(arrayValues); i++ {
+				if i > 0 && inValues != "" {
+					inValues += ","
+				}
+				if val, ok := arrayValues[i].(string); ok {
+					inValues += "'" + val + "'"
+				}
+			}
+			if inValues != "" {
+				if restrictQuery != "" {
+					restrictQuery += " AND "
+				}
+				restrictQuery += `"` + table.Name + `".` + field + " IN (" + inValues + ")"
+			}
 			continue
 		}
 
@@ -1583,7 +1602,7 @@ func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
 			if restrictQuery != "" {
 				restrictQuery += " AND "
 			}
-			restrictQuery = table.Name + "." + field + " = '" + restrictVal + "'"
+			restrictQuery += `"` + table.Name + `".` + field + " = '" + restrictVal + "'"
 		}
 	}
 	return restrictQuery
