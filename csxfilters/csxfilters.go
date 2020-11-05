@@ -110,7 +110,7 @@ func (filter *Filter) Apply(fields map[string]interface{}) bool {
 		return compareValues(compValInt, destValueInt, TypeDateLt)
 	case TypeIn:
 		destValue, ok := destValueInt.(*string)
-		if !ok {
+		if !ok || destValue == nil {
 			return false
 		}
 		compArray := strings.Split(filter.Value, ",")
@@ -123,7 +123,7 @@ func (filter *Filter) Apply(fields map[string]interface{}) bool {
 		return isFound
 	case TypeNotIn:
 		destValue, ok := destValueInt.(*string)
-		if !ok {
+		if !ok || destValue == nil {
 			return false
 		}
 		compArray := strings.Split(filter.Value, ",")
