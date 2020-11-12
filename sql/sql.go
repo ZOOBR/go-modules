@@ -121,7 +121,10 @@ func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, 
 }
 
 func (queryObj *Query) Select(dest interface{}, query string, args ...interface{}) error {
-	return queryObj.tx.Select(dest, query, args...)
+	if queryObj.tx != nil {
+		return queryObj.tx.Select(dest, query, args...)
+	}
+	return queryObj.db.Select(dest, query, args...)
 }
 
 func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
@@ -2366,6 +2369,7 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
+	sql += " RETURNING id"
 	var args []interface{}
 	if len(options) > 0 {
 		option := options[0]
@@ -2373,10 +2377,16 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 			args = option["args"].([]interface{})
 		}
 	}
-	ret, err := q.Exec(sql, args...)
+	// ret, err := q.Exec(sql, args...)
+	ids := []string{}
+	err := q.Select(&ids, sql, args...)
 	if err == nil {
-		rows, err := ret.RowsAffected()
-		return int(rows), err
+		countDelete := len(ids)
+		if countDelete > 0 {
+			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil)
+		}
+
+		return countDelete, err
 	}
 	return -1, err
 }
