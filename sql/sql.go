@@ -1950,7 +1950,7 @@ func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options
 	}
 	count, err = result.RowsAffected()
 	if err != nil {
-		_, _, err = table.UpdateMultiple(nil, data, where, options...)
+		_, _, _, err = table.UpdateMultiple(nil, data, where, options...)
 	}
 	return count, err
 }
@@ -2268,7 +2268,7 @@ func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, op
 }
 
 // UpdateMultiple execute update sql string
-func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, err error) {
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
 	q := Query{db: DB}
 	if len(options) > 0 {
 		option := options[0]
@@ -2289,11 +2289,11 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	if recType.Kind() == reflect.Map {
 		dataMap, ok := data.(map[string]interface{})
 		if !ok {
-			return nil, nil, errors.New("data must be a map[string]interface")
+			return nil, nil, nil, errors.New("data must be a map[string]interface")
 		}
 		oldDataMap, ok := oldData.(map[string]interface{})
 		if !ok {
-			return nil, nil, errors.New("oldData must be a map[string]interface")
+			return nil, nil, nil, errors.New("oldData must be a map[string]interface")
 		}
 		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 	} else if recType.Kind() == reflect.Struct {
@@ -2312,20 +2312,21 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
 	} else {
-		return nil, nil, errors.New("element must be struct or map[string]interface")
+		return nil, nil, nil, errors.New("element must be struct or map[string]interface")
 	}
 
 	var sql string
 	lenDiff := len(diff)
 	if lenDiff == 1 {
-		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
+		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where + ` RETURNING id`
 	} else if lenDiff > 0 {
-		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
+		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where + ` RETURNING id`
 	}
+	ids = []string{}
 	if lenDiff > 0 {
-		_, err = q.Exec(sql, args...)
+		err = q.Select(&ids, sql, args...)
 	}
-	return diff, diffPub, err
+	return diff, diffPub, ids, err
 }
 
 // Update update one item by id
@@ -2347,7 +2348,7 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 			return err
 		}
 	}
-	diff, diffPub, err := table.UpdateMultiple(oldData, data, where, options...)
+	diff, diffPub, _, err := table.UpdateMultiple(oldData, data, where, options...)
 	if err == nil && len(diff) > 0 {
 		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
 		table.SaveLog(id, diff, options)
