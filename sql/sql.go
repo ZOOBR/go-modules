@@ -2408,7 +2408,9 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 			data = options[0]["data"]
 		}
 		if data == nil {
-			data = struct{}{}
+			data = map[string]interface{}{
+				"id": id,
+			}
 		}
 		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data)
 		//table.SaveLog(id, diff, options)
