@@ -89,7 +89,7 @@ var regionsMap = map[string]string{
 	"docs-04102019":       "fr-par",
 	"fines":               "fr-par",
 	"damages":             "fr-par",
-	"geozones":            "fr-par",
+	"geozones":            "nl-ams",
 	"public":              "nl-ams",
 	"selfie":              "fr-par",
 	"rentPhoto":           "nl-ams",
