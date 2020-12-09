@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/reporter"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
@@ -63,6 +64,12 @@ type QueryResult struct {
 	Error  error
 	Query  string
 	Xlsx   []byte
+}
+
+type SchemaTableMetadata struct {
+	ID         string `db:"id" json:"id"`
+	Collection string `db:"collection" json:"collection"`
+	MetaData   JsonB  `db:"metadata" json:"metadata"`
 }
 
 type Query struct {
@@ -114,7 +121,10 @@ func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, 
 }
 
 func (queryObj *Query) Select(dest interface{}, query string, args ...interface{}) error {
-	return queryObj.tx.Select(dest, query, args...)
+	if queryObj.tx != nil {
+		return queryObj.tx.Select(dest, query, args...)
+	}
+	return queryObj.db.Select(dest, query, args...)
 }
 
 func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
@@ -734,32 +744,33 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			user = opts[1]
 		}
 
-		if withLog {
-			if table != "" && id != "" {
-				go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
-				registerSchema.RLock()
-				schemaTableReg, ok := registerSchema.tables[table]
-				registerSchema.RUnlock()
-				if ok {
-					if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-						for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
-							updateCallback := func() {
-								data := dataCallback(id)
-								go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
-							}
-							if queryObj.tx != nil {
-								queryObj.BindTxCommitCallback(updateCallback)
-							} else {
-								updateCallback()
-							}
+		if table != "" && id != "" {
+			go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+			registerSchema.RLock()
+			schemaTableReg, ok := registerSchema.tables[table]
+			registerSchema.RUnlock()
+			if ok {
+				if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
+					for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
+						updateCallback := func() {
+							data := dataCallback(id)
+							go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
+						}
+						if queryObj.tx != nil {
+							queryObj.BindTxCommitCallback(updateCallback)
+						} else {
+							updateCallback()
 						}
 					}
 				}
-				queryObj.saveLog(table, id, user, diff)
-			} else {
-				log.Error("missing table or id for save log", options)
 			}
+			if withLog {
+				queryObj.saveLog(table, id, user, diff)
+			}
+		} else {
+			log.Error("missing table or id for save log", options)
 		}
+
 	}
 	return nil
 }
@@ -1234,8 +1245,11 @@ type SchemaTable struct {
 	// GenFields   []string
 	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
 	ExtKeys           []string
+	Extensions        []string
 	onUpdate          schemaTableUpdateCallback
 	LogChanges        bool
+	ExportFields      string
+	ExportTables      string
 	Struct            interface{}
 }
 
@@ -1403,6 +1417,9 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 		recType = infoType
 	}
 
+	newSchemaTable := SchemaTable{
+		Extensions: []string{},
+	}
 	// genFields := []string{}
 	idFieldName := ""
 	fields := make([]*SchemaField, 0)
@@ -1437,6 +1454,10 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 				idFieldName = name
 			}
 			fields = append(fields, field)
+			extension := f.Tag.Get("ext")
+			if len(extension) > 0 {
+				newSchemaTable.Extensions = append(newSchemaTable.Extensions, extension)
+			}
 			// if field.Default != "" || field.Auto != 0 {
 			// 	genFields = append(genFields, name)
 			// }
@@ -1461,7 +1482,6 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			extKeys = val.([]string)
 		}
 	}
-	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
 	newSchemaTable.Fields = fields
 	newSchemaTable.IDFieldName = idFieldName
@@ -1488,6 +1508,148 @@ func (table *SchemaTable) register() {
 	registerSchema.Unlock()
 }
 
+func (table *SchemaTable) registerMetadata() {
+	res := SchemaTableMetadata{}
+	err := DB.Get(&res, "SELECT id, collection, metadata FROM metadata WHERE collection = '"+table.Name+"'")
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return
+		}
+		logrus.Error("error get schema table metadata for collection: ", table.Name, " error: ", err)
+		return
+	}
+	metadataInt, ok := res.MetaData["export"]
+	if !ok {
+		return
+	}
+	metadata, ok := metadataInt.(map[string]interface{})
+	if !ok {
+		return
+	}
+	table.registerExportMetadata(metadata)
+}
+
+// RestrictRolesRights return complex restrict query based on all roles
+func (table *SchemaTable) RestrictRolesRights(roles map[string]*JsonB) string {
+	restrictQuery := ""
+	for _, rights := range roles {
+		if restrictQuery != "" {
+			restrictQuery += " OR "
+		}
+		restrictVal := table.GetRestrictQuery(rights)
+		if restrictVal != "" {
+			restrictQuery += "( " + restrictVal + " )"
+		}
+	}
+	return restrictQuery
+}
+
+// GetRestrictQuery returns sql restrict query by roles rights
+func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
+	if rights == nil {
+		return ""
+	}
+	restrictFieldsInt, ok := (*rights)[table.Name]
+	if !ok {
+		// if entity collection not found in rights map is FULL ACCESS
+		return ""
+	}
+	restrictFields, ok := restrictFieldsInt.(map[string]interface{})
+	if !ok {
+		// ignore invalid rights
+		return ""
+	}
+	restrictQuery := ""
+	for field, value := range restrictFields {
+		restrictField := reflect.ValueOf(value)
+		if restrictField.Kind() == reflect.Ptr {
+			restrictField = reflect.Indirect(restrictField)
+		}
+		var restrictVal string
+
+		switch restrictField.Interface().(type) {
+		case int, int8, int16, int32, int64:
+			restrictVal = strconv.FormatInt(restrictField.Int(), 10)
+		case uint, uint8, uint16, uint32, uint64:
+			restrictVal = strconv.FormatUint(restrictField.Uint(), 10)
+		case float32, float64:
+			restrictVal = strconv.FormatFloat(restrictField.Float(), 'E', -1, 64)
+		case string:
+			restrictVal = restrictField.String()
+		case bool:
+			restrictVal = strconv.FormatBool(restrictField.Bool())
+		default:
+			arrayValues, ok := value.([]interface{})
+			if !ok {
+				continue
+			}
+			inValues := ""
+			for i := 0; i < len(arrayValues); i++ {
+				if i > 0 && inValues != "" {
+					inValues += ","
+				}
+				if val, ok := arrayValues[i].(string); ok {
+					inValues += "'" + val + "'"
+				}
+			}
+			if inValues != "" {
+				if restrictQuery != "" {
+					restrictQuery += " AND "
+				}
+				restrictQuery += `"` + table.Name + `".` + field + " IN (" + inValues + ")"
+			}
+			continue
+		}
+
+		if restrictVal != "" {
+			if restrictQuery != "" {
+				restrictQuery += " AND "
+			}
+			restrictQuery += `"` + table.Name + `".` + field + " = '" + restrictVal + "'"
+		}
+	}
+	return restrictQuery
+}
+
+func (table *SchemaTable) registerExportMetadata(metadata map[string]interface{}) {
+	exportFieldsInt, ok := metadata["fields"]
+	if !ok {
+		return
+	}
+	exportFields, ok := exportFieldsInt.(string)
+	if !ok {
+		return
+	}
+	table.ExportFields = exportFields
+	exportTablesInt, ok := metadata["tables"]
+	if !ok {
+		return
+	}
+	exportTables, ok := exportTablesInt.(string)
+	if !ok {
+		return
+	}
+	table.ExportTables = exportTables
+}
+
+// Export is using for get xlsx bytes
+func (table *SchemaTable) Export(params map[string]string, extConditions ...string) []byte {
+	params["limit"] = "100000"
+	params["fields"] = table.ExportFields
+	params["join"] = table.ExportTables
+	var query string
+	if len(extConditions) > 0 {
+		query = MakeQueryFromReq(params, extConditions[0])
+	} else {
+		query = MakeQueryFromReq(params)
+	}
+	xlsx := bytes.NewBuffer([]byte{})
+	_ = ExecQuery(&query, func(rows *sqlx.Rows) {
+		reporter.GenerateXLSXFromRows(rows, xlsx)
+	})
+	return xlsx.Bytes()
+}
+
 func (field *SchemaField) sql() string {
 	sql := `"` + field.Name + `" ` + field.Type
 	if field.Length > 0 {
@@ -1506,6 +1668,13 @@ func (table *SchemaTable) create() error {
 	var keys string
 	skeys := []*SchemaField{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
+	// enable extensions
+	for i := 0; i < len(table.Extensions); i++ {
+		ext := table.Extensions[i]
+		sql := `CREATE EXTENSION IF NOT EXISTS "` + ext + `"`
+		_, err := DB.Exec(sql)
+		schemaLogSQL(sql, err)
+	}
 	for index, field := range table.Fields {
 		if index > 0 {
 			sql += ", "
@@ -1534,6 +1703,13 @@ func (table *SchemaTable) create() error {
 			table.createIndex(field)
 		}
 	}
+	// insert mandat info
+	sqlBaseMandat := `INSERT INTO "mandatInfo" ("id", "group", "subject")
+	SELECT uuid_generate_v4(), 'base', '` + table.Name + `'
+	WHERE NOT EXISTS (SELECT id FROM "mandatInfo" WHERE "subject" = '` + table.Name + `' and "group" = 'base')
+	RETURNING id;`
+	_, err = DB.Exec(sqlBaseMandat)
+	schemaLogSQL(sqlBaseMandat, err)
 	return err
 }
 
@@ -1615,6 +1791,7 @@ func (table *SchemaTable) prepare() error {
 	if err == nil && table.onUpdate != nil {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
+	table.registerMetadata()
 	return err
 }
 
@@ -1773,7 +1950,7 @@ func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options
 	}
 	count, err = result.RowsAffected()
 	if err != nil {
-		_, _, err = table.UpdateMultiple(nil, data, where, options...)
+		_, _, _, err = table.UpdateMultiple(nil, data, where, options...)
 	}
 	return count, err
 }
@@ -2091,7 +2268,7 @@ func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, op
 }
 
 // UpdateMultiple execute update sql string
-func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, err error) {
+func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
 	q := Query{db: DB}
 	if len(options) > 0 {
 		option := options[0]
@@ -2112,11 +2289,11 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	if recType.Kind() == reflect.Map {
 		dataMap, ok := data.(map[string]interface{})
 		if !ok {
-			return nil, nil, errors.New("data must be a map[string]interface")
+			return nil, nil, nil, errors.New("data must be a map[string]interface")
 		}
 		oldDataMap, ok := oldData.(map[string]interface{})
 		if !ok {
-			return nil, nil, errors.New("oldData must be a map[string]interface")
+			return nil, nil, nil, errors.New("oldData must be a map[string]interface")
 		}
 		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 	} else if recType.Kind() == reflect.Struct {
@@ -2135,20 +2312,21 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
 	} else {
-		return nil, nil, errors.New("element must be struct or map[string]interface")
+		return nil, nil, nil, errors.New("element must be struct or map[string]interface")
 	}
 
 	var sql string
 	lenDiff := len(diff)
 	if lenDiff == 1 {
-		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where
+		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where + ` RETURNING id`
 	} else if lenDiff > 0 {
-		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where
+		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where + ` RETURNING id`
 	}
+	ids = []string{}
 	if lenDiff > 0 {
-		_, err = q.Exec(sql, args...)
+		err = q.Select(&ids, sql, args...)
 	}
-	return diff, diffPub, err
+	return diff, diffPub, ids, err
 }
 
 // Update update one item by id
@@ -2170,7 +2348,7 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 			return err
 		}
 	}
-	diff, diffPub, err := table.UpdateMultiple(oldData, data, where, options...)
+	diff, diffPub, _, err := table.UpdateMultiple(oldData, data, where, options...)
 	if err == nil && len(diff) > 0 {
 		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
 		table.SaveLog(id, diff, options)
@@ -2192,6 +2370,7 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
+	sql += " RETURNING id"
 	var args []interface{}
 	if len(options) > 0 {
 		option := options[0]
@@ -2199,10 +2378,16 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 			args = option["args"].([]interface{})
 		}
 	}
-	ret, err := q.Exec(sql, args...)
+	// ret, err := q.Exec(sql, args...)
+	ids := []string{}
+	err := q.Select(&ids, sql, args...)
 	if err == nil {
-		rows, err := ret.RowsAffected()
-		return int(rows), err
+		countDelete := len(ids)
+		if countDelete > 0 {
+			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil)
+		}
+
+		return countDelete, err
 	}
 	return -1, err
 }
@@ -2223,7 +2408,9 @@ func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (
 			data = options[0]["data"]
 		}
 		if data == nil {
-			data = struct{}{}
+			data = map[string]interface{}{
+				"id": id,
+			}
 		}
 		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data)
 		//table.SaveLog(id, diff, options)

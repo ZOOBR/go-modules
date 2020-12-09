@@ -54,7 +54,8 @@ var (
 const (
 	S3_CLIENT_DOCS_04102019 = "csx-docs041019"
 	// S3_CLIENT_DOCS          = "csx-docs"
-	S3_FINES = "csx-fines"
+	S3_FINES    = "csx-fines"
+	S3_GEOZONES = "csx-geozones"
 	// S3_OBJECT_DAMAGES = "csx-photo-damages"
 	S3_PUBLIC         = "csx-public"
 	S3_RENT_PHOTO     = "csx-rent-photo-200608"
@@ -72,6 +73,7 @@ var bucketsMap = map[string]string{
 	"fines":         S3_FINES,
 	// "damages":       S3_OBJECT_DAMAGES,
 	"public":              S3_PUBLIC,
+	"geozones":            S3_GEOZONES,
 	"selfie":              S3_SELFIE,
 	"rentPhoto":           S3_RENT_PHOTO,
 	"rentPhotoThumbnails": S3_RENT_PHOTO_TH,
@@ -87,6 +89,7 @@ var regionsMap = map[string]string{
 	"docs-04102019":       "fr-par",
 	"fines":               "fr-par",
 	"damages":             "fr-par",
+	"geozones":            "nl-ams",
 	"public":              "nl-ams",
 	"selfie":              "fr-par",
 	"rentPhoto":           "nl-ams",

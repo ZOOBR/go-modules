@@ -33,6 +33,7 @@ type Update struct {
 	Data       string      `json:"data"`
 	Groups     []string    `json:"groups"`
 	ExtData    interface{} `json:"extData"`
+	Recipients []string    `json:"recipients"`
 }
 
 //Consumer structure for NewConsumer result
@@ -276,9 +277,24 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 	if headers != nil {
 		content.Headers = headers
 	}
-	err := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
-	if err != nil {
-		logrus.Error(c.logInfo("try reconnect after publish err: "), err)
+	if c == nil {
+		logrus.Error(c.logInfo("c == nil"))
+		c.Reconnect(nil)
+		return c.PublishWithHeaders(msg, routingKey, headers)
+	}
+	if c.conn == nil {
+		logrus.Error(c.logInfo("c.conn == nil"))
+		c.Reconnect(nil)
+		return c.PublishWithHeaders(msg, routingKey, headers)
+	}
+	if c.channel == nil {
+		logrus.Error(c.logInfo("c.channel == nil"))
+		c.Reconnect(nil)
+		return c.PublishWithHeaders(msg, routingKey, headers)
+	}
+	errPublish := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
+	if errPublish != nil {
+		logrus.Error(c.logInfo("try reconnect after publish err: "), errPublish)
 		c.Reconnect(nil)
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
@@ -359,7 +375,7 @@ func PublishHeader(amqpURI, consumerName, exchangeName string, msg []byte, heade
 }
 
 // SendUpdate Send rpc update command to services
-func SendUpdate(amqpURI, collection, id, method string, data interface{}) error {
+func SendUpdate(amqpURI, collection, id, method string, data interface{}, options ...map[string]interface{}) error {
 	objectJSON, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -369,6 +385,14 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}) error 
 		Cmd:        method,
 		Data:       string(objectJSON),
 		Collection: collection,
+	}
+	if len(options) > 0 {
+		opts := options[0]
+		if recipientsInt, ok := opts["recipients"]; ok {
+			if recipients, ok := recipientsInt.([]string); ok {
+				msg.Recipients = recipients
+			}
+		}
 	}
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
@@ -471,14 +495,18 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 //Shutdown channel on set app time to live
 func (c *Consumer) Shutdown() error {
 	// will close() the deliveries channel
-	if err := c.channel.Cancel("", true); err != nil {
-		logrus.Error(c.logInfo("[Shutdown] consumer cancel err: "), err)
-		return err
+	if c.channel != nil {
+		if err := c.channel.Cancel("", true); err != nil {
+			logrus.Error(c.logInfo("[Shutdown] consumer cancel err: "), err)
+			return err
+		}
 	}
 
-	if err := c.conn.Close(); err != nil {
-		logrus.Error(c.logInfo("[Shutdown] AMQP connection close err: "), err)
-		return err
+	if c.conn != nil {
+		if err := c.conn.Close(); err != nil {
+			logrus.Error(c.logInfo("[Shutdown] AMQP connection close err: "), err)
+			return err
+		}
 	}
 
 	defer logrus.Warn(c.logInfo("[Shutdown] AMQP shutdown OK"))
