@@ -401,7 +401,7 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 	var consumer *Consumer
 	consumerInt, ok := consumers.Load("SendUpdate")
 	if !ok {
-		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: "csx.updates", Type: "direct", Durable: true})
+		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: updateExch, Type: "direct", Durable: true})
 		if err != nil {
 			return err
 		}
