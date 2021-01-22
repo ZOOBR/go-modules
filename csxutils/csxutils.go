@@ -5,6 +5,35 @@ import (
 	"time"
 )
 
+var (
+	// PaySystems is a list of pay systems with first digits
+	PaySystems = map[string]string{
+		"2":  "Мир",
+		"30": "Diners Club",
+		"36": "Diners Club",
+		"38": "Diners Club",
+		"31": "JCB International",
+		"35": "JCB International",
+		"34": "American Express",
+		"37": "American Express",
+		"4":  "VISA",
+		"50": "Maestro",
+		"56": "Maestro",
+		"57": "Maestro",
+		"58": "Maestro",
+		"51": "MasterCard",
+		"52": "MasterCard",
+		"53": "MasterCard",
+		"54": "MasterCard",
+		"55": "MasterCard",
+		"60": "Discover",
+		"62": "China UnionPay",
+		"63": "Maestro",
+		"67": "Maestro",
+		"7":  "УЭК",
+	}
+)
+
 // Interface for delegating copy process to type
 type Interface interface {
 	DeepCopy() interface{}
@@ -141,4 +170,20 @@ func CopyRecursive(original, cpy reflect.Value) {
 	default:
 		cpy.Set(original)
 	}
+}
+
+// GetPaySystemByBankCard returns pay system by first digits of bank card
+func GetPaySystemByBankCard(firstDigits string) string {
+	if firstDigits == "" {
+		return "Unknown"
+	}
+	firstDigit := firstDigits[0:1]
+	if firstDigit == "2" || firstDigit == "4" || firstDigit == "7" {
+		return PaySystems[firstDigit]
+	}
+	twoDigits := firstDigits[0:2]
+	if _, ok := PaySystems[twoDigits]; ok {
+		return PaySystems[twoDigits]
+	}
+	return "Unknown"
 }
