@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	csxutils "gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
 	strUtil "gitlab.com/battler/modules/strings"
 )
@@ -1181,6 +1182,24 @@ func addCondition(fieldType, field, v string, where *string) {
 	case "notin":
 		*where += field + ` NOT IN(` + v + `)`
 	}
+}
+
+// PreparePaySystemQuery creates query for payment system identifying
+func PreparePaySystemQuery(field string, alias ...string) string {
+	if field == "" {
+		return ""
+	}
+
+	query := `(CASE `
+	for digits, system := range csxutils.PaySystems {
+		query += " WHEN " + field + " ILIKE " + "'" + digits + "%' THEN '" + system + "'"
+	}
+	query += " ELSE 'Unknown' END)"
+	if len(alias) > 0 {
+		query += ` AS "` + alias[0] + `"`
+	}
+
+	return query
 }
 
 // Init open connection to database
