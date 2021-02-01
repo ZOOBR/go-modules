@@ -31,6 +31,9 @@ import (
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
+const DUPLICATE_KEY_ERROR = "23505"
+const TABLE_NOT_EXISTS = "42P01"
+
 var (
 	//DefaultURI default SQL connection string
 	DefaultURI = "host=localhost user=postgres password=FHJdg876h&*^6fd dbname=csx sslmode=disable"
@@ -1251,6 +1254,7 @@ type SchemaField struct {
 	Key       int
 	Auto      int
 	checked   bool
+	Sequence  string
 }
 
 // SchemaTable is definition of sql table
@@ -1472,6 +1476,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			if (field.Key == 1 || name == "id") && field.IsUUID {
 				idFieldName = name
 			}
+			field.Sequence = f.Tag.Get("sequence")
 			fields = append(fields, field)
 			extension := f.Tag.Get("ext")
 			if len(extension) > 0 {
@@ -1694,6 +1699,7 @@ func (table *SchemaTable) create() error {
 		_, err := DB.Exec(sql)
 		schemaLogSQL(sql, err)
 	}
+	sqlSequence := ""
 	for index, field := range table.Fields {
 		if index > 0 {
 			sql += ", "
@@ -1707,6 +1713,9 @@ func (table *SchemaTable) create() error {
 		}
 		if (field.Key&2) != 0 || field.IndexType != "" {
 			skeys = append(skeys, field)
+		}
+		if len(field.Sequence) > 0 {
+			sqlSequence += `CREATE SEQUENCE "` + table.Name + `_` + field.Sequence + `"; `
 		}
 	}
 	sql += `)`
@@ -1729,6 +1738,10 @@ func (table *SchemaTable) create() error {
 	RETURNING id;`
 	_, err = DB.Exec(sqlBaseMandat)
 	schemaLogSQL(sqlBaseMandat, err)
+	if len(sqlSequence) > 0 {
+		_, err = DB.Exec(sqlSequence)
+		schemaLogSQL(sqlSequence, err)
+	}
 	return err
 }
 
@@ -1801,9 +1814,8 @@ func (table *SchemaTable) prepare() error {
 			err = table.alter(cols)
 		}
 	} else {
-		pqErr := err.(*pq.Error)
-		code := pqErr.Code
-		if code == "42P01" { // not exists
+		code := GetDBErrorCode(err)
+		if code == TABLE_NOT_EXISTS { // not exists
 			err = table.create()
 		}
 	}
@@ -2674,6 +2686,11 @@ func readItem(itemPtr interface{}, cb func()) {
 		unlock := itemVal.MethodByName("RUnlock")
 		unlock.Call([]reflect.Value{})
 	}
+}
+
+func GetDBErrorCode(err error) pq.ErrorCode {
+	pqErr := err.(*pq.Error)
+	return pqErr.Code
 }
 
 //---------------------------------------------------------------------------
