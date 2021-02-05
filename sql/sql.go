@@ -24,7 +24,9 @@ import (
 	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 
+	"github.com/buger/jsonparser"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxjson"
 	"gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
 	strUtil "gitlab.com/battler/modules/strings"
@@ -35,9 +37,10 @@ const TABLE_NOT_EXISTS = "42P01"
 
 var (
 	//DefaultURI default SQL connection string
-	amqpURI        = os.Getenv("AMQP_URI")
-	sqlURIS        = os.Getenv("SQL_URIS")
-	registerSchema = registerSchemeManager{}
+	amqpURI                 = os.Getenv("AMQP_URI")
+	sqlURIS                 = os.Getenv("SQL_URIS")
+	disableRegisterMetadata = os.Getenv("DISABLE_REGISTER_METADATA") == "1"
+	registerSchema          = registerSchemeManager{}
 	// DEPRECATED:: Need only for compatible
 	sqlURI       = os.Getenv("SQL_URI")
 	mainDatabase = os.Getenv("MAIN_SQL_DATABASE")
@@ -318,15 +321,16 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows)) QueryResult 
 		row := make(map[string]interface{})
 		err = rows.MapScan(row)
 		for k, v := range row {
-			//CRUTCH:: Type values get here uuid and arrays (return as string)
+			//TODO:: You need to think about how to get rid of the extra cycle
 			switch v.(type) {
 			case []byte:
-				var jsonMap map[string]*json.RawMessage
-				err := json.Unmarshal(v.([]byte), &jsonMap)
-				if err != nil {
+				// TODO:: Perhaps this check for uuid is not always correct
+				data, dataType, _, _ := jsonparser.Get(v.([]byte))
+				if dataType == jsonparser.Number { // Number, use for uuid
 					row[k] = string(v.([]byte))
 				} else {
-					row[k] = jsonMap
+					val, _ := csxjson.GetParsedValue(data, dataType)
+					row[k] = val
 				}
 			}
 		}
@@ -1937,7 +1941,9 @@ func (table *SchemaTable) prepare() error {
 	if err == nil && table.onUpdate != nil {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
-	table.registerMetadata()
+	if !disableRegisterMetadata {
+		table.registerMetadata()
+	}
 	return err
 }
 
