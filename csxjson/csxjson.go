@@ -2,7 +2,8 @@ package csxjson
 
 import "github.com/buger/jsonparser"
 
-func getParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal interface{}, err error) {
+// GetParsedValue parse recursively byte array
+func GetParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal interface{}, err error) {
 	switch dataType {
 	case jsonparser.NotExist:
 		parsedVal = data
@@ -20,7 +21,7 @@ func getParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal inter
 		objectValue := map[string]interface{}{}
 		jsonparser.ObjectEach(data, func(key []byte, value []byte, dataType jsonparser.ValueType, offset int) error {
 			keyString := string(key)
-			pVal, err := getParsedValue(value, dataType)
+			pVal, err := GetParsedValue(value, dataType)
 			if err == nil {
 				objectValue[keyString] = pVal
 			}
@@ -30,7 +31,7 @@ func getParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal inter
 	case jsonparser.Array:
 		arrayValue := []interface{}{}
 		jsonparser.ArrayEach(data, func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-			pVal, err := getParsedValue(value, dataType)
+			pVal, err := GetParsedValue(value, dataType)
 			if err == nil {
 				arrayValue = append(arrayValue, pVal)
 			}
