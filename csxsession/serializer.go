@@ -17,13 +17,30 @@ type CsxSerializer struct{}
 
 // Serialize base method for full serialize
 func (cs CsxSerializer) Serialize(s *sessions.Session) (buf []byte, err error) {
-	buf, err = json.Marshal(s.Values)
+	values := map[string]interface{}{}
+	for k, v := range s.Values {
+		var key string
+		var ok bool
+		if key, ok = k.(string); !ok {
+			continue
+		}
+		values[key] = v
+	}
+	buf, err = json.Marshal(values)
 	return buf, err
 }
 
 // Deserialize base method for full deserialize
 func (cs CsxSerializer) Deserialize(d []byte, s *sessions.Session) error {
-	return json.Unmarshal(d, &s.Values)
+	values := map[string]interface{}{}
+	err := json.Unmarshal(d, &values)
+	if err != nil {
+		return err
+	}
+	for k, v := range values {
+		s.Values[k] = v
+	}
+	return nil
 }
 
 // SerializePartial base method for partial serialize by key

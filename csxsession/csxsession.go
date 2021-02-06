@@ -12,6 +12,12 @@ import (
 
 var client *goredis.Client
 
+// Manager is main instance for working with sessions
+var Manager *SessionManager
+
+// DefaultCookieID is using for default cookie id
+const DefaultCookieID = "0NpqOh6INMv_8OVgOcjzIY8EBcIk-aV3GOYeuL3dHI4"
+
 // SessionManager is a new base struct for management sessions
 type SessionManager struct {
 	client  *goredis.Client
@@ -32,25 +38,82 @@ type KeyGenFunc func() (string, error)
 type SessionSerializer interface {
 	Serialize(s *sessions.Session) ([]byte, error)
 	Deserialize(b []byte, s *sessions.Session) error
-	SerializePartial(d []byte, s *sessions.Session, key string, value interface{}) error
-	DeserializePartial(d []byte, s *sessions.Session, key string) error
+	SerializePartial(d []byte, value []byte, s *sessions.Session, keys ...string) ([]byte, error)
+	DeserializePartial(d []byte, s *sessions.Session, keys ...string) error
 }
 
 //Config is using for config session params
 type Config struct {
-	TTL time.Duration
+	Session   *sessions.Options
+	KeyPrefix string
+	KeyGen    KeyGenFunc
+	CookieID  string
 }
 
-// NewSessionManager create new CsxSession instance
-func NewSessionManager(config *Config) *SessionManager {
-	new := SessionManager{}
-	new.client = client
-	new.config = config
-	return &new
+// NewSessionManager create new SessionManager instance
+func NewSessionManager(ctx context.Context, config *Config) (*SessionManager, error) {
+	sm := &SessionManager{
+		options: sessions.Options{
+			Path:   "/",
+			MaxAge: config.Session.MaxAge,
+		},
+		client:     client,
+		config:     config,
+		keyPrefix:  config.KeyPrefix,
+		keyGen:     generateRandomKey,
+		serializer: CsxSerializer{},
+	}
+	if config.KeyGen != nil {
+		sm.keyGen = config.KeyGen
+	}
+	return sm, sm.client.Ping(ctx).Err()
 }
 
-// Start starts new session
-func (mgr *SessionManager) Start(ctx context.Context, r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
+// Get returns a session for the given name after adding it to the registry.
+func (mgr *SessionManager) Get(r *http.Request, name string) (*sessions.Session, error) {
+	if name == "" {
+		if mgr.config.CookieID != "" {
+			name = mgr.config.CookieID
+		} else {
+			name = DefaultCookieID
+		}
+	}
+	return sessions.GetRegistry(r).Get(mgr, name)
+}
+
+// New returns a session for the given name without adding it to the registry.
+func (mgr *SessionManager) New(r *http.Request, name string) (*sessions.Session, error) {
+
+	session := sessions.NewSession(mgr, name)
+	opts := mgr.options
+	session.Options = &opts
+	session.IsNew = true
+
+	if name == "" {
+		if mgr.config.CookieID != "" {
+			name = mgr.config.CookieID
+		} else {
+			name = DefaultCookieID
+		}
+	}
+
+	c, err := r.Cookie(name)
+	if err != nil {
+		return session, nil
+	}
+	session.ID = c.Value
+
+	err = mgr.load(r.Context(), session)
+	if err == nil {
+		session.IsNew = false
+	} else if err == goredis.Nil {
+		err = nil // no data stored
+	}
+	return session, err
+}
+
+// Save adds a single session to the response.
+func (mgr *SessionManager) Save(r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
 	// Delete if max-age is <= 0
 	if session.Options.MaxAge <= 0 {
 		if err := mgr.delete(r.Context(), session); err != nil {
@@ -75,8 +138,8 @@ func (mgr *SessionManager) Start(ctx context.Context, r *http.Request, w http.Re
 	return nil
 }
 
-// Get retrieves value by key
-func (mgr *SessionManager) Get(ctx context.Context, key string) (string, error) {
+// GetValueByKey retrieves value by key
+func (mgr *SessionManager) GetValueByKey(ctx context.Context, key string) (string, error) {
 	val, err := mgr.client.Get(ctx, key).Result()
 	if err != nil {
 		return val, err
@@ -84,17 +147,17 @@ func (mgr *SessionManager) Get(ctx context.Context, key string) (string, error) 
 	return val, nil
 }
 
-// Set sets value by key
-func (mgr *SessionManager) Set(ctx context.Context, key string, value interface{}) error {
-	err := mgr.client.Set(ctx, key, value, mgr.config.TTL).Err()
+// SetValueByKey sets value by key
+func (mgr *SessionManager) SetValueByKey(ctx context.Context, key string, value interface{}) error {
+	err := mgr.client.Set(ctx, key, value, time.Duration(mgr.config.Session.MaxAge)*time.Second).Err()
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-// Delete deletes value by key
-func (mgr *SessionManager) Delete(ctx context.Context, key string) error {
+// DeleteValueByKey deletes value by key
+func (mgr *SessionManager) DeleteValueByKey(ctx context.Context, key string) error {
 	err := mgr.client.Del(ctx, key).Err()
 	if err != nil {
 		return err
@@ -107,15 +170,23 @@ func (mgr *SessionManager) Close(ctx context.Context) error {
 	return nil
 }
 
+// SetKeyPrefix sets the key prefix to store session in Redis
+func (mgr *SessionManager) SetKeyPrefix(keyPrefix string) {
+	mgr.keyPrefix = keyPrefix
+}
+
+// SetKeyGen sets the key generator function
+func (mgr *SessionManager) SetKeyGen(f KeyGenFunc) {
+	mgr.keyGen = f
+}
+
 // save writes session in Redis
 func (mgr *SessionManager) save(ctx context.Context, session *sessions.Session) error {
-
 	b, err := mgr.serializer.Serialize(session)
 	if err != nil {
 		return err
 	}
-
-	return mgr.client.Set(ctx, mgr.keyPrefix+session.ID, b, time.Duration(session.Options.MaxAge)*time.Second).Err()
+	return mgr.client.Set(ctx, mgr.keyPrefix+session.ID, b, time.Duration(mgr.config.Session.MaxAge)*time.Second).Err()
 }
 
 // load reads session from Redis
@@ -140,6 +211,15 @@ func (mgr *SessionManager) delete(ctx context.Context, session *sessions.Session
 }
 
 // Init initializes redis client for store to work with
-func Init(connCfg *ConnectionConfig) {
+func Init(ctx context.Context, connCfg *ConnectionConfig, config *Config) error {
 	client = goredis.NewClient(GetRedisConfigOptions(connCfg))
+	if client == nil {
+		return errors.New("error create new redis client")
+	}
+	sessionMgr, err := NewSessionManager(ctx, config)
+	if err != nil {
+		return err
+	}
+	Manager = sessionMgr
+	return nil
 }
