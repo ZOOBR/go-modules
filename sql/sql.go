@@ -307,53 +307,97 @@ func MakeQuery(params *QueryParams) (*string, error) {
 }
 
 // execQuery exec query and run callback with query result
-func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows)) QueryResult {
-	results := QueryResult{Query: *q}
+func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
 	rows, err := db.Queryx(*q)
 	if err != nil {
-		return QueryResult{Error: err}
+		return &QueryResult{Error: err}
 	}
 	defer rows.Close()
-	if len(cb) > 0 {
-		cb[0](rows)
+	// Launching the transferred callbacks with the transfer of the strings received from the base.
+	// The resulting lines can be used, for example, to pre-filter them, or to customize the algorithm for their processing
+	lenCb := len(cb)
+	parseRows := true
+	if lenCb > 0 {
+		for i := 0; i < lenCb; i++ {
+			breakProcessing := cb[i](rows)
+			if breakProcessing {
+				// The case when the callback serves for custom processing of records
+				// and after bypassing the callbacks there is no need to prepare additional records.
+				parseRows = false
+			}
+		}
 	}
+	if !parseRows {
+		return nil
+	}
+	results := QueryResult{Query: *q}
+	var parsingTime int64 = 0
 	for rows.Next() {
-		row := make(map[string]interface{})
+		row := map[string]interface{}{}
+		start := time.Now()
+		// TODO:: MapScan works quite slowly. You need to figure out how to optimize, if possible.
 		err = rows.MapScan(row)
+		duration := time.Since(start)
+		parsingTime += duration.Nanoseconds()
 		for k, v := range row {
 			//TODO:: You need to think about how to get rid of the extra cycle
 			switch v.(type) {
 			case []byte:
-				// TODO:: Perhaps this check for uuid is not always correct
-				data, dataType, _, _ := jsonparser.Get(v.([]byte))
-				if dataType == jsonparser.Number { // Number, use for uuid
-					row[k] = string(v.([]byte))
-				} else {
-					val, _ := csxjson.GetParsedValue(data, dataType)
-					row[k] = val
+				// CRUTCH:: The execQuery function needs to be reworked.
+				// It should work through a receiver, which will contain a parameter map for typing fields,
+				// in most cases based on the table schema.
+				valueForParse := v.([]byte)
+				lenValue := len(valueForParse)
+				if lenValue == 0 {
+					continue
 				}
+				// try check for uuid value
+				if lenValue == 36 {
+
+					// check method is crutch-like,
+					// but nevertheless the fastest and most efficient.
+					// The parse method in the uid library from Google works several times slower.
+
+					// 	 --- Typically this method is used in this scenario ---:
+					// query: = dbc.MakeQueryFromReq (params, whereExt)
+					// data: = dbc.ExecQuery (& query)
+					//
+					// In fact, you can create a function that will replace this construction with the following:
+					// data: = dbc.ExecQueryFromReq(params, &query)
+					// There is a table in the parameters, the field types of which can be obtained through the table schema
+
+					stringValue := string(valueForParse)
+					if stringValue[8] == '-' && stringValue[13] == '-' && stringValue[18] == '-' && stringValue[23] == '-' {
+						row[k] = string(valueForParse)
+						continue
+					}
+				}
+				// parse json value
+				data, dataType, _, _ := jsonparser.Get(valueForParse)
+				val, _ := csxjson.GetParsedValue(data, dataType)
+				row[k] = val
 			}
 		}
 		results.Result = append(results.Result, row)
 	}
-	return results
+	return &results
 }
 
 // ExecQuery exec query and run callback with query result
-func (table *SchemaTable) ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows)) QueryResult {
+func (table *SchemaTable) ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
 	return execQuery(table.DB, queryString, cb...)
 }
 
 // ExecQuery exec query in main database and run callback with query result
-func ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows)) QueryResult {
+func ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
 	return execQuery(DB, queryString, cb...)
 }
 
 // Find find records from database
-func Find(params *QueryParams) QueryResult {
+func Find(params *QueryParams) *QueryResult {
 	query, err := MakeQuery(params)
 	if err != nil {
-		return QueryResult{Error: err}
+		return &QueryResult{Error: err}
 	}
 	return ExecQuery(query)
 }
@@ -1726,8 +1770,9 @@ func (table *SchemaTable) Export(params map[string]string, extConditions ...stri
 		query = MakeQueryFromReq(params)
 	}
 	xlsx := bytes.NewBuffer([]byte{})
-	_ = ExecQuery(&query, func(rows *sqlx.Rows) {
+	_ = ExecQuery(&query, func(rows *sqlx.Rows) bool {
 		reporter.GenerateXLSXFromRows(rows, xlsx)
+		return true
 	})
 	return xlsx.Bytes()
 }
