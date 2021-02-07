@@ -6,7 +6,6 @@ import (
 	"encoding/base32"
 	"encoding/gob"
 	"encoding/json"
-	"errors"
 	"io"
 	"strings"
 
@@ -38,21 +37,10 @@ func (serializer JSONSerializer) Serialize(s *sessions.Session) (buf []byte, err
 
 // Deserialize base method for full deserialize
 func (serializer JSONSerializer) Deserialize(d []byte, session *sessions.Session) error {
-	val, dataType, _, err := jsonparser.Get(d)
+	parsedVal := map[string]interface{}{}
+	err := csxjson.Unmarshal(d, &parsedVal)
 	if err != nil {
 		return err
-	}
-	if dataType != jsonparser.Object {
-		return errors.New("Invalid JSON object. Support only Object wrapper")
-	}
-	parsedValInt, err := csxjson.GetParsedValue(val, dataType)
-	if err != nil {
-		return err
-	}
-	// support only JSON objects
-	parsedVal, ok := parsedValInt.(map[string]interface{})
-	if !ok {
-		return errors.New("Corrupted JSON object")
 	}
 	for k, v := range parsedVal {
 		session.Values[k] = v
