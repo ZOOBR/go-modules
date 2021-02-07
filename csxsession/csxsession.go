@@ -1,38 +1,20 @@
 package csxsession
 
 import (
-	"context"
+	"encoding/base32"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
-	goredis "github.com/go-redis/redis/v8"
+	"github.com/gomodule/redigo/redis"
+	"github.com/gorilla/securecookie"
 	"github.com/gorilla/sessions"
 )
 
-var client *goredis.Client
-
-// Manager is main instance for working with sessions
-var Manager *SessionManager
-
-// DefaultCookieID is using for default cookie id
-const DefaultCookieID = "0NpqOh6INMv_8OVgOcjzIY8EBcIk-aV3GOYeuL3dHI4"
-
-// SessionManager is a new base struct for management sessions
-type SessionManager struct {
-	client  *goredis.Client
-	config  *Config
-	options sessions.Options
-	// key prefix with which the session will be stored
-	keyPrefix string
-	// key generator
-	keyGen KeyGenFunc
-	// session serializer
-	serializer SessionSerializer
-}
-
-// KeyGenFunc defines a function used by store to generate a key
-type KeyGenFunc func() (string, error)
+// Amount of time for cookies/redis keys to expire.
+var sessionExpire = 86400 * 30
 
 // SessionSerializer provides an interface for serialize/deserialize a session
 type SessionSerializer interface {
@@ -42,184 +24,281 @@ type SessionSerializer interface {
 	DeserializePartial(d []byte, s *sessions.Session, keys ...string) error
 }
 
-//Config is using for config session params
-type Config struct {
-	Session   *sessions.Options
-	KeyPrefix string
-	KeyGen    KeyGenFunc
-	CookieID  string
+// CsxStore stores sessions in a redis backend.
+type CsxStore struct {
+	Pool          *redis.Pool
+	Codecs        []securecookie.Codec
+	Options       *sessions.Options // default configuration
+	DefaultMaxAge int               // default Redis TTL for a MaxAge == 0 session
+	maxLength     int
+	keyPrefix     string
+	serializer    SessionSerializer
 }
 
-// NewSessionManager create new SessionManager instance
-func NewSessionManager(ctx context.Context, config *Config) (*SessionManager, error) {
-	sm := &SessionManager{
-		options: sessions.Options{
-			Path:   "/",
-			MaxAge: config.Session.MaxAge,
+// SetMaxLength sets CsxStore.maxLength if the `l` argument is greater or equal 0
+// maxLength restricts the maximum length of new sessions to l.
+// If l is 0 there is no limit to the size of a session, use with caution.
+// The default for a new CsxStore is 4096. Redis allows for max.
+// value sizes of up to 512MB (http://redis.io/topics/data-types)
+// Default: 4096,
+func (s *CsxStore) SetMaxLength(l int) {
+	if l >= 0 {
+		s.maxLength = l
+	}
+}
+
+// SetKeyPrefix set the prefix
+func (s *CsxStore) SetKeyPrefix(p string) {
+	s.keyPrefix = p
+}
+
+// SetSerializer sets the serializer
+func (s *CsxStore) SetSerializer(ss SessionSerializer) {
+	s.serializer = ss
+}
+
+// SetMaxAge restricts the maximum age, in seconds, of the session record
+// both in database and a browser. This is to change session storage configuration.
+// If you want just to remove session use your session `s` object and change it's
+// `Options.MaxAge` to -1, as specified in
+//    http://godoc.org/github.com/gorilla/sessions#Options
+//
+// Default is the one provided by this package value - `sessionExpire`.
+// Set it to 0 for no restriction.
+// Because we use `MaxAge` also in SecureCookie crypting algorithm you should
+// use this function to change `MaxAge` value.
+func (s *CsxStore) SetMaxAge(v int) {
+	var c *securecookie.SecureCookie
+	var ok bool
+	s.Options.MaxAge = v
+	for i := range s.Codecs {
+		if c, ok = s.Codecs[i].(*securecookie.SecureCookie); ok {
+			c.MaxAge(v)
+		} else {
+			fmt.Printf("Can't change MaxAge on codec %v\n", s.Codecs[i])
+		}
+	}
+}
+
+func dial(network, address, password string) (redis.Conn, error) {
+	c, err := redis.Dial(network, address)
+	if err != nil {
+		return nil, err
+	}
+	if password != "" {
+		if _, err := c.Do("AUTH", password); err != nil {
+			c.Close()
+			return nil, err
+		}
+	}
+	return c, err
+}
+
+// NewCsxStore returns a new CsxStore.
+// size: maximum number of idle connections.
+func NewCsxStore(size int, network, address, password string, keyPairs ...[]byte) (*CsxStore, error) {
+	return NewCsxStoreWithPool(&redis.Pool{
+		MaxIdle:     size,
+		IdleTimeout: 240 * time.Second,
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
 		},
-		client:     client,
-		config:     config,
-		keyPrefix:  config.KeyPrefix,
-		keyGen:     generateRandomKey,
-		serializer: CsxSerializer{},
+		Dial: func() (redis.Conn, error) {
+			return dial(network, address, password)
+		},
+	}, keyPairs...)
+}
+
+func dialWithDB(network, address, password, DB string) (redis.Conn, error) {
+	c, err := dial(network, address, password)
+	if err != nil {
+		return nil, err
 	}
-	if config.KeyGen != nil {
-		sm.keyGen = config.KeyGen
+	if _, err := c.Do("SELECT", DB); err != nil {
+		c.Close()
+		return nil, err
 	}
-	return sm, sm.client.Ping(ctx).Err()
+	return c, err
+}
+
+// NewCsxStoreWithDB - like NewRedisStore but accepts `DB` parameter to select
+// redis DB instead of using the default one ("0")
+func NewCsxStoreWithDB(size int, network, address, password, DB string, keyPairs ...[]byte) (*CsxStore, error) {
+	return NewCsxStoreWithPool(&redis.Pool{
+		MaxIdle:     size,
+		IdleTimeout: 240 * time.Second,
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+		Dial: func() (redis.Conn, error) {
+			return dialWithDB(network, address, password, DB)
+		},
+	}, keyPairs...)
+}
+
+// NewCsxStoreWithPool instantiates a CsxStore with a *redis.Pool passed in.
+func NewCsxStoreWithPool(pool *redis.Pool, keyPairs ...[]byte) (*CsxStore, error) {
+	rs := &CsxStore{
+		// http://godoc.org/github.com/gomodule/redigo/redis#Pool
+		Pool:   pool,
+		Codecs: securecookie.CodecsFromPairs(keyPairs...),
+		Options: &sessions.Options{
+			Path:   "/",
+			MaxAge: sessionExpire,
+		},
+		DefaultMaxAge: 60 * 20, // 20 minutes seems like a reasonable default
+		maxLength:     4096,
+		keyPrefix:     "session_",
+		serializer:    JSONSerializer{},
+	}
+	_, err := rs.ping()
+	return rs, err
+}
+
+// Close closes the underlying *redis.Pool
+func (s *CsxStore) Close() error {
+	return s.Pool.Close()
 }
 
 // Get returns a session for the given name after adding it to the registry.
-func (mgr *SessionManager) Get(r *http.Request, name string) (*sessions.Session, error) {
-	if name == "" {
-		if mgr.config.CookieID != "" {
-			name = mgr.config.CookieID
-		} else {
-			name = DefaultCookieID
-		}
-	}
-	return sessions.GetRegistry(r).Get(mgr, name)
+//
+// See gorilla/sessions FilesystemStore.Get().
+func (s *CsxStore) Get(r *http.Request, name string) (*sessions.Session, error) {
+	return sessions.GetRegistry(r).Get(s, name)
 }
 
 // New returns a session for the given name without adding it to the registry.
-func (mgr *SessionManager) New(r *http.Request, name string) (*sessions.Session, error) {
-
-	session := sessions.NewSession(mgr, name)
-	opts := mgr.options
-	session.Options = &opts
+//
+// See gorilla/sessions FilesystemStore.New().
+func (s *CsxStore) New(r *http.Request, name string) (*sessions.Session, error) {
+	var (
+		err error
+		ok  bool
+	)
+	session := sessions.NewSession(s, name)
+	// make a copy
+	options := *s.Options
+	session.Options = &options
 	session.IsNew = true
-
-	if name == "" {
-		if mgr.config.CookieID != "" {
-			name = mgr.config.CookieID
-		} else {
-			name = DefaultCookieID
+	if c, errCookie := r.Cookie(name); errCookie == nil {
+		err = securecookie.DecodeMulti(name, c.Value, &session.ID, s.Codecs...)
+		if err == nil {
+			ok, err = s.load(session)
+			session.IsNew = !(err == nil && ok) // not new if no error and data available
 		}
-	}
-
-	c, err := r.Cookie(name)
-	if err != nil {
-		return session, nil
-	}
-	session.ID = c.Value
-
-	err = mgr.load(r.Context(), session)
-	if err == nil {
-		session.IsNew = false
-	} else if err == goredis.Nil {
-		err = nil // no data stored
 	}
 	return session, err
 }
 
 // Save adds a single session to the response.
-func (mgr *SessionManager) Save(r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
-	// Delete if max-age is <= 0
+func (s *CsxStore) Save(r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
+	// Marked for deletion.
 	if session.Options.MaxAge <= 0 {
-		if err := mgr.delete(r.Context(), session); err != nil {
+		if err := s.delete(session); err != nil {
 			return err
 		}
 		http.SetCookie(w, sessions.NewCookie(session.Name(), "", session.Options))
-		return nil
-	}
-
-	if session.ID == "" {
-		id, err := mgr.keyGen()
-		if err != nil {
-			return errors.New("redisstore: failed to generate session id")
+	} else {
+		// Build an alphanumeric key for the redis store.
+		if session.ID == "" {
+			session.ID = strings.TrimRight(base32.StdEncoding.EncodeToString(securecookie.GenerateRandomKey(32)), "=")
 		}
-		session.ID = id
-	}
-	if err := mgr.save(r.Context(), session); err != nil {
-		return err
-	}
-
-	http.SetCookie(w, sessions.NewCookie(session.Name(), session.ID, session.Options))
-	return nil
-}
-
-// GetValueByKey retrieves value by key
-func (mgr *SessionManager) GetValueByKey(ctx context.Context, key string) (string, error) {
-	val, err := mgr.client.Get(ctx, key).Result()
-	if err != nil {
-		return val, err
-	}
-	return val, nil
-}
-
-// SetValueByKey sets value by key
-func (mgr *SessionManager) SetValueByKey(ctx context.Context, key string, value interface{}) error {
-	err := mgr.client.Set(ctx, key, value, time.Duration(mgr.config.Session.MaxAge)*time.Second).Err()
-	if err != nil {
-		return err
+		if err := s.save(session); err != nil {
+			return err
+		}
+		encoded, err := securecookie.EncodeMulti(session.Name(), session.ID, s.Codecs...)
+		if err != nil {
+			return err
+		}
+		http.SetCookie(w, sessions.NewCookie(session.Name(), encoded, session.Options))
 	}
 	return nil
 }
 
-// DeleteValueByKey deletes value by key
-func (mgr *SessionManager) DeleteValueByKey(ctx context.Context, key string) error {
-	err := mgr.client.Del(ctx, key).Err()
-	if err != nil {
+// Delete removes the session from redis, and sets the cookie to expire.
+//
+// WARNING: This method should be considered deprecated since it is not exposed via the gorilla/sessions interface.
+// Set session.Options.MaxAge = -1 and call Save instead. - July 18th, 2013
+func (s *CsxStore) Delete(r *http.Request, w http.ResponseWriter, session *sessions.Session) error {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	if _, err := conn.Do("DEL", s.keyPrefix+session.ID); err != nil {
 		return err
+	}
+	// Set cookie to expire.
+	options := *session.Options
+	options.MaxAge = -1
+	http.SetCookie(w, sessions.NewCookie(session.Name(), "", &options))
+	// Clear session values.
+	for k := range session.Values {
+		delete(session.Values, k)
 	}
 	return nil
 }
 
-// Close closes current session
-func (mgr *SessionManager) Close(ctx context.Context) error {
-	return nil
+// ping does an internal ping against a server to check if it is alive.
+func (s *CsxStore) ping() (bool, error) {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	data, err := conn.Do("PING")
+	if err != nil || data == nil {
+		return false, err
+	}
+	return (data == "PONG"), nil
 }
 
-// SetKeyPrefix sets the key prefix to store session in Redis
-func (mgr *SessionManager) SetKeyPrefix(keyPrefix string) {
-	mgr.keyPrefix = keyPrefix
-}
-
-// SetKeyGen sets the key generator function
-func (mgr *SessionManager) SetKeyGen(f KeyGenFunc) {
-	mgr.keyGen = f
-}
-
-// save writes session in Redis
-func (mgr *SessionManager) save(ctx context.Context, session *sessions.Session) error {
-	b, err := mgr.serializer.Serialize(session)
+// save stores the session in redis.
+func (s *CsxStore) save(session *sessions.Session) error {
+	b, err := s.serializer.Serialize(session)
 	if err != nil {
 		return err
 	}
-	return mgr.client.Set(ctx, mgr.keyPrefix+session.ID, b, time.Duration(mgr.config.Session.MaxAge)*time.Second).Err()
-}
-
-// load reads session from Redis
-func (mgr *SessionManager) load(ctx context.Context, session *sessions.Session) error {
-
-	cmd := mgr.client.Get(ctx, mgr.keyPrefix+session.ID)
-	if cmd.Err() != nil {
-		return cmd.Err()
+	if s.maxLength != 0 && len(b) > s.maxLength {
+		return errors.New("SessionStore: the value to store is too big")
 	}
-
-	b, err := cmd.Bytes()
-	if err != nil {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	if err = conn.Err(); err != nil {
 		return err
 	}
-
-	return mgr.serializer.Deserialize(b, session)
-}
-
-// delete deletes session in Redis
-func (mgr *SessionManager) delete(ctx context.Context, session *sessions.Session) error {
-	return mgr.client.Del(ctx, mgr.keyPrefix+session.ID).Err()
-}
-
-// Init initializes redis client for store to work with
-func Init(ctx context.Context, connCfg *ConnectionConfig, config *Config) error {
-	client = goredis.NewClient(GetRedisConfigOptions(connCfg))
-	if client == nil {
-		return errors.New("error create new redis client")
+	age := session.Options.MaxAge
+	if age == 0 {
+		age = s.DefaultMaxAge
 	}
-	sessionMgr, err := NewSessionManager(ctx, config)
+	_, err = conn.Do("SETEX", s.keyPrefix+session.ID, age, b)
+	return err
+}
+
+// load reads the session from redis.
+// returns true if there is a sessoin data in DB
+func (s *CsxStore) load(session *sessions.Session) (bool, error) {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	if err := conn.Err(); err != nil {
+		return false, err
+	}
+	data, err := conn.Do("GET", s.keyPrefix+session.ID)
 	if err != nil {
+		return false, err
+	}
+	if data == nil {
+		return false, nil // no data was associated with this key
+	}
+	b, err := redis.Bytes(data, err)
+	if err != nil {
+		return false, err
+	}
+	return true, s.serializer.Deserialize(b, session)
+}
+
+// delete removes keys from redis if MaxAge<0
+func (s *CsxStore) delete(session *sessions.Session) error {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	if _, err := conn.Do("DEL", s.keyPrefix+session.ID); err != nil {
 		return err
 	}
-	Manager = sessionMgr
 	return nil
 }
