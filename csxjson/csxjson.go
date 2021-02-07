@@ -1,6 +1,47 @@
 package csxjson
 
-import "github.com/buger/jsonparser"
+import (
+	"errors"
+	"reflect"
+
+	"github.com/buger/jsonparser"
+)
+
+func isPointer(data interface{}) bool {
+	return reflect.ValueOf(data).Type().Kind() == reflect.Ptr
+}
+
+// Unmarshal unmarshal parses the JSON-encoded data and stores the result in the value pointed to by v
+func Unmarshal(data []byte, value interface{}) (err error) {
+	if !isPointer(value) {
+		return errors.New("Unmarshal work only with pointer data")
+	}
+	val, dataType, _, err := jsonparser.Get(data)
+	if err != nil {
+		return err
+	}
+	parsedVal, errParse := GetParsedValue(val, dataType)
+	if errParse != nil {
+		return errParse
+	}
+	switch dataType {
+	case jsonparser.Number:
+		v := value.(*float64)
+		*v = parsedVal.(float64)
+	case jsonparser.String:
+		v := value.(*string)
+		*v = parsedVal.(string)
+	case jsonparser.Array:
+		v := value.(*[]interface{})
+		*v = parsedVal.([]interface{})
+	case jsonparser.Object:
+		v := value.(*map[string]interface{})
+		*v = parsedVal.(map[string]interface{})
+	default:
+		value = nil
+	}
+	return nil
+}
 
 // GetParsedValue parse recursively byte array
 func GetParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal interface{}, err error) {
