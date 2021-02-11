@@ -238,6 +238,16 @@ func (s *CsxStore) Delete(r *http.Request, w http.ResponseWriter, session *sessi
 	return nil
 }
 
+// DeleteByID deletes session by sid
+func (s *CsxStore) DeleteByID(sid string) error {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	if _, err := conn.Do("DEL", s.keyPrefix+sid); err != nil {
+		return err
+	}
+	return nil
+}
+
 // ping does an internal ping against a server to check if it is alive.
 func (s *CsxStore) ping() (bool, error) {
 	conn := s.Pool.Get()
