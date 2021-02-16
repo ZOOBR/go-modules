@@ -34,6 +34,7 @@ type Update struct {
 	Groups     []string    `json:"groups"`
 	ExtData    interface{} `json:"extData"`
 	Recipients []string    `json:"recipients"`
+	Initiator  string      `json:"initiator,omitempty"`
 }
 
 //Consumer structure for NewConsumer result
@@ -391,6 +392,11 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 		if recipientsInt, ok := opts["recipients"]; ok {
 			if recipients, ok := recipientsInt.([]string); ok {
 				msg.Recipients = recipients
+			}
+		}
+		if initiatorInt, ok := opts["initiator"]; ok {
+			if initiator, ok := initiatorInt.(string); ok {
+				msg.Initiator = initiator
 			}
 		}
 	}
