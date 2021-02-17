@@ -70,9 +70,10 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 	if len(sorts) == 0 {
 		return
 	}
-	sort.SliceStable(*res, func(i, j int) bool {
-		result := false
-		for _, s := range sorts {
+	for _, s := range sorts {
+		sort.SliceStable(*res, func(i, j int) bool {
+			result := false
+
 			val := (*res)[i][s.ID]
 			valJ := (*res)[j][s.ID]
 			if val == nil || valJ == nil {
@@ -201,7 +202,7 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 			default:
 				return false
 			}
-		}
-		return result
-	})
+			return result
+		})
+	}
 }

@@ -33,6 +33,11 @@ func NewId() (res *string) {
 	return &uuidVal
 }
 
+func NewUUID() (res string) {
+	uuidVal := uuid.New().String()
+	return uuidVal
+}
+
 func GetDateFormat(format string) (string, bool) {
 	newFormat := "20060102"
 	if len(format) > 8 {

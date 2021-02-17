@@ -18,30 +18,49 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
-	"github.com/kataras/golog"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	deepcopier "github.com/mohae/deepcopy"
 	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 
+	"github.com/buger/jsonparser"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxjson"
+	"gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
 	strUtil "gitlab.com/battler/modules/strings"
 )
 
+const DUPLICATE_KEY_ERROR = "23505"
+const TABLE_NOT_EXISTS = "42P01"
+
 var (
 	//DefaultURI default SQL connection string
-	DefaultURI = "host=localhost user=postgres password=FHJdg876h&*^6fd dbname=csx sslmode=disable"
-	amqpURI    = os.Getenv("AMQP_URI")
+	amqpURI                 = os.Getenv("AMQP_URI")
+	sqlURIS                 = os.Getenv("SQL_URIS")
+	disableRegisterMetadata = os.Getenv("DISABLE_REGISTER_METADATA") == "1"
+	registerSchema          = registerSchemeManager{}
+	// DEPRECATED:: Need only for compatible
+	sqlURI       = os.Getenv("SQL_URI")
+	mainDatabase = os.Getenv("MAIN_SQL_DATABASE")
 )
 
 //DB is pointer to DB connection
 var (
-	DB *sqlx.DB
-	Q  Query
+	DB              *sqlx.DB
+	Q               Query
+	initedDatabases map[string]int
 )
 
+// DatabaseParams struct with params required to create database connect
+type DatabaseParams struct {
+	DriverName       string `json:"driverName"`
+	ConnectionString string `json:"connectionString"`
+}
+
+// QueryParams Structure for transmitting SQL request parameters
+// All parameters except for "from" are passed in arrays
 type QueryParams struct {
 	BaseTable string
 	Select    *[]string
@@ -51,6 +70,7 @@ type QueryParams struct {
 	Group     *[]string
 }
 
+// QueryStringParams Structure for working with query parameters as strings
 type QueryStringParams struct {
 	Select *string
 	From   *string
@@ -59,6 +79,7 @@ type QueryStringParams struct {
 	Group  *string
 }
 
+// QueryResult The structure into which the result of the SQL request is parsed
 type QueryResult struct {
 	Result []map[string]interface{}
 	Error  error
@@ -66,12 +87,15 @@ type QueryResult struct {
 	Xlsx   []byte
 }
 
+// SchemaTableMetadata Structure for storing metadata
 type SchemaTableMetadata struct {
 	ID         string `db:"id" json:"id"`
 	Collection string `db:"collection" json:"collection"`
 	MetaData   JsonB  `db:"metadata" json:"metadata"`
 }
 
+// Query struct for run SQL queries in transaction
+// with commit or rollback methods
 type Query struct {
 	Tx                *sqlx.Tx // need for outer modules
 	tx                *sqlx.Tx
@@ -79,15 +103,39 @@ type Query struct {
 	txCommitCallbacks []func()
 }
 
-func NewQuery(tx bool) (q Query, err error) {
+// NewQuery Constructor for creating a pointer to work with the main database
+func NewQuery(useTransaction bool) (q Query, err error) {
 	q = Query{db: DB}
-	if tx {
+	if useTransaction {
 		q.tx, err = DB.Beginx()
 		q.Tx = q.tx
 	}
 	return q, err
 }
 
+// BeginTransaction Constructor for creating a pointer to work with the base and begin new transaction
+func BeginTransaction() (q *Query, err error) {
+	q = &Query{db: DB}
+	q.tx, err = DB.Beginx()
+	q.Tx = q.tx
+	return q, err
+}
+
+// NewQuery Constructor for creating a pointer to work with the base
+func (table *SchemaTable) NewQuery() (q *Query) {
+	q = &Query{db: table.DB}
+	return q
+}
+
+// BeginTransaction Constructor for creating a pointer to work with the base and begin new transaction
+func (table *SchemaTable) BeginTransaction() (q *Query, err error) {
+	q = &Query{db: table.DB}
+	q.tx, err = table.DB.Beginx()
+	q.Tx = q.tx
+	return q, err
+}
+
+// Commit commit transaction
 func (queryObj *Query) Commit() (err error) {
 	err = queryObj.tx.Commit()
 	if err == nil && len(queryObj.txCommitCallbacks) > 0 {
@@ -98,21 +146,25 @@ func (queryObj *Query) Commit() (err error) {
 	return err
 }
 
+// Rollback rollback transaction
 func (queryObj *Query) Rollback() (err error) {
 	return queryObj.tx.Rollback()
 }
 
+// BindTxCommitCallback Sets the callback that is executed when a transaction is confirmed
 func (queryObj *Query) BindTxCommitCallback(cb func()) {
 	queryObj.txCommitCallbacks = append(queryObj.txCommitCallbacks, cb)
 }
 
-func (queryObj *Query) ExecWithArg(arg interface{}, query string) (err error) {
+// GetWithArg run get SQL query and write result to first argument
+func (queryObj *Query) GetWithArg(data interface{}, query string) (err error) {
 	if queryObj.tx != nil {
-		return queryObj.tx.Get(arg, query)
+		return queryObj.tx.Get(data, query)
 	}
-	return queryObj.db.Get(arg, query)
+	return queryObj.db.Get(data, query)
 }
 
+// Exec exec simple query with optional args
 func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, err error) {
 	if queryObj.tx != nil {
 		return queryObj.tx.Exec(query, args...)
@@ -120,6 +172,7 @@ func (queryObj *Query) Exec(query string, args ...interface{}) (res sql.Result, 
 	return queryObj.db.Exec(query, args...)
 }
 
+// Select select data from SQL database with optional args
 func (queryObj *Query) Select(dest interface{}, query string, args ...interface{}) error {
 	if queryObj.tx != nil {
 		return queryObj.tx.Select(dest, query, args...)
@@ -127,12 +180,15 @@ func (queryObj *Query) Select(dest interface{}, query string, args ...interface{
 	return queryObj.db.Select(dest, query, args...)
 }
 
+// In wrapper for sqlx.In
 func (queryObj *Query) In(query string, args ...interface{}) (string, []interface{}, error) {
 	return sqlx.In(query, args...)
 }
 
+// JsonB struct for work with jsonb database fields
 type JsonB map[string]interface{}
 
+// Scan interface for read jsonb content
 func (js *JsonB) Scan(src interface{}) error {
 	val, ok := src.([]byte)
 	if !ok {
@@ -150,10 +206,6 @@ var (
 	baseQuery    = `SELECT {{.Select}} FROM {{.From}} {{.Where}} {{.Group}} {{.Order}}`
 	baseTemplate = template.Must(template.New("").Parse(baseQuery))
 )
-
-// func (s *QueryResult) MarshalJSON() ([]byte, error) {
-
-// }
 
 func prepareFields(fields *[]string) string {
 	resStr := strings.Join(*fields, ",")
@@ -220,6 +272,7 @@ func lowerFirst(s string) string {
 	return string(unicode.ToLower(r)) + s[n:]
 }
 
+// MakeQuery make sql string expression from params
 func MakeQuery(params *QueryParams) (*string, error) {
 	fields := "*"
 	var from, where, group, order string
@@ -253,46 +306,103 @@ func MakeQuery(params *QueryParams) (*string, error) {
 	return &query, nil
 }
 
-func ExecQuery(q *string, cb ...func(rows *sqlx.Rows)) QueryResult {
-	results := QueryResult{Query: *q}
-	rows, err := DB.Queryx(*q)
+// execQuery exec query and run callback with query result
+func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+	rows, err := db.Queryx(*q)
 	if err != nil {
-		return QueryResult{Error: err}
+		return &QueryResult{Error: err}
 	}
 	defer rows.Close()
-	if len(cb) > 0 {
-		cb[0](rows)
+	// Launching the transferred callbacks with the transfer of the strings received from the base.
+	// The resulting lines can be used, for example, to pre-filter them, or to customize the algorithm for their processing
+	lenCb := len(cb)
+	parseRows := true
+	if lenCb > 0 {
+		for i := 0; i < lenCb; i++ {
+			breakProcessing := cb[i](rows)
+			if breakProcessing {
+				// The case when the callback serves for custom processing of records
+				// and after bypassing the callbacks there is no need to prepare additional records.
+				parseRows = false
+			}
+		}
 	}
+	if !parseRows {
+		return nil
+	}
+	results := QueryResult{Query: *q}
+	var parsingTime int64 = 0
 	for rows.Next() {
-		row := make(map[string]interface{})
+		row := map[string]interface{}{}
+		start := time.Now()
+		// TODO:: MapScan works quite slowly. You need to figure out how to optimize, if possible.
 		err = rows.MapScan(row)
+		duration := time.Since(start)
+		parsingTime += duration.Nanoseconds()
 		for k, v := range row {
-			//CRUTCH:: Type values get here uuid and arrays (return as string)
+			//TODO:: You need to think about how to get rid of the extra cycle
 			switch v.(type) {
 			case []byte:
-				var jsonMap map[string]*json.RawMessage
-				err := json.Unmarshal(v.([]byte), &jsonMap)
-				if err != nil {
-					row[k] = string(v.([]byte))
-				} else {
-					row[k] = jsonMap
+				// CRUTCH:: The execQuery function needs to be reworked.
+				// It should work through a receiver, which will contain a parameter map for typing fields,
+				// in most cases based on the table schema.
+				valueForParse := v.([]byte)
+				lenValue := len(valueForParse)
+				if lenValue == 0 {
+					continue
 				}
+				// try check for uuid value
+				if lenValue == 36 {
+
+					// check method is crutch-like,
+					// but nevertheless the fastest and most efficient.
+					// The parse method in the uid library from Google works several times slower.
+
+					// 	 --- Typically this method is used in this scenario ---:
+					// query: = dbc.MakeQueryFromReq (params, whereExt)
+					// data: = dbc.ExecQuery (& query)
+					//
+					// In fact, you can create a function that will replace this construction with the following:
+					// data: = dbc.ExecQueryFromReq(params, &query)
+					// There is a table in the parameters, the field types of which can be obtained through the table schema
+
+					stringValue := string(valueForParse)
+					if stringValue[8] == '-' && stringValue[13] == '-' && stringValue[18] == '-' && stringValue[23] == '-' {
+						row[k] = string(valueForParse)
+						continue
+					}
+				}
+				// parse json value
+				data, dataType, _, _ := jsonparser.Get(valueForParse)
+				val, _ := csxjson.GetParsedValue(data, dataType)
+				row[k] = val
 			}
 		}
 		results.Result = append(results.Result, row)
 	}
-	return results
+	return &results
 }
 
-func Find(params *QueryParams) QueryResult {
+// ExecQuery exec query and run callback with query result
+func (table *SchemaTable) ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+	return execQuery(table.DB, queryString, cb...)
+}
+
+// ExecQuery exec query in main database and run callback with query result
+func ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+	return execQuery(DB, queryString, cb...)
+}
+
+// Find find records from database
+func Find(params *QueryParams) *QueryResult {
 	query, err := MakeQuery(params)
-	//golog.Info(*query)
 	if err != nil {
-		return QueryResult{Error: err}
+		return &QueryResult{Error: err}
 	}
 	return ExecQuery(query)
 }
 
+// FindOne find record from database
 func FindOne(params *QueryParams) (*map[string]interface{}, error) {
 	query, err := MakeQuery(params)
 	if err != nil {
@@ -307,42 +417,6 @@ func FindOne(params *QueryParams) (*map[string]interface{}, error) {
 	}
 	return nil, nil
 }
-
-func GetCollection(tableName *string, params ...[]string) QueryResult {
-
-	qparams := &QueryParams{
-		From: tableName}
-
-	if len(params) > 0 {
-		qparams.Where = &params[0]
-	}
-	if len(params) > 1 {
-		qparams.Order = &params[1]
-	}
-	if len(params) > 2 {
-		qparams.Select = &params[2]
-	}
-	return Find(qparams)
-}
-
-// func GetItem(tableName *string, id *string, params ...string) (*map[string]interface{}, error) {
-// 	if tableName == nil || id == nil {
-// 		return nil, errors.New("id and tableName arguments required")
-// 	}
-// 	qparams := &QueryParams{
-// 		From:  tableName,
-// 		Where: &[]string{"id='" + *id + "'"}}
-
-// 	if len(fields) > 0 {
-// 		qparams.Select = &fields
-// 	}
-
-// 	data, err := FindOne(qparams)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return data, nil
-// }
 
 //SetValues update helper with nodejs mysql style format
 //example UPDATE thing SET ? WHERE id = 123
@@ -360,6 +434,7 @@ func SetValues(query *string, values *map[string]interface{}) error {
 	return nil
 }
 
+// Delete run delete query in transaction
 func (queryObj *Query) Delete(query string) (err error) {
 	if queryObj.tx != nil {
 		_, err = queryObj.tx.Exec(query)
@@ -531,8 +606,8 @@ func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUp
 		}
 	}
 	if err != nil {
-		golog.Error(query)
-		golog.Error(err)
+		logrus.Error(query)
+		logrus.Error(err)
 		return err
 	}
 
@@ -709,8 +784,8 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 		_, err = queryObj.db.Exec(query)
 	}
 	if err != nil {
-		golog.Error(query)
-		golog.Error(err)
+		logrus.Error(query)
+		logrus.Error(err)
 		return err
 	}
 
@@ -845,18 +920,18 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		_, err = queryObj.db.NamedExec(query, resultMap)
 	}
 	if err != nil {
-		golog.Error(query)
-		golog.Error(err)
+		logrus.Error(query)
+		logrus.Error(err)
 		return err
 	}
 	if len(options) > 0 {
 		settings, ok := options[0].(map[string]string)
 		if !ok {
-			golog.Error("err parse opt:", options)
+			logrus.Error("err parse opt:", options)
 			return nil
 		}
 		if len(settings) < 2 {
-			golog.Error("amqp updates, invalid args:", settings)
+			logrus.Error("amqp updates, invalid args:", settings)
 			return nil
 		}
 		table := settings["table"]
@@ -934,6 +1009,7 @@ func GetMapFromStruct(structVal interface{}) map[string]interface{} {
 	return res
 }
 
+// GetStructValues create map from strunt
 func GetStructValues(structVal interface{}, fields *[]string) map[string]interface{} {
 	resultMap := make(map[string]interface{})
 	iVal := reflect.ValueOf(structVal).Elem()
@@ -972,6 +1048,7 @@ func GetStructValues(structVal interface{}, fields *[]string) map[string]interfa
 	return resultMap
 }
 
+// MakeQueryFromReq create sql query exspression from string map
 func MakeQueryFromReq(req map[string]string, extConditions ...string) string {
 	r := strings.NewReplacer("create ", "", "insert ", "", " set ", "", "drop ", "", "alter ", "", "update ", "", "delete ", "", "CREATE ", "", "INSERT ", "", " SET ", "", "DROP ", "", "ALTER ", "", "UPDATE ", "", "DELETE ", "")
 	limit := req["limit"]
@@ -1183,38 +1260,68 @@ func addCondition(fieldType, field, v string, where *string) {
 	}
 }
 
+// PreparePaySystemQuery creates query for payment system identifying
+func PreparePaySystemQuery(field string, alias ...string) string {
+	if field == "" {
+		return ""
+	}
+
+	query := `(CASE `
+	for digits, system := range csxutils.PaySystems {
+		query += " WHEN " + field + " ILIKE " + "'" + digits + "%' THEN '" + system + "'"
+	}
+	query += " ELSE 'Unknown' END)"
+	if len(alias) > 0 {
+		query += ` AS "` + alias[0] + `"`
+	}
+
+	return query
+}
+
 // Init open connection to database
 func Init() {
-	if DB != nil {
-		// Exit on dublicate initialization
-		return
-	}
-	var err error
-	var db *sqlx.DB
-	connected := false
-	envURI := os.Getenv("SQL_URI")
-	if envURI == "" {
-		envURI = DefaultURI
-	}
-	for !connected {
-		db, err = sqlx.Connect("postgres", envURI)
+	databases := map[string]*DatabaseParams{}
+	if sqlURIS != "" {
+		err := json.Unmarshal([]byte(sqlURIS), &databases)
 		if err != nil {
-			golog.Error("failed connect to database:", envURI, " ", err)
-			time.Sleep(20 * time.Second)
-			continue
-		} else {
-			connected = true
+			logrus.Error("SQL_URIS env var parse failed, err:", err)
+			return
 		}
 	}
 
+	// << DEPRECATED:: Need for compatible with old connection logic
+	if mainDatabase == "" {
+		mainDatabase = "main"
+	}
+	if len(databases) == 0 && sqlURI != "" {
+		databases[mainDatabase] = &DatabaseParams{
+			DriverName:       "postgres",
+			ConnectionString: sqlURI,
+		}
+	}
+	// DEPRECATED:: >>
+
+	// TODO:: Need to deal with the default parameters
 	//db.DB.SetMaxIdleConns(10)  // The default is defaultMaxIdleConns (= 2)
 	//db.DB.SetMaxOpenConns(100)  // The default is 0 (unlimited)
 	//db.DB.SetConnMaxLifetime(3600 * time.Second)  // The default is 0 (connections reused forever)
 
-	golog.Info("success connect to database:", envURI)
-	DB = db
-	Q, err = NewQuery(false)
-	registerSchemaPrepare()
+	registerSchema.connect(databases)
+	if len(registerSchema.databases) == 0 {
+		logrus.Error("fail connect to databases:", sqlURIS)
+		return
+	}
+	DB = registerSchema.databases[mainDatabase]
+	if DB == nil {
+		logrus.Error("missing main database:", sqlURIS)
+		return
+	}
+	// << DEPRECATED::
+	Q, _ = NewQuery(false)
+	// DEPRECATED:: >>
+	logrus.Info("success connect to databases:", sqlURIS)
+	registerSchema.prepare()
+	logrus.Info("success prepare schemas")
 }
 
 //---------------------------------------------------------------------------
@@ -1232,16 +1339,19 @@ type SchemaField struct {
 	Key       int
 	Auto      int
 	checked   bool
+	Sequence  string
 }
 
 // SchemaTable is definition of sql table
 type SchemaTable struct {
-	Name        string
-	Fields      []*SchemaField
-	initalized  bool
-	IDFieldName string
-	sqlSelect   string
-	SQLFields   []string
+	DB           *sqlx.DB
+	DatabaseName string
+	Name         string
+	Fields       []*SchemaField
+	initalized   bool
+	IDFieldName  string
+	sqlSelect    string
+	SQLFields    []string
 	// GenFields   []string
 	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
 	ExtKeys           []string
@@ -1264,34 +1374,45 @@ type schemaTableReg struct {
 }
 type schemaTableMap map[string]*schemaTableReg
 
-var registerSchema struct {
+type registerSchemeManager struct {
 	sync.RWMutex
-	tables schemaTableMap
+	tables    schemaTableMap
+	databases map[string]*sqlx.DB
 }
 
 func schemaLogSQL(sql string, err error) {
 	if err != nil {
-		golog.Error(sql, ": ", err)
+		logrus.Error(sql, ": ", err)
 	} else {
-		golog.Info(sql)
+		logrus.Info(sql)
 	}
 }
 
-func registerSchemaPrepare() {
+func (reg *registerSchemeManager) connect(databases map[string]*DatabaseParams) {
+	reg.Lock()
+	defer reg.Unlock()
+	reg.databases = map[string]*sqlx.DB{}
+	for databaseName, databaseParams := range databases {
+		reg.initDatabase(databaseName, databaseParams)
+	}
+	logrus.Info(`connect to db in prepare scheme manager ended`)
+}
+
+func (reg *registerSchemeManager) prepare() {
 	registerSchema.Lock()
 	defer registerSchema.Unlock()
 	if registerSchema.tables == nil {
 		return
 	}
-	for _, reg := range registerSchema.tables {
-		err := reg.table.prepare()
+	for _, tableManager := range registerSchema.tables {
+		err := tableManager.table.prepare()
 		if err != nil {
-			golog.Error(`Table "` + reg.table.Name + `" schema check failed: ` + err.Error())
+			logrus.Error(`Table "` + tableManager.table.Name + `" schema check failed: ` + err.Error())
 		} else {
-			golog.Debug(`Table "` + reg.table.Name + `" schema check successfully`)
+			logrus.Debug(`Table "` + tableManager.table.Name + `" schema check successfully`)
 		}
 	}
-	logrus.Info(`Database schema check successfully`)
+	logrus.Info(`prepare scheme manager success ended`)
 }
 
 func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallback, internal bool) error {
@@ -1453,6 +1574,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			if (field.Key == 1 || name == "id") && field.IsUUID {
 				idFieldName = name
 			}
+			field.Sequence = f.Tag.Get("sequence")
 			fields = append(fields, field)
 			extension := f.Tag.Get("ext")
 			if len(extension) > 0 {
@@ -1480,6 +1602,10 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			getAmqpUpdateData = val.(map[string]SchemaTableAmqpDataCallback)
 		case "extKeys":
 			extKeys = val.([]string)
+		case "db":
+			newSchemaTable.DB = val.(*sqlx.DB)
+		case "databaseName":
+			newSchemaTable.DatabaseName = val.(string)
 		}
 	}
 	newSchemaTable.Name = name
@@ -1510,7 +1636,7 @@ func (table *SchemaTable) register() {
 
 func (table *SchemaTable) registerMetadata() {
 	res := SchemaTableMetadata{}
-	err := DB.Get(&res, "SELECT id, collection, metadata FROM metadata WHERE collection = '"+table.Name+"'")
+	err := table.DB.Get(&res, "SELECT id, collection, metadata FROM metadata WHERE collection = '"+table.Name+"'")
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return
@@ -1644,8 +1770,9 @@ func (table *SchemaTable) Export(params map[string]string, extConditions ...stri
 		query = MakeQueryFromReq(params)
 	}
 	xlsx := bytes.NewBuffer([]byte{})
-	_ = ExecQuery(&query, func(rows *sqlx.Rows) {
+	_ = ExecQuery(&query, func(rows *sqlx.Rows) bool {
 		reporter.GenerateXLSXFromRows(rows, xlsx)
+		return true
 	})
 	return xlsx.Bytes()
 }
@@ -1672,9 +1799,10 @@ func (table *SchemaTable) create() error {
 	for i := 0; i < len(table.Extensions); i++ {
 		ext := table.Extensions[i]
 		sql := `CREATE EXTENSION IF NOT EXISTS "` + ext + `"`
-		_, err := DB.Exec(sql)
+		_, err := table.DB.Exec(sql)
 		schemaLogSQL(sql, err)
 	}
+	sqlSequence := ""
 	for index, field := range table.Fields {
 		if index > 0 {
 			sql += ", "
@@ -1689,13 +1817,16 @@ func (table *SchemaTable) create() error {
 		if (field.Key&2) != 0 || field.IndexType != "" {
 			skeys = append(skeys, field)
 		}
+		if len(field.Sequence) > 0 {
+			sqlSequence += `CREATE SEQUENCE "` + table.Name + `_` + field.Sequence + `"; `
+		}
 	}
 	sql += `)`
-	_, err := DB.Exec(sql)
+	_, err := table.DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	if err == nil && len(keys) > 0 {
 		sql := `ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`
-		_, err = DB.Exec(sql)
+		_, err = table.DB.Exec(sql)
 		schemaLogSQL(sql, err)
 	}
 	if err == nil && len(skeys) > 0 {
@@ -1708,8 +1839,12 @@ func (table *SchemaTable) create() error {
 	SELECT uuid_generate_v4(), 'base', '` + table.Name + `'
 	WHERE NOT EXISTS (SELECT id FROM "mandatInfo" WHERE "subject" = '` + table.Name + `' and "group" = 'base')
 	RETURNING id;`
-	_, err = DB.Exec(sqlBaseMandat)
+	_, err = table.DB.Exec(sqlBaseMandat)
 	schemaLogSQL(sqlBaseMandat, err)
+	if len(sqlSequence) > 0 {
+		_, err = DB.Exec(sqlSequence)
+		schemaLogSQL(sqlSequence, err)
+	}
 	return err
 }
 
@@ -1723,7 +1858,7 @@ func (table *SchemaTable) createIndex(field *SchemaField) error {
 		}
 	}
 	sql := `CREATE INDEX "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
-	_, err := DB.Exec(sql)
+	_, err := table.DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	return err
 }
@@ -1739,7 +1874,7 @@ func (table *SchemaTable) alter(cols []string) error {
 	for _, field := range table.Fields {
 		if !field.checked {
 			sql := `ALTER TABLE "` + table.Name + `" ADD COLUMN ` + field.sql()
-			_, err = DB.Exec(sql)
+			_, err = table.DB.Exec(sql)
 			schemaLogSQL(sql, err)
 			if err != nil {
 				break
@@ -1753,8 +1888,69 @@ func (table *SchemaTable) alter(cols []string) error {
 	return err
 }
 
+// ParseConnectionString parse connection string map with params
+func ParseConnectionString(connString string) (params map[string]string) {
+	strArray := strings.Split(connString, " ")
+	params = map[string]string{}
+	for _, v := range strArray {
+		keyValArray := strings.Split(v, "=")
+		if len(keyValArray) != 2 {
+			continue
+		}
+		params[keyValArray[0]] = keyValArray[1]
+	}
+	return params
+}
+
+// GetDatabase get database pointer from schema manager map by name
+func (reg *registerSchemeManager) GetDatabase(databaseName string) (*sqlx.DB, bool) {
+	db, ok := reg.databases[databaseName]
+	return db, ok
+}
+
+// SetDatabase set database pointer in schema manager map by name
+func (reg *registerSchemeManager) SetDatabase(databaseName string, db *sqlx.DB) {
+	reg.databases[databaseName] = db
+}
+
+// Prepare check scheme initializing and and create or alter table
+func (reg *registerSchemeManager) initDatabase(databaseName string, databaseParams *DatabaseParams) {
+	if databaseParams == nil {
+		logrus.Error("nil database params, databaseName: ", databaseName)
+		return
+	}
+	if databaseParams.ConnectionString == "" {
+		logrus.Error("empty database connectionString, databaseName: ", databaseName)
+		return
+	}
+	if databaseParams.DriverName == "" {
+		logrus.Warn("connect to database: ", databaseName, " without set type, use postgres driver by default")
+		// default database type
+		// need for compatible with old code
+		databaseParams.DriverName = "postgres"
+	}
+	connectionString := databaseParams.ConnectionString
+	db, err := sqlx.Connect(databaseParams.DriverName, databaseParams.ConnectionString)
+	if err != nil {
+		logrus.Error("failed connect to database:", connectionString, " ", err)
+		time.Sleep(20 * time.Second)
+		reg.initDatabase(databaseName, databaseParams)
+	} else {
+		reg.SetDatabase(databaseName, db)
+	}
+}
+
 // Prepare check scheme initializing and and create or alter table
 func (table *SchemaTable) prepare() error {
+	if table.DatabaseName != "" {
+		db, ok := registerSchema.GetDatabase(table.DatabaseName)
+		if !ok {
+			return errors.New("wrong database name: " + table.DatabaseName + " in schema: " + table.Name)
+		}
+		table.DB = db
+	} else {
+		table.DB = DB
+	}
 	table.initalized = true
 	table.SQLFields = []string{}
 	table.sqlSelect = "SELECT "
@@ -1773,7 +1969,7 @@ func (table *SchemaTable) prepare() error {
 	}
 	table.sqlSelect += ` FROM "` + table.Name + `"`
 
-	rows, err := DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
+	rows, err := table.DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
 	if err == nil {
 		defer rows.Close()
 		var cols []string
@@ -1782,16 +1978,17 @@ func (table *SchemaTable) prepare() error {
 			err = table.alter(cols)
 		}
 	} else {
-		pqErr := err.(*pq.Error)
-		code := pqErr.Code
-		if code == "42P01" { // not exists
+		code := GetDBErrorCode(err)
+		if code == TABLE_NOT_EXISTS { // not exists
 			err = table.create()
 		}
 	}
 	if err == nil && table.onUpdate != nil {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
-	table.registerMetadata()
+	if !disableRegisterMetadata {
+		table.registerMetadata()
+	}
 	return err
 }
 
@@ -1847,7 +2044,7 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[
 	}
 
 	query, err := MakeQuery(qparams)
-	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
+	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
 		log.Error("err: ", err, " query:", *query)
 		return err
 	}
@@ -1867,7 +2064,7 @@ func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join
 	}
 
 	query, err := MakeQuery(qparams)
-	if err = DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
+	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
 		log.Error(*query)
 		fmt.Println(err)
 		return err
@@ -1881,7 +2078,7 @@ func (table *SchemaTable) Select(recs interface{}, where string, args ...interfa
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
-	return DB.Select(recs, sql, args...)
+	return table.DB.Select(recs, sql, args...)
 }
 
 // Get execute select sql string and return first record
@@ -1890,7 +2087,7 @@ func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}
 	if len(where) > 0 {
 		sql += " WHERE " + where
 	}
-	return DB.Get(rec, sql, args...)
+	return table.DB.Get(rec, sql, args...)
 }
 
 // Count records with where sql string
@@ -1900,7 +2097,7 @@ func (table *SchemaTable) Count(where string, args ...interface{}) (int, error) 
 		sql += " WHERE " + where
 	}
 	rec := struct{ Count int }{}
-	err := DB.Get(&rec, sql, args...)
+	err := table.DB.Get(&rec, sql, args...)
 	if err == nil {
 		return rec.Count, err
 	}
@@ -1913,9 +2110,19 @@ func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error
 	return cnt > 0, err
 }
 
+// TransactInsert execute insert sql string in transaction
+func (table *SchemaTable) TransactInsert(data interface{}, query *Query, options ...map[string]interface{}) error {
+	return table.insert(data, query, options...)
+}
+
 // Insert execute insert sql string
 func (table *SchemaTable) Insert(data interface{}, options ...map[string]interface{}) error {
-	_, err := table.CheckInsert(data, nil, options...)
+	return table.insert(data, nil, options...)
+}
+
+// insert execute insert sql string
+func (table *SchemaTable) insert(data interface{}, query *Query, options ...map[string]interface{}) error {
+	_, err := table.checkInsert(data, nil, query, options...)
 	return err
 }
 
@@ -1942,33 +2149,53 @@ func (table *SchemaTable) getIDField(id string, options []map[string]interface{}
 	return idField, newID, nil
 }
 
+// TransactUpsertMultiple execute insert or update sql string in transaction
+func (table *SchemaTable) TransactUpsertMultiple(query *Query, data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
+	return table.upsertMultiple(query, data, where, options...)
+}
+
 // UpsertMultiple execute insert or update sql string
 func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
-	result, err := table.CheckInsert(data, &where, options...)
+	return table.upsertMultiple(nil, data, where, options...)
+}
+
+// UpsertMultiple execute insert or update sql string
+func (table *SchemaTable) upsertMultiple(query *Query, data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
+	result, err := table.checkInsert(data, &where, query, options...)
 	if err != nil {
 		return count, err
 	}
 	count, err = result.RowsAffected()
 	if err != nil {
-		_, _, _, err = table.UpdateMultiple(nil, data, where, options...)
+		_, _, _, err = table.updateMultiple(nil, data, where, query, options...)
 	}
 	return count, err
 }
 
 // Upsert execute insert or update sql string
 func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[string]interface{}) error {
+	return table.upsert(id, data, nil, options...)
+}
+
+// TransactUpsert execute insert or update sql string in transaction
+func (table *SchemaTable) TransactUpsert(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
+	return table.upsert(id, data, query, options...)
+}
+
+// Upsert execute insert or update sql string
+func (table *SchemaTable) upsert(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
 	idField, id, err := table.getIDField(id, options)
 	if err != nil {
 		return err
 	}
 	where := `"` + idField + `"='` + id + "'"
-	result, err := table.CheckInsert(data, &where, options...)
+	result, err := table.checkInsert(data, &where, query, options...)
 	if err != nil {
 		return err
 	}
 	rows, err := result.RowsAffected()
 	if err == nil && rows == 0 {
-		err = table.Update(id, data, options...)
+		err = table.update(id, data, query, options...)
 	}
 	return err
 }
@@ -2145,7 +2372,7 @@ func (table *SchemaTable) SelectMap(where string) ([]map[string]interface{}, err
 		q += " WHERE " + where
 	}
 	results := make([]map[string]interface{}, 0)
-	rows, err := DB.Queryx(q)
+	rows, err := table.DB.Queryx(q)
 	if err != nil {
 		return nil, err
 	}
@@ -2186,16 +2413,21 @@ func (table *SchemaTable) GetMap(q string) (map[string]interface{}, error) {
 	}
 }
 
+// TransactCheckInsert execute insert sql string if not exist where expression in transaction
+func (table *SchemaTable) TransactCheckInsert(data interface{}, where *string, query *Query, options ...map[string]interface{}) (sql.Result, error) {
+	return table.checkInsert(data, where, query, options...)
+}
+
 // CheckInsert execute insert sql string if not exist where expression
 func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
-	q := Query{db: DB}
-	if len(options) > 0 {
-		option := options[0]
-		if _, ok := option["queryObj"]; ok {
-			q = option["queryObj"].(Query)
-		}
-	}
+	return table.checkInsert(data, where, nil, options...)
+}
 
+// checkInsert execute insert sql string if not exist where expression
+func (table *SchemaTable) checkInsert(data interface{}, where *string, query *Query, options ...map[string]interface{}) (sql.Result, error) {
+	if query == nil {
+		query = table.NewQuery()
+	}
 	var diff, diffPub map[string]interface{}
 	idField, _, err := table.getIDField("", options)
 	if err != nil {
@@ -2228,11 +2460,8 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 	} else {
 		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
 	}
-	// if len(table.GenFields) > 0 {
-	// 	sql += ` RETURNING "` + strings.Join(table.GenFields, `","`) + `"`
-	// }
 
-	res, err := q.Exec(sql, args...)
+	res, err := query.Exec(sql, args...)
 	if err == nil {
 		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub)
 		table.SaveLog(itemID, diff, options)
@@ -2267,16 +2496,21 @@ func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, op
 	return nil
 }
 
+// TransactUpdateMultiple execute update sql string in transaction
+func (table *SchemaTable) TransactUpdateMultiple(oldData, data interface{}, where string, query *Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
+	return table.updateMultiple(oldData, data, where, query, options...)
+}
+
 // UpdateMultiple execute update sql string
 func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
-	q := Query{db: DB}
-	if len(options) > 0 {
-		option := options[0]
-		if _, ok := option["queryObj"]; ok {
-			q = option["queryObj"].(Query)
-		}
-	}
+	return table.updateMultiple(oldData, data, where, nil, options...)
+}
 
+// updateMultiple execute update sql string
+func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string, query *Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
+	if query == nil {
+		query = table.NewQuery()
+	}
 	rec := reflect.ValueOf(data)
 	recType := rec.Type()
 
@@ -2324,13 +2558,23 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	}
 	ids = []string{}
 	if lenDiff > 0 {
-		err = q.Select(&ids, sql, args...)
+		err = query.Select(&ids, sql, args...)
 	}
 	return diff, diffPub, ids, err
 }
 
+// TransactUpdate update one item by id
+func (table *SchemaTable) TransactUpdate(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
+	return table.update(id, data, query, options...)
+}
+
 // Update update one item by id
 func (table *SchemaTable) Update(id string, data interface{}, options ...map[string]interface{}) error {
+	return table.update(id, data, nil, options...)
+}
+
+// update update one item by id
+func (table *SchemaTable) update(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
 	idField, id, err := table.getIDField(id, options)
 	if err != nil {
 		return err
@@ -2348,7 +2592,7 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 			return err
 		}
 	}
-	diff, diffPub, _, err := table.UpdateMultiple(oldData, data, where, options...)
+	diff, diffPub, _, err := table.updateMultiple(oldData, data, where, query, options...)
 	if err == nil && len(diff) > 0 {
 		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
 		table.SaveLog(id, diff, options)
@@ -2356,16 +2600,21 @@ func (table *SchemaTable) Update(id string, data interface{}, options ...map[str
 	return err
 }
 
+// TransactDeleteMultiple  delete all records with where sql string in transaction
+func (table *SchemaTable) TransactDeleteMultiple(where string, query *Query, options ...map[string]interface{}) (int, error) {
+	return table.deleteMultiple(where, query, options...)
+}
+
 // DeleteMultiple  delete all records with where sql string
 func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]interface{}) (int, error) {
-	q := Query{db: DB}
-	if len(options) > 0 {
-		option := options[0]
-		if _, ok := option["queryObj"]; ok {
-			q = option["queryObj"].(Query)
-		}
-	}
+	return table.deleteMultiple(where, nil, options...)
+}
 
+// DeleteMultiple  delete all records with where sql string
+func (table *SchemaTable) deleteMultiple(where string, query *Query, options ...map[string]interface{}) (int, error) {
+	if query == nil {
+		query = table.NewQuery()
+	}
 	sql := `DELETE FROM "` + table.Name + `"`
 	if len(where) > 0 {
 		sql += " WHERE " + where
@@ -2380,7 +2629,7 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 	}
 	// ret, err := q.Exec(sql, args...)
 	ids := []string{}
-	err := q.Select(&ids, sql, args...)
+	err := query.Select(&ids, sql, args...)
 	if err == nil {
 		countDelete := len(ids)
 		if countDelete > 0 {
@@ -2392,13 +2641,23 @@ func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]int
 	return -1, err
 }
 
+// TransactDelete delete one record by id in transaction
+func (table *SchemaTable) TransactDelete(id string, query *Query, options ...map[string]interface{}) (int, error) {
+	return table.delete(id, query, options...)
+}
+
 // Delete delete one record by id
 func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (int, error) {
+	return table.delete(id, nil, options...)
+}
+
+// delete delete one record by id
+func (table *SchemaTable) delete(id string, query *Query, options ...map[string]interface{}) (int, error) {
 	idField, id, err := table.getIDField(id, options)
 	if err != nil {
 		return 0, err
 	}
-	count, err := table.DeleteMultiple(idField+`='`+id+`'`, options...)
+	count, err := table.deleteMultiple(idField+`='`+id+`'`, query, options...)
 	if count != 1 {
 		err = errors.New("record not found")
 	}
@@ -2655,6 +2914,11 @@ func readItem(itemPtr interface{}, cb func()) {
 		unlock := itemVal.MethodByName("RUnlock")
 		unlock.Call([]reflect.Value{})
 	}
+}
+
+func GetDBErrorCode(err error) pq.ErrorCode {
+	pqErr := err.(*pq.Error)
+	return pqErr.Code
 }
 
 //---------------------------------------------------------------------------

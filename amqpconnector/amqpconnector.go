@@ -34,6 +34,7 @@ type Update struct {
 	Groups     []string    `json:"groups"`
 	ExtData    interface{} `json:"extData"`
 	Recipients []string    `json:"recipients"`
+	Initiator  string      `json:"initiator,omitempty"`
 }
 
 //Consumer structure for NewConsumer result
@@ -393,6 +394,11 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 				msg.Recipients = recipients
 			}
 		}
+		if initiatorInt, ok := opts["initiator"]; ok {
+			if initiator, ok := initiatorInt.(string); ok {
+				msg.Initiator = initiator
+			}
+		}
 	}
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
@@ -401,7 +407,7 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 	var consumer *Consumer
 	consumerInt, ok := consumers.Load("SendUpdate")
 	if !ok {
-		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: "csx.updates", Type: "direct", Durable: true})
+		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: updateExch, Type: "direct", Durable: true})
 		if err != nil {
 			return err
 		}
