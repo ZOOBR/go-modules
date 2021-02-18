@@ -48,6 +48,9 @@ func GetSortsFromString(strSort *string, checkMap map[string]interface{}) (sorts
 			} else if parts[1] == "e" {
 				sort.Event = p
 			}
+			if len(parts) > 3 {
+				sort.Desc = parts[3] == "1"
+			}
 		} else {
 			if checkMap != nil {
 				_, ok := checkMap[fieldName]
