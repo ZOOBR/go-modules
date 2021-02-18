@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	tmt "gitlab.com/battler/modules/telemetry"
 )
 
 const (
@@ -76,11 +78,21 @@ func (filter *Filter) Apply(fields map[string]interface{}) bool {
 	if filter.Items != nil && len(filter.Items) > 0 {
 		return filter.ApplyGroups(fields)
 	}
-	destValueInt, ok := fields[filter.Field]
-	if !ok {
-		return false
+	var destValueInt interface{}
+	var ok bool
+	if strings.HasPrefix(filter.Field, "position.") {
+		var err error
+		destValueInt, err = tmt.GetValueFromPosition(fields, filter.Field)
+		if err != nil {
+			return false
+		}
+	} else {
+		destValueInt, ok = fields[filter.Field]
+		if !ok {
+			return false
+		}
 	}
-	compValInt := getFilterValueInterface(filter.Value)
+	compValInt := getFilterValueInterface(filter)
 	switch filter.Type {
 	case TypeEqual:
 		return compareValues(compValInt, destValueInt, TypeEqual)
@@ -223,6 +235,9 @@ func compareValues(compVal, destVal interface{}, filterType int) bool {
 		}
 		comp = t
 	}
+	if !destField.IsValid() {
+		return false
+	}
 	switch val := destField.Interface().(type) {
 	case int, int8, int16, int32, int64:
 		dest = float64(destField.Int())
@@ -248,23 +263,27 @@ func compareValues(compVal, destVal interface{}, filterType int) bool {
 	case TypeNotEqual:
 		return comp != dest
 	case TypeText:
-		return strings.Contains(comp.(string), dest.(string))
+		return strings.Contains(dest.(string), comp.(string))
 	case TypeNotText:
-		return !strings.Contains(comp.(string), dest.(string))
+		return !strings.Contains(dest.(string), comp.(string))
 	case TypeGte:
-		return comp.(float64) >= dest.(float64)
+		return dest.(float64) >= comp.(float64)
 	case TypeLte:
-		return comp.(float64) <= dest.(float64)
+		return dest.(float64) <= comp.(float64)
 	case TypeGt:
-		return comp.(float64) > dest.(float64)
+		return dest.(float64) > comp.(float64)
 	case TypeLt:
-		return comp.(float64) < dest.(float64)
+		return dest.(float64) < comp.(float64)
 	case TypeDateEqual:
 		return comp.(time.Time).Unix() == dest.(time.Time).Unix()
 	case TypeDateGte:
-		return comp.(time.Time).After(dest.(time.Time)) || comp.(time.Time).Unix() == dest.(time.Time).Unix()
+		compTime := comp.(time.Time)
+		destTime := dest.(time.Time)
+		return destTime.After(compTime) || (compTime.Unix() == destTime.Unix())
 	case TypeDateLte:
-		return comp.(time.Time).Before(dest.(time.Time)) || comp.(time.Time).Unix() == dest.(time.Time).Unix()
+		compTime := comp.(time.Time)
+		destTime := dest.(time.Time)
+		return destTime.Before(compTime) || (compTime.Unix() == destTime.Unix())
 	case TypeDateGt:
 		return comp.(time.Time).After(dest.(time.Time))
 	case TypeDateLt:
@@ -273,13 +292,13 @@ func compareValues(compVal, destVal interface{}, filterType int) bool {
 	return false
 }
 
-func getFilterValueInterface(value string) interface{} {
-	var compValInt interface{} = value
-	if compValFloat, err := strconv.ParseFloat(value, 64); err == nil {
+func getFilterValueInterface(filter *Filter) interface{} {
+	var compValInt interface{} = filter.Value
+	if compValFloat, err := strconv.ParseFloat(filter.Value, 64); err == nil && filter.Type != TypeText {
 		compValInt = compValFloat
-	} else if compValDate, err := time.Parse("2006-01-02", value); err == nil {
+	} else if compValDate, err := time.Parse("2006-01-02", filter.Value); err == nil {
 		compValInt = compValDate
-	} else if compValDateTime, err := time.Parse("2006-01-02 15:04:05", value); err == nil {
+	} else if compValDateTime, err := time.Parse("2006-01-02 15:04:05", filter.Value); err == nil {
 		compValInt = compValDateTime
 	}
 	return compValInt
