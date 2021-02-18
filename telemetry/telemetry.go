@@ -1167,3 +1167,31 @@ func (pos *FlatPosition) CheckCondition(filterType, field string, code uint16, v
 	}
 	return false
 }
+
+// GetValueFromPosition returns value of param code passed in str and getted from fields
+func GetValueFromPosition(fields map[string]interface{}, str string) (interface{}, error) {
+	parts := strings.Split(str, ".")
+	if len(parts) < 3 {
+		return nil, errors.New("not enough arguments")
+	}
+	positionInt, ok := fields["position"]
+	if !ok {
+		return nil, errors.New("position field is missing")
+	}
+	position, ok := positionInt.(*FlatPosition)
+	if !ok {
+		return nil, errors.New("err conv position field to FlatPosition")
+	}
+	if position == nil {
+		return nil, errors.New("position is nil")
+	}
+	if parts[1] == "p" {
+		paramCodeInt64, err := strconv.ParseInt(parts[2], 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		paramCode := uint16(paramCodeInt64)
+		return position.P[paramCode], nil
+	}
+	return nil, nil
+}
