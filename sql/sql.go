@@ -2463,7 +2463,7 @@ func (table *SchemaTable) checkInsert(data interface{}, where *string, query *Qu
 
 	res, err := query.Exec(sql, args...)
 	if err == nil {
-		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub)
+		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub, options...)
 		table.SaveLog(itemID, diff, options)
 	}
 	return res, err
@@ -2594,7 +2594,7 @@ func (table *SchemaTable) update(id string, data interface{}, query *Query, opti
 	}
 	diff, diffPub, _, err := table.updateMultiple(oldData, data, where, query, options...)
 	if err == nil && len(diff) > 0 {
-		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub)
+		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub, options...)
 		table.SaveLog(id, diff, options)
 	}
 	return err
@@ -2633,7 +2633,7 @@ func (table *SchemaTable) deleteMultiple(where string, query *Query, options ...
 	if err == nil {
 		countDelete := len(ids)
 		if countDelete > 0 {
-			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil)
+			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil, options...)
 		}
 
 		return countDelete, err
@@ -2671,7 +2671,7 @@ func (table *SchemaTable) delete(id string, query *Query, options ...map[string]
 				"id": id,
 			}
 		}
-		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data)
+		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data, options...)
 		//table.SaveLog(id, diff, options)
 	}
 	return count, err
