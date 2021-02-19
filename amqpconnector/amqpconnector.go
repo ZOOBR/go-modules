@@ -394,9 +394,9 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 				msg.Recipients = recipients
 			}
 		}
-		if initiatorInt, ok := opts["initiator"]; ok {
-			if initiator, ok := initiatorInt.(string); ok {
-				msg.Initiator = initiator
+		if userInt, ok := opts["user"]; ok {
+			if user, ok := userInt.(string); ok {
+				msg.Initiator = user
 			}
 		}
 	}
