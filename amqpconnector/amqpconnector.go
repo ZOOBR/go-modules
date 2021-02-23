@@ -11,7 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
-	strUtil "gitlab.com/battler/modules/strings"
+	csxstrings "gitlab.com/battler/modules/csxstrings"
 )
 
 var (
@@ -462,7 +462,7 @@ func GenerateName(prefix string) string {
 	if consumerTag != "" {
 		queueName += "." + consumerTag
 	} else {
-		queueName += "." + *strUtil.NewId()
+		queueName += "." + *csxstrings.NewId()
 	}
 	return queueName
 }
