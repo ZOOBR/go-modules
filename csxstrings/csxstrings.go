@@ -1,11 +1,17 @@
-package strings
+package csxstrings
 
 import (
 	"math/rand"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/google/uuid"
+)
+
+var (
+	matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
 )
 
 func RandomString(n int, onlyDigits bool) string {
@@ -80,4 +86,10 @@ func GetStructFields(s interface{}) []string {
 		}
 	}
 	return out
+}
+
+func SplitPascal(str string, delimiter string) string {
+	snake := matchFirstCap.ReplaceAllString(str, "${1}"+delimiter+"${2}")
+	snake = matchAllCap.ReplaceAllString(snake, "${1}"+delimiter+"${2}")
+	return snake
 }
