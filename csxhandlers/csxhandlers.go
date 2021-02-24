@@ -99,9 +99,18 @@ func HandleController(app *echo.Echo, controller interface{}) {
 			ctx := c.(*csxhttp.Context)
 			args := []reflect.Value{reflect.ValueOf(controller), reflect.ValueOf(ctx)}
 			res := method.Func.Call(args)
+			if len(res) == 0 {
+				logrus.Warn("controller: " + ctrlName + " method: " + routeName + " returns no value")
+				return nil
+			}
 			resInt := res[0]
 			if !resInt.IsNil() {
-				return resInt.Interface().(error)
+				err, ok := resInt.Interface().(error)
+				if ok {
+					return err
+				}
+				logrus.Warn("controller: " + ctrlName + " method: " + routeName + " returns non-error value")
+				return nil
 			}
 			return nil
 		})
