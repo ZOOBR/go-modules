@@ -139,10 +139,11 @@ type Message struct {
 
 // SMS is a basic SMS struct
 type SMS struct {
-	Phone string  `json:"phone"`
-	Msg   string  `json:"msg"`
-	MsgID *string `json:"msgId"`
-	Type  string  `json:"type"`
+	Phone   string      `json:"phone"`
+	Msg     string      `json:"msg"`
+	MsgID   *string     `json:"msgId"`
+	Type    string      `json:"type"`
+	Payload interface{} `json:"payload"`
 }
 
 // Mail is a basic email struct
@@ -221,9 +222,9 @@ func SendEmail(to, subject, mail string, contentType string, images *[]string, o
 // SendSMS is using for sending SMS messages
 // phone - recepient phone
 // msg - message body
-func SendSMS(phone, msg string, options ...string) {
+func SendSMS(phone, msg string, payload interface{}, options ...string) {
 	log.Info("[msgSender-SendSMS] ", "Try send SMS to: ", phone)
-	newSms := SMS{Phone: phone, Msg: msg}
+	newSms := SMS{Phone: phone, Msg: msg, Payload: payload}
 	if len(options) > 0 && options[0] != "" {
 		newSms.MsgID = &options[0]
 	}
@@ -355,7 +356,7 @@ func (msg *Message) Send(data interface{}) {
 			if msg.MsgId != nil {
 				msgID = *msg.MsgId
 			}
-			SendSMS(phone, text, msgID, fmt.Sprintf("%d", msg.Type))
+			SendSMS(phone, text, msg.Payload, msgID, fmt.Sprintf("%d", msg.Type))
 		}
 	}
 	if (msg.Mode&MessageModePush) != 0 && len(msg.Tokens) > 0 {
