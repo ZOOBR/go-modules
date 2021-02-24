@@ -26,10 +26,10 @@ import (
 
 	"github.com/nfnt/resize"
 	log "github.com/sirupsen/logrus"
-	str "gitlab.com/battler/modules/strings"
+	csxstrings "gitlab.com/battler/modules/csxstrings"
 )
 
-type uploadedPhoto struct {
+type UploadedPhoto struct {
 	Path            string
 	Bucket          *string
 	ThumbnailBucket *string
@@ -96,13 +96,13 @@ var regionsMap = map[string]string{
 	"rentPhotoThumbnails": "nl-ams",
 }
 
-func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
+func UploadImage(photo *string, dir *string) (*UploadedPhoto, error) {
 	dec, err := base64.StdEncoding.DecodeString(*photo)
 	if err != nil {
 		log.Error("Error decode photo: ", err)
 		return nil, err
 	}
-	file := str.RandomString(10, false)
+	file := csxstrings.RandomString(10, false)
 	dest := strings.Join(strings.Split(file, ""), "/")
 	path := dest + "/" + file + ".jpg"
 
@@ -125,7 +125,7 @@ func UploadImage(photo *string, dir *string) (*uploadedPhoto, error) {
 		return nil, err
 	}
 
-	res := uploadedPhoto{
+	res := UploadedPhoto{
 		Path: path,
 		File: file + ".jpg"}
 
@@ -205,8 +205,14 @@ func MakeThumbnail(data []byte, x *exif.Exif, thumbSize int64) (*[]byte, error) 
 }
 
 // UploadFileS3 loads file to S3 storage
-func UploadFileS3(bucketName, acl, filename string, rawData multipart.File) error {
-	data, err := ioutil.ReadAll(rawData)
+func UploadFileS3(bucketName, acl, filename string, fileHeader *multipart.FileHeader) error {
+	multipartFile, err := fileHeader.Open()
+	if err != nil {
+		log.Error("open multipart header err: ", err)
+		return err
+	}
+	defer multipartFile.Close()
+	data, err := ioutil.ReadAll(multipartFile)
 	if err != nil {
 		return errors.New("Error file read: " + err.Error())
 	}
@@ -246,22 +252,24 @@ func UploadFileS3(bucketName, acl, filename string, rawData multipart.File) erro
 }
 
 // UploadImageS3 loads image to S3 storage with thumbnail
-func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSize int64, rawData ...multipart.File) (*uploadedPhoto, error) {
+func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSize int64, rawData ...*multipart.FileHeader) (*UploadedPhoto, error) {
 	var r io.Reader
 	if len(rawData) == 0 || (len(rawData) > 0 && rawData[0] == nil) {
 		var err error
 		dec, err := base64.StdEncoding.DecodeString(*photo)
 		if err != nil {
-			log.Error("Error decode photo: ", err)
 			return nil, err
 		}
 		r = bytes.NewReader(dec)
 	} else {
-		r = rawData[0]
+		multipartFile, err := rawData[0].Open()
+		if err != nil {
+			return nil, err
+		}
+		r = multipartFile
 	}
 	dec, err := ioutil.ReadAll(r)
 	if err != nil {
-		log.Error("Error read buf: ", err)
 		return nil, err
 	}
 
@@ -270,7 +278,6 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 		var x *exif.Exif
 		x, err = exif.Decode(bytes.NewReader(dec))
 		if err != nil && existPath == nil {
-			log.Error("Error decode exif: ", err)
 			return nil, err
 		}
 		newThumbnail, err := MakeThumbnail(dec, x, thumbSize)
@@ -282,7 +289,7 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 		thumbnail = *newThumbnail
 	}
 
-	file := str.RandomString(10, false)
+	file := csxstrings.RandomString(10, false)
 	dest := strings.Join(strings.Split(file, ""), "/")
 	path := dest + "/" + file + ".jpg"
 
@@ -302,7 +309,6 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 				Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 			})
 			if err != nil {
-				log.Error("Error create s3 session", err)
 				return nil, err
 			}
 
@@ -316,7 +322,7 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 				ContentDisposition: aws.String("attachment"),
 			})
 			if err != nil {
-				log.Error("Error upload file to s3", err)
+				log.Error("upload file to s3 err: ", err)
 			} else {
 				savedBucketName = &bucket
 				break
@@ -334,7 +340,6 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 			Credentials: credentials.NewStaticCredentials(S3_API_ACCESS_KEY, S3_API_SECRET_KEY, S3_API_TOKEN),
 		})
 		if err != nil {
-			log.Error("Error create s3 session", err)
 			return nil, err
 		}
 
@@ -353,7 +358,6 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 			ContentDisposition: aws.String("attachment"),
 		})
 		if err != nil {
-			log.Error("Error upload file to s3", err)
 			return nil, err
 		}
 		savedBucketName = &bucket
@@ -363,12 +367,11 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 	if bucketName != "fines" {
 		thBucket, err = UploadThumbnail(thumbnail, path)
 		if err != nil {
-			log.Error("Error upload thumbnail: ", err)
 			return nil, err
 		}
 	}
 
-	res := uploadedPhoto{
+	res := UploadedPhoto{
 		Path:            path,
 		Bucket:          savedBucketName,
 		ThumbnailBucket: thBucket,
@@ -378,10 +381,9 @@ func UploadImageS3(photo *string, bucketName string, existPath *string, thumbSiz
 }
 
 // UploadImageS3CustomThumb loads image to S3 storage with thumbnail to custom thumb bucket
-func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *string, thumbSize int64, rawData multipart.File, thBucket string) (*uploadedPhoto, error) {
+func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *string, thumbSize int64, rawData *multipart.FileHeader, thBucket string) (*UploadedPhoto, error) {
 	var r io.Reader
 	if rawData == nil && photo != nil {
-		var err error
 		dec, err := base64.StdEncoding.DecodeString(*photo)
 		if err != nil {
 			log.Error("Error decode photo: ", err)
@@ -389,7 +391,12 @@ func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *strin
 		}
 		r = bytes.NewReader(dec)
 	} else {
-		r = rawData
+		var err error
+		r, err = rawData.Open()
+		if err != nil {
+			log.Error("open multipart header err: ", err)
+			return nil, err
+		}
 	}
 	dec, err := ioutil.ReadAll(r)
 	if err != nil {
@@ -414,7 +421,7 @@ func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *strin
 		thumbnail = *newThumbnail
 	}
 
-	file := str.RandomString(10, false)
+	file := csxstrings.RandomString(10, false)
 	dest := strings.Join(strings.Split(file, ""), "/")
 	path := dest + "/" + file + ".jpg"
 
@@ -499,7 +506,7 @@ func UploadImageS3CustomThumb(photo *string, bucketName string, existPath *strin
 		}
 	}
 
-	res := uploadedPhoto{
+	res := UploadedPhoto{
 		Path:            path,
 		Bucket:          savedBucketName,
 		ThumbnailBucket: thBucketS3Name,

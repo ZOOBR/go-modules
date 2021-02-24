@@ -27,9 +27,9 @@ import (
 	"github.com/buger/jsonparser"
 	amqp "gitlab.com/battler/modules/amqpconnector"
 	"gitlab.com/battler/modules/csxjson"
+	csxstrings "gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
-	strUtil "gitlab.com/battler/modules/strings"
 )
 
 const DUPLICATE_KEY_ERROR = "23505"
@@ -197,7 +197,7 @@ func (js *JsonB) Scan(src interface{}) error {
 	return json.Unmarshal(val, js)
 }
 
-// Decode correct decoding `map[string]interface{}` for `iris.Context`
+// Decode correct decoding `map[string]interface{}` for `csxhttp.Context`
 func (js *JsonB) Decode(body []byte) error {
 	return json.Unmarshal(body, &js)
 }
@@ -236,7 +236,7 @@ func (queryObj *Query) saveLog(table string, item string, user string, diff map[
 			keys = append(keys, key)
 			values = append(values, ":"+key)
 		}
-		id := strUtil.NewId()
+		id := csxstrings.NewId()
 		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","time") VALUES (:id,:table,:item,:user,:diff,:time)`
 		diffByte, err := json.Marshal(diff)
 		if err != nil {
@@ -1439,7 +1439,7 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		if consumerTag != "" {
 			queueName += "." + consumerTag
 		} else {
-			queueName += "." + *strUtil.NewId()
+			queueName += "." + *csxstrings.NewId()
 		}
 		go amqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
 	}
@@ -2140,7 +2140,7 @@ func (table *SchemaTable) getIDField(id string, options []map[string]interface{}
 			return "", "", errors.New("invalid id field: " + idField)
 		}
 		if field.Type == "uuid" && id == "" {
-			newID = *strUtil.NewId()
+			newID = *csxstrings.NewId()
 		}
 	}
 	if idField == "" {
