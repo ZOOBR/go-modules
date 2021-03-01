@@ -86,7 +86,10 @@ func (ctx *Context) FillQueryParams(params ...string) map[string]string {
 	paramsMap := map[string]string{}
 	for i := 0; i < len(params); i++ {
 		param := params[i]
-		paramsMap[param] = ctx.QueryParam(param)
+		queryParam := ctx.QueryParam(param)
+		if queryParam != "" {
+			paramsMap[param] = queryParam
+		}
 	}
 	return paramsMap
 }
@@ -98,7 +101,10 @@ func (ctx *Context) FillParams(paramsMap map[string]string, params ...string) ma
 	}
 	for i := 0; i < len(params); i++ {
 		param := params[i]
-		paramsMap[param] = ctx.QueryParam(param)
+		queryParam := ctx.QueryParam(param)
+		if queryParam != "" {
+			paramsMap[param] = queryParam
+		}
 	}
 	return paramsMap
 }
