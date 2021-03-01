@@ -94,9 +94,8 @@ func HandleController(app *echo.Echo, controller interface{}) {
 	for i := 0; i < structType.NumMethod(); i++ {
 		method := structType.Method(i)
 		routeName := method.Name
-		prefix := "api/" + ctrlName
 		logrus.Debug("	init controller method: " + routeName)
-		HandleRoute(app, prefix, routeName, func(c echo.Context) error {
+		HandleRoute(app, ctrlName, routeName, func(c echo.Context) error {
 			ctx := c.(*csxhttp.Context)
 			args := []reflect.Value{reflect.ValueOf(controller), reflect.ValueOf(ctx)}
 			res := method.Func.Call(args)
