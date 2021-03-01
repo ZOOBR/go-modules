@@ -57,23 +57,24 @@ var (
 	controllers = []interface{}{}
 )
 
+func prepareMethodName(prefix, method string) string {
+	if method != "" {
+		prefix += "/"
+	}
+	routeName := prefix + csxstrings.SplitPascal(method, "/")
+	return "/" + strings.ToLower(routeName)
+}
+
 // HandleRoute handle route to app by name with HTTP method prefix
 func HandleRoute(app *echo.Echo, prefix, methodName string, cb func(ctx echo.Context) error) {
-	if strings.HasPrefix(methodName, "Get") {
-		routeName := prefix + csxstrings.SplitPascal(methodName[3:], "/")
-		app.GET("/"+strings.ToLower(routeName), cb)
-	} else if strings.HasPrefix(methodName, "Post") {
-		routeName := prefix + csxstrings.SplitPascal(methodName[4:], "/")
-		app.POST("/"+strings.ToLower(routeName), cb)
+	if strings.HasPrefix(methodName, "Post") {
+		app.POST(prepareMethodName(prefix, methodName[4:]), cb)
 	} else if strings.HasPrefix(methodName, "Delete") {
-		routeName := prefix + csxstrings.SplitPascal(methodName[6:], "/")
-		app.DELETE("/"+strings.ToLower(routeName), cb)
+		app.DELETE(prepareMethodName(prefix, methodName[6:]), cb)
 	} else if strings.HasPrefix(methodName, "Put") {
-		routeName := prefix + csxstrings.SplitPascal(methodName[3:], "/")
-		app.PUT("/"+strings.ToLower(routeName), cb)
+		app.PUT(prepareMethodName(prefix, methodName[3:]), cb)
 	} else {
-		routeName := prefix + csxstrings.SplitPascal(methodName[3:], "/")
-		app.GET("/"+strings.ToLower(routeName), cb)
+		app.GET(prepareMethodName(prefix, methodName[3:]), cb)
 	}
 }
 
@@ -93,7 +94,7 @@ func HandleController(app *echo.Echo, controller interface{}) {
 	for i := 0; i < structType.NumMethod(); i++ {
 		method := structType.Method(i)
 		routeName := method.Name
-		prefix := "api/" + ctrlName + "/"
+		prefix := "api/" + ctrlName
 		logrus.Debug("	init controller method: " + routeName)
 		HandleRoute(app, prefix, routeName, func(c echo.Context) error {
 			ctx := c.(*csxhttp.Context)
