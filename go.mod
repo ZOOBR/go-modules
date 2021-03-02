@@ -5,6 +5,7 @@ go 1.13
 // replace gitlab.com/battler/models => ../../models
 
 require (
+	github.com/Masterminds/semver v1.5.0
 	github.com/aws/aws-sdk-go v1.31.4
 	github.com/buger/jsonparser v1.1.1
 	github.com/disintegration/imaging v1.6.2
@@ -14,6 +15,7 @@ require (
 	github.com/google/uuid v1.1.1
 	github.com/gorilla/securecookie v1.1.1
 	github.com/gorilla/sessions v1.2.1
+	github.com/gorilla/websocket v1.4.2
 	github.com/jmoiron/sqlx v1.2.0
 	github.com/labstack/echo/v4 v4.2.0
 	github.com/lib/pq v1.5.2
