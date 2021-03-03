@@ -22,7 +22,7 @@ type ControlVersionInfo struct {
 // MandatSession struct for manipulate access to http methods
 type MandatSession struct {
 	*AccessManager
-	defaultRoles        map[string]int
+	defaultRoles        map[string]interface{}
 	sessionStore        *csxsession.CsxStore
 	sessionKey          string
 	passCheckAuthMap    map[string]bool
@@ -34,7 +34,7 @@ type MandatSession struct {
 // NewMandatSession create struct for manipulate access to http methods
 func NewMandatSession(sessionStore *csxsession.CsxStore, sessionKey string, passCheckAuthMap, passCheckVersionMap, passLogMap map[string]bool, login func(ctc echo.Context)) *MandatSession {
 	return &MandatSession{
-		defaultRoles:        map[string]int{},
+		defaultRoles:        map[string]interface{}{},
 		sessionStore:        sessionStore,
 		sessionKey:          sessionKey,
 		passCheckAuthMap:    passCheckAuthMap,
@@ -45,7 +45,7 @@ func NewMandatSession(sessionStore *csxsession.CsxStore, sessionKey string, pass
 }
 
 // SetDefaultRole get session from store
-func (mandatSession *MandatSession) SetDefaultRole(roles map[string]int) {
+func (mandatSession *MandatSession) SetDefaultRole(roles map[string]interface{}) {
 	mandatSession.defaultRoles = roles
 }
 
@@ -83,7 +83,8 @@ func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *Cont
 		}
 		id, ok := session.Values["id"]
 		if ok {
-			roles, _ = session.Values["roles"].(map[string]int)
+			rolesInt := session.Values["roles"]
+			roles, _ = rolesInt.(map[string]interface{})
 			locations, _ = session.Values["locations"].(string)
 			account, _ = session.Values["account"].(string)
 			firm, _ = session.Values["firm"].(string)

@@ -13,7 +13,7 @@ type BaseQuery struct {
 }
 
 // StrictAccess check user access to clollection with reade, update and delete modes
-func (baseQ *BaseQuery) StrictAccess(mode int, fields []string, roles map[string]int, isSuperUser bool) bool {
+func (baseQ *BaseQuery) StrictAccess(mode int, fields []string, roles map[string]interface{}, isSuperUser bool) bool {
 	// If * is specified, take a list of all fields from the scheme
 	// TODO:: baseQ.Schema != nil this crutch for use base info without schema
 	if baseQ.Schema != nil && len(fields) == 1 && fields[0] == "*" {

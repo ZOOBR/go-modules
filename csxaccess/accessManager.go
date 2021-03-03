@@ -66,7 +66,7 @@ type MandatView struct {
 }
 
 // CheckAccess check manadat access
-func (mandat *Mandat) CheckAccess(roles map[string]int) int {
+func (mandat *Mandat) CheckAccess(roles map[string]interface{}) int {
 	if mandat.CheckRole(roles) {
 		return mandat.Access
 	}
@@ -128,7 +128,7 @@ func (mandat *Mandat) CheckMandatParams(urlParams map[string]string) bool {
 }
 
 // CheckRole check manadat role
-func (mandat *Mandat) CheckRole(roles map[string]int) bool {
+func (mandat *Mandat) CheckRole(roles map[string]interface{}) bool {
 	_, ok := roles[*mandat.Role]
 	return ok
 }
@@ -158,8 +158,8 @@ func createNewFields(fields []string, newFields []string, strictFields map[strin
 	}
 }
 
-// StrictAccess check user access to clollection with reade, update and delete modes
-func (manager *AccessManager) StrictAccess(subject string, mode int, fields []string, roles map[string]int, db bool, isSuperUser bool) (bool, []string) {
+// StrictAccess check user access to clollection with read, update and delete modes
+func (manager *AccessManager) StrictAccess(subject string, mode int, fields []string, roles map[string]interface{}, db bool, isSuperUser bool) (bool, []string) {
 	success := false
 	if isSuperUser {
 		newFields := make([]string, len(fields))
@@ -306,7 +306,7 @@ func (manager *AccessManager) GetCategoryMandats(category string) ([]*Mandat, bo
 }
 
 // GetMandatsBySubject ---
-func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[string]int) ([]*Mandat, bool) {
+func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[string]interface{}) ([]*Mandat, bool) {
 	mandatsInt, ok := manager.accessMap.Load(subject)
 	if !ok {
 		return nil, false
