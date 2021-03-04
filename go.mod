@@ -2,8 +2,6 @@ module gitlab.com/battler/modules
 
 go 1.13
 
-// replace gitlab.com/battler/models => ../../models
-
 require (
 	github.com/Masterminds/semver v1.5.0
 	github.com/aws/aws-sdk-go v1.31.4
