@@ -34,7 +34,6 @@ type TerminalResponse struct {
 // CommandAction ---
 type CommandAction struct {
 	ID      string                 `json:"id"`
-	Type    uint32                 `json:"type,omitempty"`
 	Index   uint32                 `json:"index,omitempty"`
 	Act     uint32                 `json:"act,omitempty"`
 	Ton     uint32                 `json:"ton,omitempty"`
