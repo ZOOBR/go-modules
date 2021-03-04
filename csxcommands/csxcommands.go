@@ -1,4 +1,4 @@
-package terminalCommands
+package csxcommands
 
 import (
 	"bytes"
@@ -19,7 +19,7 @@ type Sender struct {
 
 // TerminalResponse ---
 type TerminalResponse struct {
-	Id        string                 `json:"id"`
+	ID        string                 `json:"id"`
 	Result    int32                  `json:"result"`
 	Stage     int32                  `json:"stage,omitempty"`
 	Errors    []CommandError         `json:"errors,omitempty"`
@@ -33,7 +33,8 @@ type TerminalResponse struct {
 
 // CommandAction ---
 type CommandAction struct {
-	Id      string                 `json:"id"`
+	ID      string                 `json:"id"`
+	Type    uint32                 `json:"type,omitempty"`
 	Index   uint32                 `json:"index,omitempty"`
 	Act     uint32                 `json:"act,omitempty"`
 	Ton     uint32                 `json:"ton,omitempty"`
@@ -46,7 +47,7 @@ type CommandAction struct {
 
 // Command ---
 type Command struct {
-	Id      string        `json:"id"`
+	ID      string        `json:"id"`
 	Target  string        `json:"target"`
 	Command CommandAction `json:"command"`
 	Timeout int           `json:"timeout"`
@@ -60,31 +61,31 @@ type CommandError struct {
 
 const (
 	// belka compatible
-	guard_error_ign    = 0x000001
-	guard_error_park   = 0x000002
-	guard_error_doors  = 0x000004
-	guard_error_trunk  = 0x000008
-	guard_error_space  = 0x000010
-	guard_error_hood   = 0x000020
-	guard_error_lights = 0x000040
-	guard_error_busy   = 0x000080
+	guardErrorIgn    = 0x000001
+	guardErrorPark   = 0x000002
+	guardErrorDoors  = 0x000004
+	guardErrorTrunk  = 0x000008
+	guardErrorSpace  = 0x000010
+	guardErrorHood   = 0x000020
+	guardErrorLights = 0x000040
+	guardErrorBusy   = 0x000080
 
 	// flex extended
-	guard_error_sensor    = 0x000100
-	guard_error_guard     = 0x000200
-	guard_error_can_park  = 0x000400
-	guard_error_can_brake = 0x000800
-	guard_error_already   = 0x100000
-	guard_error_timeout   = 0x200000
-	guard_error_disable   = 0x400000
-	guard_error_other     = 0x800000
+	guardErrorSensor   = 0x000100
+	guardErrorGuard    = 0x000200
+	guardErrorCanPark  = 0x000400
+	guardErrorCanBrake = 0x000800
+	guardErrorAlready  = 0x100000
+	guardErrorTimeout  = 0x200000
+	guardErrorDisable  = 0x400000
+	guardErrorOther    = 0x800000
 
 	// common
-	command_error_other        = guard_error_other
-	command_error_timeout      = guard_error_timeout
-	command_error_disable      = guard_error_disable
-	command_error_invalid_args = 0x1000000
-	command_error_invalid_crc  = 0x2000000
+	commandErrorOther       = guardErrorOther
+	commandErrorTimeout     = guardErrorTimeout
+	commandErrorDisable     = guardErrorDisable
+	commandErrorInvalidArgs = 0x1000000
+	commandErrorInvalidCrc  = 0x2000000
 )
 
 // ErrorCodes ---
@@ -139,7 +140,7 @@ func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmd
 		target = drv + ":" + target
 	}
 	cmd := Command{
-		Id:      uuid.New().String(),
+		ID:      uuid.New().String(),
 		Target:  target,
 		Command: *action,
 	}
@@ -178,7 +179,7 @@ func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmd
 		if cmdID != nil {
 			cmd = *cmdID
 		} else {
-			cmd = action.Id
+			cmd = action.ID
 		}
 		for _, cb := range sender.Loggers {
 			cb(objID, cmd, clientID, userID, action, &response, err)
@@ -190,7 +191,7 @@ func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmd
 // Protection ---
 func (sender *Sender) Protection(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
-		Id:  "guard",
+		ID:  "guard",
 		Act: uint32(on),
 	}
 
@@ -200,7 +201,7 @@ func (sender *Sender) Protection(objID, imei, drv string, userID *string, on uin
 // Engine ---
 func (sender *Sender) Engine(objID, imei, drv string, userID *string, on uint8) TerminalResponse {
 	action := CommandAction{
-		Id:  "engine",
+		ID:  "engine",
 		Act: uint32(on),
 	}
 
@@ -210,7 +211,7 @@ func (sender *Sender) Engine(objID, imei, drv string, userID *string, on uint8) 
 // Relay ---
 func (sender *Sender) Relay(objID, imei, drv string, userID *string, idx uint16, on uint8, ton uint32, toff uint32) TerminalResponse {
 	action := CommandAction{
-		Id:    "relay",
+		ID:    "relay",
 		Index: uint32(idx),
 		Act:   uint32(on),
 		Ton:   ton,
@@ -222,7 +223,7 @@ func (sender *Sender) Relay(objID, imei, drv string, userID *string, idx uint16,
 // State ---
 func (sender *Sender) State(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
-		Id: "state",
+		ID: "state",
 	}
 	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
@@ -230,7 +231,7 @@ func (sender *Sender) State(objID, imei, drv string, userID *string) TerminalRes
 // Reset ---
 func (sender *Sender) Reset(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
-		Id: "reset",
+		ID: "reset",
 	}
 	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
 }
@@ -238,7 +239,7 @@ func (sender *Sender) Reset(objID, imei, drv string, userID *string) TerminalRes
 // Auth - update auth token
 func (sender *Sender) Auth(objID, imei, drv string, userID *string) TerminalResponse {
 	action := CommandAction{
-		Id:  "guard",
+		ID:  "guard",
 		Act: 100,
 	}
 	return sender.Run(objID, imei, drv, nil, userID, nil, &action)
@@ -289,39 +290,39 @@ func (response *TerminalResponse) SetBitErrors() {
 	}
 
 	//already guard
-	if (*result & guard_error_already) != 0 {
+	if (*result & guardErrorAlready) != 0 {
 		//response.Errors = append(response.Errors, CommandError{1107, ErrorCodes[1107]})
 	}
 	//error sensor
-	if (*result & guard_error_sensor) != 0 {
+	if (*result & guardErrorSensor) != 0 {
 		response.Errors = append(response.Errors, CommandError{1108, ErrorCodes[1108]})
 	}
 	//error guard
-	if (*result & guard_error_guard) != 0 {
+	if (*result & guardErrorGuard) != 0 {
 		response.Errors = append(response.Errors, CommandError{1109, ErrorCodes[1109]})
 	}
 	//error can park
-	if (*result & guard_error_can_park) != 0 {
+	if (*result & guardErrorCanPark) != 0 {
 		response.Errors = append(response.Errors, CommandError{1101, ErrorCodes[1101]})
 	}
 
 	//error can brake
-	if (*result & guard_error_can_brake) != 0 {
+	if (*result & guardErrorCanBrake) != 0 {
 		response.Errors = append(response.Errors, CommandError{1110, ErrorCodes[1110]})
 	}
 
 	//error timeout
-	if (*result & guard_error_timeout) != 0 {
+	if (*result & guardErrorTimeout) != 0 {
 		response.Errors = append(response.Errors, CommandError{-3, ErrorCodes[-3]})
 	}
 
 	//error disabled
-	if (*result & guard_error_disable) != 0 {
+	if (*result & guardErrorDisable) != 0 {
 		response.Errors = append(response.Errors, CommandError{1111, ErrorCodes[1111]})
 	}
 
 	//error other
-	if (*result & guard_error_other) != 0 {
+	if (*result & guardErrorOther) != 0 {
 		response.Errors = append(response.Errors, CommandError{1112, ErrorCodes[1112]})
 	}
 
