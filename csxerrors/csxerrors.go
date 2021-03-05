@@ -1,7 +1,9 @@
 package csxerrors
 
 import (
+	"bytes"
 	"strings"
+	"text/template"
 
 	"gitlab.com/battler/modules/csxhttp"
 )
@@ -22,6 +24,11 @@ type Lang struct {
 	Status int    `db:"status" json:"status" type:"int4"`
 	Ru     string `db:"ru" json:"ru"`
 	En     string `db:"en" json:"en"`
+}
+
+// SubjectInfo struct for create error messages with templates
+type SubjectInfo struct {
+	Subject string
 }
 
 // GetCtxLang return lang from request
@@ -57,9 +64,21 @@ func Error(errorCode string, lang string) (msg string, statusCode int) {
 }
 
 // Result get request lang and return result status, status code and translated message
-func Result(ctx *csxhttp.Context, errorCode string) (bool, int, string) {
+func Result(ctx *csxhttp.Context, errorID string) (bool, int, string) {
+	if errorID == "" {
+		return true, 200, ""
+	}
 	lang := GetCtxLang(ctx)
-	msg, statusCode := Error(errorCode, lang)
+	msg, statusCode := Error(errorID, lang)
+	subject := ctx.Path()
+	if msg != "" {
+		tmpl, err := template.New(errorID).Parse(msg)
+		if err == nil {
+			var buf bytes.Buffer
+			tmpl.Execute(&buf, &SubjectInfo{subject})
+			msg = buf.String()
+		}
+	}
 	return statusCode < 400, statusCode, msg
 }
 
