@@ -8,6 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
+	dbc "gitlab.com/battler/modules/sql"
 )
 
 const (
@@ -329,4 +330,19 @@ func CheckNeedRedirect(ctx echo.Context, clientAppServer string, id string) (boo
 		logrus.Error("App server URL is missing! Redirection of client " + id + " to " + clientAppServer + " is not performed")
 	}
 	return false, ""
+}
+
+// GetRolesRights returns map of role interfaces from string
+func GetRolesRights(roles map[string]interface{}) map[string]*dbc.JsonB {
+	result := map[string]*dbc.JsonB{}
+	for roleID, roleInt := range roles {
+		role := roleInt.(map[string]interface{})
+		rightsInt := role["rights"]
+		if rightsInt == nil {
+			continue
+		}
+		rights := dbc.JsonB(rightsInt.(map[string]interface{}))
+		result[roleID] = &rights
+	}
+	return result
 }
