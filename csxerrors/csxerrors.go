@@ -1,4 +1,4 @@
-package apiErrors
+package csxerrors
 
 import "strings"
 
