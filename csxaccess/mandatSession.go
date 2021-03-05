@@ -174,7 +174,6 @@ func (mandatSession *MandatSession) checkVersion(ctx echo.Context, info *Control
 	}
 
 	var allowedVersion string
-
 	allowedVersion, ok := info.AllowedVersions[osType]
 	if ok {
 		c, err := semver.NewConstraint(">= " + allowedVersion)

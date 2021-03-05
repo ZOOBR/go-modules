@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/labstack/echo/v4"
-	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
 )
 
@@ -38,31 +37,6 @@ type Mandat struct {
 	Priority int
 	Access   int
 	Params   map[string]interface{}
-}
-
-// RolesAccess is using for get info roles access by subject
-type RolesAccess struct {
-	ID       *string         `db:"id" json:"id"`
-	Role     string          `db:"role" json:"role"`
-	Name     string          `db:"name" json:"name"`
-	Fields   *pq.StringArray `db:"fields" json:"fields"`
-	Priority *int            `db:"priority" json:"priority"`
-	Access   *int            `db:"access" json:"access"`
-}
-
-// MandatInfo is a info struct
-type MandatInfo struct {
-	ID      string `db:"id" json:"id" type:"uuid" key:"1"`
-	Group   string `db:"group" json:"group" len:"50" type:"varchar"`
-	Subject string `db:"subject" json:"subject" len:"50"`
-}
-
-// MandatView is a info struct
-type MandatView struct {
-	Name     string          `json:"name"`
-	Fields   *pq.StringArray `json:"fields"`
-	Priority int             `json:"priority"`
-	Access   int             `json:"access"`
 }
 
 // CheckAccess check manadat access
