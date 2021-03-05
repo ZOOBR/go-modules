@@ -274,8 +274,8 @@ func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
 	return mandatsNew
 }
 
-// GetCategoryMandats ---
-func (manager *AccessManager) GetCategoryMandats(category string) ([]*Mandat, bool) {
+// GetMandatsByCategory ---
+func (manager *AccessManager) GetMandatsByCategory(category string) ([]*Mandat, bool) {
 	mandatsInt, ok := manager.categoryMap.Load(category)
 	return mandatsInt.([]*Mandat), ok
 }
