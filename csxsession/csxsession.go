@@ -2,6 +2,7 @@ package csxsession
 
 import (
 	"encoding/base32"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -217,6 +218,14 @@ func (s *CsxStore) Save(r *http.Request, w http.ResponseWriter, session *session
 	return nil
 }
 
+// SaveWithoutCtx save session without need send context.
+func (s *CsxStore) SaveWithoutCtx(session *sessions.Session) error {
+	if err := s.save(session); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Delete removes the session from redis, and sets the cookie to expire.
 //
 // WARNING: This method should be considered deprecated since it is not exposed via the gorilla/sessions interface.
@@ -246,6 +255,24 @@ func (s *CsxStore) DeleteByID(sid string) error {
 		return err
 	}
 	return nil
+}
+
+// GetByID get session by sid
+func (s *CsxStore) GetByID(sid, sessionKey string) (*sessions.Session, error) {
+	conn := s.Pool.Get()
+	defer conn.Close()
+	dataInt, err := conn.Do("GET", s.keyPrefix+sid)
+	if err != nil {
+		return nil, err
+	}
+	session := sessions.NewSession(s, sessionKey)
+	session.ID = sid
+	data := dataInt.([]byte)
+	err = json.Unmarshal(data, &session.Values)
+	if err != nil {
+		return nil, err
+	}
+	return session, nil
 }
 
 // ping does an internal ping against a server to check if it is alive.
