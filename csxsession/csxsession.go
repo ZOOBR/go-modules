@@ -265,6 +265,9 @@ func (s *CsxStore) GetByID(sid, sessionKey string) (*sessions.Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if dataInt == nil {
+		return nil, nil
+	}
 	session := sessions.NewSession(s, sessionKey)
 	session.ID = sid
 	data := dataInt.([]byte)
