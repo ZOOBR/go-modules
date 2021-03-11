@@ -15,7 +15,7 @@ import (
 
 type ControlVersionInfo struct {
 	Version         string
-	domains         map[string]interface{}
+	Domains         map[string]interface{}
 	AllowedVersions map[string]string
 }
 
@@ -166,8 +166,8 @@ func (mandatSession *MandatSession) checkVersion(ctx echo.Context, info *Control
 	if len(parts) > 1 {
 		lang = parts[1]
 	}
-	if info.domains != nil {
-		_, ok := info.domains[domain]
+	if info.Domains != nil {
+		_, ok := info.Domains[domain]
 		if !ok {
 			return false, errors.New("InvalidDomain")
 		}
