@@ -1792,6 +1792,11 @@ func (field *SchemaField) sql() string {
 }
 
 func (table *SchemaTable) create() error {
+	tx, err := table.DB.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Commit()
 	var keys string
 	skeys := []*SchemaField{}
 	sql := `CREATE TABLE "` + table.Name + `"(`
@@ -1822,7 +1827,7 @@ func (table *SchemaTable) create() error {
 		}
 	}
 	sql += `)`
-	_, err := table.DB.Exec(sql)
+	_, err = table.DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	if err == nil && len(keys) > 0 {
 		sql := `ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`
