@@ -21,7 +21,6 @@ import (
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	deepcopier "github.com/mohae/deepcopy"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 
 	"github.com/buger/jsonparser"
@@ -227,7 +226,7 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 func (queryObj *Query) saveLog(table string, item string, user string, diff map[string]interface{}) {
 	if len(diff) > 0 {
 		if user == "" {
-			log.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
+			logrus.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
 			return
 		}
 		keys := []string{}
@@ -240,7 +239,7 @@ func (queryObj *Query) saveLog(table string, item string, user string, diff map[
 		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","time") VALUES (:id,:table,:item,:user,:diff,:time)`
 		diffByte, err := json.Marshal(diff)
 		if err != nil {
-			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			logrus.Error("save log tbl:"+table+" item:"+item+" err:", err)
 			return
 		}
 		now := time.Now().UTC()
@@ -259,7 +258,7 @@ func (queryObj *Query) saveLog(table string, item string, user string, diff map[
 			_, err = queryObj.db.NamedExec(query, logItem)
 		}
 		if err != nil {
-			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			logrus.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
 	}
 }
@@ -806,7 +805,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 					withLog = false
 				}
 			} else {
-				log.Error("err get info for log model info:", options)
+				logrus.Error("err get info for log model info:", options)
 			}
 		} else if len(opts) > 1 {
 			// 0 - id
@@ -842,10 +841,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			if withLog {
 				queryObj.saveLog(table, id, user, diff)
 			}
-		} else {
-			log.Error("missing table or id for save log", options)
 		}
-
 	}
 	return nil
 }
@@ -1450,7 +1446,7 @@ func registerSchemaOnUpdate(d *amqp.Delivery) {
 	msg := amqp.Update{}
 	err := json.Unmarshal(d.Body, &msg)
 	if err != nil {
-		log.Error("HandleUpdates", "Error parse json: ", err)
+		logrus.Error("HandleUpdates", "Error parse json: ", err)
 		return
 	}
 	registerSchema.RLock()
@@ -2050,7 +2046,7 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[
 
 	query, err := MakeQuery(qparams)
 	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error("err: ", err, " query:", *query)
+		logrus.Error("err: ", err, " query:", *query)
 		return err
 	}
 	return nil
@@ -2070,7 +2066,7 @@ func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join
 
 	query, err := MakeQuery(qparams)
 	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error(*query)
+		logrus.Error(*query)
 		fmt.Println(err)
 		return err
 	}
