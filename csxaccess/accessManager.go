@@ -4,10 +4,12 @@ import (
 	"math"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
+
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -247,6 +249,24 @@ func (manager *AccessManager) Load(mandats []*Mandat, print bool) {
 			return true
 		})
 	}
+}
+
+func NewAccessManager(categorizer func(mandat *Mandat) (string, string)) *AccessManager {
+	var categorizerFunc func(mandat *Mandat) (string, string)
+	if categorizer != nil {
+		categorizerFunc = categorizer
+	} else {
+		categorizerFunc = func(mandat *Mandat) (string, string) {
+			isView := strings.HasPrefix(mandat.Subject, "view.")
+			if isView {
+				// mandat.Subject = mandat.Subject[5:]
+				return mandat.Group, mandat.Subject[5:]
+			}
+			return mandat.Group, mandat.Subject
+		}
+	}
+
+	return &AccessManager{categorizer: categorizerFunc}
 }
 
 func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
