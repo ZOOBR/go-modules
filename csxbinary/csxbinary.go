@@ -533,3 +533,8 @@ func (r *BinaryReader) ReadData() int16 {
 
 	return 0
 }
+
+// ReadAllData sequential reading of all data
+func (r *BinaryReader) ReadAllData() {
+	r.Reset()
+}
