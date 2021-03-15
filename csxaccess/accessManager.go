@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 
+	"gitlab.com/battler/modules/csxhttp"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -215,6 +216,46 @@ func (manager *AccessManager) StrictAccess(subject string, mode int, fields []st
 	newFields := make([]string, lenFields)
 	createNewFields(fields, newFields, strictFields, db)
 	return success, newFields
+}
+
+func (manager *AccessManager) CheckAccessFields(ctx *csxhttp.Context, defFields []string, db bool) (int, []string) {
+	route := ctx.Path()
+	userRoles, ok := ctx.Get("roles").(map[string]interface{})
+	if !ok {
+		return 0, nil
+	}
+
+	fieldStr := ctx.QueryParam("fields")
+	status, ok := ctx.GetInt("status")
+	if !ok {
+		status = 0
+	}
+	isSuperUser := status == 1
+	if isSuperUser && fieldStr == "" {
+		return 1, defFields
+	}
+
+	var fields []string
+	if fieldStr == "" {
+		fields = defFields
+	} else {
+		fields = strings.Split(fieldStr, ",")
+	}
+	var access bool
+	var newFields []string
+	if isSuperUser {
+		access = true
+		newFields = fields
+	} else {
+		access, newFields = manager.StrictAccess(route, QueryModeRead, fields, userRoles, db, isSuperUser)
+	}
+	if !access || len(newFields) == 0 {
+		return 0, nil
+	}
+	if len(newFields) == len(defFields) {
+		return 2, newFields
+	}
+	return 1, newFields
 }
 
 // Load ---
