@@ -25,7 +25,7 @@ const (
 type AccessManager struct {
 	accessMap   sync.Map
 	categoryMap sync.Map
-	category    func(mandat *Mandat) (string, string)
+	categorizer func(mandat *Mandat) (string, string)
 }
 
 // Mandat is a base partner struct
@@ -220,7 +220,7 @@ func (manager *AccessManager) Load(mandats []*Mandat, print bool) {
 	for _, mandatIn := range mandats {
 		mandat := mandatIn
 		var mandats []*Mandat
-		category, subject := manager.category(mandat)
+		category, subject := manager.categorizer(mandat)
 		if subject != "" {
 			mandat.Subject = subject
 		}
