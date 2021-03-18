@@ -13,7 +13,7 @@ import (
 	"text/template"
 
 	log "github.com/sirupsen/logrus"
-	dbc "gitlab.com/battler/modules/sql"
+	"gitlab.com/battler/modules/csxschema"
 )
 
 type msgTemplateReg struct {
@@ -39,8 +39,8 @@ type MsgTemplate struct {
 	Template string `db:"template" json:"template" type:"jsonb"`
 }
 
-var MsgTemplateSchema = dbc.NewSchemaTable("msgTemplate", MsgTemplate{}, map[string]interface{}{
-	"onUpdate": func(table *dbc.SchemaTable, msg interface{}) {
+var MsgTemplateSchema = csxschema.NewSchemaTable("msgTemplate", MsgTemplate{}, map[string]interface{}{
+	"onUpdate": func(table *csxschema.SchemaTable, msg interface{}) {
 		msgTemplates.mutex.Lock()
 		msgTemplates.list = make(map[string]*msgTemplateReg)
 		msgTemplates.mutex.Unlock()

@@ -3,6 +3,8 @@ package csxutils
 import (
 	"reflect"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -186,4 +188,12 @@ func GetPaySystemByBankCard(firstDigits string) string {
 		return PaySystems[twoDigits]
 	}
 	return "Unknown"
+}
+
+func LowerFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToLower(r)) + s[n:]
 }

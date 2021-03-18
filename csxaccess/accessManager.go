@@ -65,40 +65,6 @@ type MandatView struct {
 	Access   int             `json:"access"`
 }
 
-type AccessFieldsMap struct {
-	Access map[string]bool
-	Deny   map[string]bool
-}
-
-//  check manadat access
-func (accessFieldsMap *AccessFieldsMap) Check(subject string) bool {
-	if len(accessFieldsMap.Access) > 0 {
-		if _, ok := accessFieldsMap.Access[subject]; !ok {
-			return false
-		}
-		if _, ok := accessFieldsMap.Deny[subject]; ok {
-			return false
-		}
-	} else {
-		if _, ok := accessFieldsMap.Deny[subject]; ok {
-			return false
-		}
-	}
-	return true
-}
-
-//  check manadat access
-func (accessFieldsMap *AccessFieldsMap) Load(access, deny []string) {
-	accessFieldsMap.Access = map[string]bool{}
-	accessFieldsMap.Deny = map[string]bool{}
-	for i := 0; i < len(access); i++ {
-		accessFieldsMap.Access[access[i]] = true
-	}
-	for i := 0; i < len(deny); i++ {
-		accessFieldsMap.Deny[deny[i]] = true
-	}
-}
-
 // CheckAccess check manadat access
 func (mandat *Mandat) CheckAccess(roles map[string]int) int {
 	if mandat.CheckRole(roles) {
