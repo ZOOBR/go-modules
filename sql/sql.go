@@ -25,6 +25,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxaccess"
 	"gitlab.com/battler/modules/csxjson"
 	csxstrings "gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
@@ -306,7 +307,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 }
 
 // execQuery exec query and run callback with query result
-func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+func execQuery(db *sqlx.DB, q *string, fieldsMap *csxaccess.AccessFieldsMap, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
 	rows, err := db.Queryx(*q)
 	if err != nil {
 		return &QueryResult{Error: err}
@@ -331,6 +332,7 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 	}
 	results := QueryResult{Query: *q}
 	var parsingTime int64 = 0
+	checkFields := fieldsMap != nil
 	for rows.Next() {
 		row := map[string]interface{}{}
 		start := time.Now()
@@ -338,7 +340,11 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 		err = rows.MapScan(row)
 		duration := time.Since(start)
 		parsingTime += duration.Nanoseconds()
+
 		for k, v := range row {
+			if checkFields && !fieldsMap.Check(k) {
+				continue
+			}
 			//TODO:: You need to think about how to get rid of the extra cycle
 			switch v.(type) {
 			case []byte:
@@ -384,12 +390,17 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 
 // ExecQuery exec query and run callback with query result
 func (table *SchemaTable) ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
-	return execQuery(table.DB, queryString, cb...)
+	return execQuery(table.DB, queryString, nil, cb...)
 }
 
 // ExecQuery exec query in main database and run callback with query result
 func ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
-	return execQuery(DB, queryString, cb...)
+	return execQuery(DB, queryString, nil, cb...)
+}
+
+// ExecRestrictQuery exec query in main database and run callback with query result
+func ExecRestrictQuery(queryString *string, fieldsMap *csxaccess.AccessFieldsMap, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+	return execQuery(DB, queryString, fieldsMap, cb...)
 }
 
 // Find find records from database
