@@ -358,6 +358,7 @@ func execQuery(db *sqlx.DB, q *string, fieldsMap *AccessFieldsMap, cb ...func(ro
 
 		for k, v := range row {
 			if checkFields && !fieldsMap.Check(k) {
+				delete(row, k)
 				continue
 			}
 			//TODO:: You need to think about how to get rid of the extra cycle
