@@ -287,14 +287,57 @@ func (queryObj *Query) SaveLog(table string, item string, user string, diff map[
 	}
 }
 
+func GetStrictFields(fields []string, accessFieldsMap *AccessFieldsMap, prepareFieldName bool) []string {
+	result := []string{}
+	for i := 0; i < len(fields); i++ {
+		fieldName := fields[i]
+		var preparedFieldName string
+		if prepareFieldName {
+			preparedFieldName = strings.ReplaceAll(strings.ReplaceAll(fieldName, `"`, ``), " ", "")
+		} else {
+			preparedFieldName = fieldName
+		}
+		if strings.Contains(preparedFieldName, " as ") || strings.Contains(preparedFieldName, " AS ") {
+			parts := strings.Split(preparedFieldName, " ")
+			aliasName := strings.ReplaceAll(strings.ReplaceAll(parts[len(parts)-1], `"`, ``), " ", "")
+			preparedFieldName = aliasName
+		}
+		isAccess := true
+		if len(accessFieldsMap.Access) > 0 && !accessFieldsMap.Access[preparedFieldName] {
+			isAccess = false
+		}
+		if len(accessFieldsMap.Deny) > 0 && accessFieldsMap.Deny[preparedFieldName] {
+			isAccess = false
+		}
+		if isAccess {
+			result = append(result, fieldName)
+		}
+	}
+	return result
+}
+
 // MakeQuery make sql string expression from params
-func MakeQuery(params *QueryParams) (*string, error) {
+func MakeQuery(params *QueryParams, options ...map[string]interface{}) (*string, error) {
+	var accessFieldsMap *AccessFieldsMap
+	if len(options) > 0 {
+		opts := options[0]
+		accessFieldsMapInt, ok := opts["accessFieldsMap"]
+		if ok {
+			accessFieldsMap, _ = accessFieldsMapInt.(*AccessFieldsMap)
+		}
+	}
 	fields := "*"
 	var from, where, group, order string
 	if params.BaseTable != "" {
 		fields = prepareBaseFields(params.BaseTable, params.Select)
 	} else if params.Select != nil {
 		fields = prepareFields(params.Select)
+	}
+
+	if accessFieldsMap != nil {
+		fieldsArr := strings.Split(fields, ",")
+		restrictFieldsArr := GetStrictFields(fieldsArr, accessFieldsMap, true)
+		fields = strings.Join(restrictFieldsArr, ",")
 	}
 	if params.From != nil {
 		from = *params.From
