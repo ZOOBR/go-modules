@@ -1421,7 +1421,7 @@ func (table *SchemaTable) NewQuery() (q *dbc.Query) {
 	if err != nil {
 		return query
 	}
-	return nil
+	return query
 }
 
 // BeginTransaction Constructor for creating a pointer to work with the base and begin new transaction
