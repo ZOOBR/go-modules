@@ -20,6 +20,8 @@ const (
 	QueryModeUpdate = 4
 	// QueryModeDelete mode for delet collection items
 	QueryModeDelete = 8
+	// QueryModeDelete mode for read all fields exlude deny fields
+	QueryModeReadWithDeny = 16
 )
 
 type AccessManager struct {
