@@ -48,7 +48,7 @@ type BinaryReader struct {
 	offset   uint32
 	Size     uint32
 	lenElems int
-	Data     map[string]interface{}
+	// Data     map[string]interface{}
 }
 
 // BinaryData for read binaryPosition
@@ -435,7 +435,7 @@ func MapToBinary(inputData map[string]interface{}) (res []byte) {
 
 	// position structure
 	// 2 byte sign + 2 byte version + 4 bytes length + string key/interface{} value
-	sign := []byte{98, 116, 0, 0}
+	sign := []byte{98, 116, 0, protocolVersion2}
 	res = append(res, sign...)
 	var data []byte
 	for k, v := range inputData {
@@ -468,19 +468,18 @@ func MapToBinary(inputData map[string]interface{}) (res []byte) {
 	return res
 }
 
-// ReadData convert binary to map and save to BinaryReader.Data
-func (r *BinaryReader) ReadData() int16 {
-	r.Reset()
+// ReadData convert binary to map and save to BinaryReader.Data if you wanna read one element, use reset()
+func (r *BinaryReader) ReadData() (int16, map[string]interface{}) {
 	// init result variable
 	var result map[string]interface{}
 	result = make(map[string]interface{})
 	//check size
 	if r.Size < 8 {
-		return errorBinarySize
+		return errorBinarySize, nil
 	}
 	//check sign and pass invalid data
 	if !r.CheckSign() {
-		return errorBinarySize
+		return errorBinarySize, nil
 	}
 	// sign and version (2+2 bytes)
 	r.offset += 4
@@ -492,7 +491,7 @@ func (r *BinaryReader) ReadData() int16 {
 		//check type
 		st := r.Buf[r.offset]
 		if st != binaryString {
-			return errorBinaryRead
+			return errorBinaryRead, nil
 		}
 		r.offset++
 		// read string
@@ -525,16 +524,24 @@ func (r *BinaryReader) ReadData() int16 {
 			result[keyName] = r.ReadArray()
 		default:
 			log.Error(vt)
-			return errorBinaryRead
+			return errorBinaryRead, nil
 		}
 	}
 
-	r.Data = result
-
-	return 0
+	return 0, result
 }
 
 // ReadAllData sequential reading of all data
-func (r *BinaryReader) ReadAllData() {
+func (r *BinaryReader) ReadAllData() (bool, []map[string]interface{}) {
 	r.Reset()
+	var result []map[string]interface{}
+	for r.Size > r.offset {
+		err, item := r.ReadData()
+		if err != 0 {
+			return false, nil
+		}
+		result = append(result, item)
+	}
+
+	return true, result
 }
