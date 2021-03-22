@@ -336,6 +336,129 @@ func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
 	return mandatsNew
 }
 
+func (manager *AccessManager) DeleteMandats(ids []string) {
+	manager.accessMap.Range(func(key, value interface{}) bool {
+		subject, ok := key.(string)
+		if !ok {
+			return true
+		}
+		mandatsArray, ok := value.([]Mandat)
+		if !ok {
+			return true
+		}
+
+		newMandatsArray := mandatsArray
+		for i := 0; i < len(mandatsArray); i++ {
+			m := mandatsArray[i]
+			isFound := false
+			for _, deletedID := range ids {
+				if deletedID == m.ID {
+					isFound = true
+					break
+				}
+			}
+			if isFound {
+				newMandatsArray = append(mandatsArray[:i], mandatsArray[i+1:]...)
+			}
+		}
+		manager.accessMap.Store(subject, newMandatsArray)
+
+		return true
+	})
+
+	manager.categoryMap.Range(func(key, value interface{}) bool {
+		category, ok := key.(string)
+		if !ok {
+			return true
+		}
+		mandatsArray, ok := value.([]Mandat)
+		if !ok {
+			return true
+		}
+
+		newMandatsArray := mandatsArray
+		for i := 0; i < len(mandatsArray); i++ {
+			m := mandatsArray[i]
+			isFound := false
+			for _, deletedID := range ids {
+				if deletedID == m.ID {
+					isFound = true
+					break
+				}
+			}
+			if isFound {
+				newMandatsArray = append(mandatsArray[:i], mandatsArray[i+1:]...)
+			}
+		}
+		manager.accessMap.Store(category, newMandatsArray)
+
+		return true
+	})
+}
+
+func (manager *AccessManager) updateOrDeleteMandatBySubject(mandat *Mandat, id, cmd string) {
+	isDelete := cmd == "delete"
+	mandatsInt, ok := manager.accessMap.Load(mandat.Subject)
+	var mandatsOld []*Mandat
+	mandatsNew := []*Mandat{}
+	if ok {
+		mandatsOld = mandatsInt.([]*Mandat)
+	}
+	found := false
+	if mandatsOld != nil {
+		for i := 0; i < len(mandatsOld); i++ {
+			m := mandatsOld[i]
+			if m.ID == id {
+				found = true
+				if isDelete {
+					continue
+				}
+				m = mandat
+			}
+			mandatsNew = append(mandatsNew, m)
+		}
+	}
+	if !found && !isDelete {
+		mandatsNew = append(mandatsNew, mandat)
+	}
+	mandatsNew = sortMandats(mandatsNew)
+	manager.accessMap.Store(mandat.Subject, mandatsNew)
+}
+
+func (manager *AccessManager) updateOrDeleteMandatByCategory(mandat *Mandat, id, cmd string) {
+	isDelete := cmd == "delete"
+	mandatsInt, ok := manager.categoryMap.Load(mandat.Group)
+	var mandatsOld []*Mandat
+	mandatsNew := []*Mandat{}
+	if ok {
+		mandatsOld = mandatsInt.([]*Mandat)
+	}
+	found := false
+	if mandatsOld != nil {
+		for i := 0; i < len(mandatsOld); i++ {
+			m := mandatsOld[i]
+			if m.ID == id {
+				found = true
+				if isDelete {
+					continue
+				}
+				m = mandat
+			}
+			mandatsNew = append(mandatsNew, m)
+		}
+	}
+	if !found && !isDelete {
+		mandatsNew = append(mandatsNew, mandat)
+	}
+	mandatsNew = sortMandats(mandatsNew)
+	manager.categoryMap.Store(mandat.Subject, mandatsNew)
+}
+
+func (manager *AccessManager) UpdateOrDeleteMandat(mandat *Mandat, id, cmd string) {
+	manager.updateOrDeleteMandatBySubject(mandat, id, cmd)
+	manager.updateOrDeleteMandatByCategory(mandat, id, cmd)
+}
+
 // GetMandatsByCategory ---
 func (manager *AccessManager) GetMandatsByCategory(category string) ([]*Mandat, bool) {
 	mandatsInt, ok := manager.categoryMap.Load(category)
