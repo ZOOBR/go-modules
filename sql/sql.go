@@ -13,15 +13,12 @@ import (
 	"sync"
 	"text/template"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	_ "github.com/lib/pq"
 	deepcopier "github.com/mohae/deepcopy"
-	"github.com/prometheus/common/log"
 	"github.com/sirupsen/logrus"
 
 	"github.com/buger/jsonparser"
@@ -29,7 +26,6 @@ import (
 	"gitlab.com/battler/modules/csxjson"
 	csxstrings "gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
-	"gitlab.com/battler/modules/reporter"
 )
 
 const DUPLICATE_KEY_ERROR = "23505"
@@ -37,10 +33,7 @@ const TABLE_NOT_EXISTS = "42P01"
 
 var (
 	//DefaultURI default SQL connection string
-	amqpURI                 = os.Getenv("AMQP_URI")
-	sqlURIS                 = os.Getenv("SQL_URIS")
-	disableRegisterMetadata = os.Getenv("DISABLE_REGISTER_METADATA") == "1"
-	registerSchema          = registerSchemeManager{}
+	amqpURI = os.Getenv("AMQP_URI")
 	// DEPRECATED:: Need only for compatible
 	sqlURI       = os.Getenv("SQL_URI")
 	mainDatabase = os.Getenv("MAIN_SQL_DATABASE")
@@ -52,6 +45,10 @@ var (
 	Q               Query
 	initedDatabases map[string]int
 )
+
+func initialized() bool {
+	return DB != nil
+}
 
 // DatabaseParams struct with params required to create database connect
 type DatabaseParams struct {
@@ -87,13 +84,6 @@ type QueryResult struct {
 	Xlsx   []byte
 }
 
-// SchemaTableMetadata Structure for storing metadata
-type SchemaTableMetadata struct {
-	ID         string `db:"id" json:"id"`
-	Collection string `db:"collection" json:"collection"`
-	MetaData   JsonB  `db:"metadata" json:"metadata"`
-}
-
 // Query struct for run SQL queries in transaction
 // with commit or rollback methods
 type Query struct {
@@ -102,10 +92,53 @@ type Query struct {
 	db                *sqlx.DB
 	txCommitCallbacks []func()
 }
+type AccessFieldsMap struct {
+	Access map[string]bool
+	Deny   map[string]bool
+}
+
+//  check manadat access
+func (accessFieldsMap *AccessFieldsMap) Check(subject string) bool {
+	if len(accessFieldsMap.Access) > 0 {
+		if _, ok := accessFieldsMap.Access[subject]; !ok {
+			return false
+		}
+		if _, ok := accessFieldsMap.Deny[subject]; ok {
+			return false
+		}
+	} else {
+		if _, ok := accessFieldsMap.Deny[subject]; ok {
+			return false
+		}
+	}
+	return true
+}
+
+//  check manadat access
+func (accessFieldsMap *AccessFieldsMap) Load(access, deny []string) {
+	accessFieldsMap.Access = map[string]bool{}
+	accessFieldsMap.Deny = map[string]bool{}
+	for i := 0; i < len(access); i++ {
+		accessFieldsMap.Access[access[i]] = true
+	}
+	for i := 0; i < len(deny); i++ {
+		accessFieldsMap.Deny[deny[i]] = true
+	}
+}
 
 // NewQuery Constructor for creating a pointer to work with the main database
 func NewQuery(useTransaction bool) (q Query, err error) {
 	q = Query{db: DB}
+	if useTransaction {
+		q.tx, err = DB.Beginx()
+		q.Tx = q.tx
+	}
+	return q, err
+}
+
+// NewQuery Constructor for creating a pointer to work with the main database
+func NewDBQuery(db *sqlx.DB, useTransaction bool) (q *Query, err error) {
+	q = &Query{db: db}
 	if useTransaction {
 		q.tx, err = DB.Beginx()
 		q.Tx = q.tx
@@ -121,18 +154,8 @@ func BeginTransaction() (q *Query, err error) {
 	return q, err
 }
 
-// NewQuery Constructor for creating a pointer to work with the base
-func (table *SchemaTable) NewQuery() (q *Query) {
-	q = &Query{db: table.DB}
-	return q
-}
-
-// BeginTransaction Constructor for creating a pointer to work with the base and begin new transaction
-func (table *SchemaTable) BeginTransaction() (q *Query, err error) {
-	q = &Query{db: table.DB}
-	q.tx, err = table.DB.Beginx()
-	q.Tx = q.tx
-	return q, err
+func (queryObj *Query) IsTransact() bool {
+	return queryObj.tx != nil
 }
 
 // Commit commit transaction
@@ -224,10 +247,10 @@ func prepareBaseFields(baseTable string, fields *[]string) string {
 }
 
 // TODO:: Move save log to modelLog
-func (queryObj *Query) saveLog(table string, item string, user string, diff map[string]interface{}) {
+func (queryObj *Query) SaveLog(table string, item string, user string, diff map[string]interface{}) {
 	if len(diff) > 0 {
 		if user == "" {
-			log.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
+			logrus.Error("save log tbl:" + table + " item:" + item + " err: current user is not defined")
 			return
 		}
 		keys := []string{}
@@ -240,7 +263,7 @@ func (queryObj *Query) saveLog(table string, item string, user string, diff map[
 		query := `INSERT INTO "modelLog" ("id","table","item","user","diff","time") VALUES (:id,:table,:item,:user,:diff,:time)`
 		diffByte, err := json.Marshal(diff)
 		if err != nil {
-			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			logrus.Error("save log tbl:"+table+" item:"+item+" err:", err)
 			return
 		}
 		now := time.Now().UTC()
@@ -259,27 +282,62 @@ func (queryObj *Query) saveLog(table string, item string, user string, diff map[
 			_, err = queryObj.db.NamedExec(query, logItem)
 		}
 		if err != nil {
-			log.Error("save log tbl:"+table+" item:"+item+" err:", err)
+			logrus.Error("save log tbl:"+table+" item:"+item+" err:", err)
 		}
 	}
 }
 
-func lowerFirst(s string) string {
-	if s == "" {
-		return ""
+func GetStrictFields(fields []string, accessFieldsMap *AccessFieldsMap, prepareFieldName bool) []string {
+	result := []string{}
+	for i := 0; i < len(fields); i++ {
+		fieldName := fields[i]
+		var preparedFieldName string
+		if prepareFieldName {
+			preparedFieldName = strings.ReplaceAll(strings.ReplaceAll(fieldName, `"`, ``), " ", "")
+		} else {
+			preparedFieldName = fieldName
+		}
+		if strings.Contains(preparedFieldName, " as ") || strings.Contains(preparedFieldName, " AS ") {
+			parts := strings.Split(preparedFieldName, " ")
+			aliasName := strings.ReplaceAll(strings.ReplaceAll(parts[len(parts)-1], `"`, ``), " ", "")
+			preparedFieldName = aliasName
+		}
+		isAccess := true
+		if len(accessFieldsMap.Access) > 0 && !accessFieldsMap.Access[preparedFieldName] {
+			isAccess = false
+		}
+		if len(accessFieldsMap.Deny) > 0 && accessFieldsMap.Deny[preparedFieldName] {
+			isAccess = false
+		}
+		if isAccess {
+			result = append(result, fieldName)
+		}
 	}
-	r, n := utf8.DecodeRuneInString(s)
-	return string(unicode.ToLower(r)) + s[n:]
+	return result
 }
 
 // MakeQuery make sql string expression from params
-func MakeQuery(params *QueryParams) (*string, error) {
+func MakeQuery(params *QueryParams, options ...map[string]interface{}) (*string, error) {
+	var accessFieldsMap *AccessFieldsMap
+	if len(options) > 0 {
+		opts := options[0]
+		accessFieldsMapInt, ok := opts["accessFieldsMap"]
+		if ok {
+			accessFieldsMap, _ = accessFieldsMapInt.(*AccessFieldsMap)
+		}
+	}
 	fields := "*"
 	var from, where, group, order string
 	if params.BaseTable != "" {
 		fields = prepareBaseFields(params.BaseTable, params.Select)
 	} else if params.Select != nil {
 		fields = prepareFields(params.Select)
+	}
+
+	if accessFieldsMap != nil {
+		fieldsArr := strings.Split(fields, ",")
+		restrictFieldsArr := GetStrictFields(fieldsArr, accessFieldsMap, true)
+		fields = strings.Join(restrictFieldsArr, ",")
 	}
 	if params.From != nil {
 		from = *params.From
@@ -307,7 +365,7 @@ func MakeQuery(params *QueryParams) (*string, error) {
 }
 
 // execQuery exec query and run callback with query result
-func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+func execQuery(db *sqlx.DB, q *string, fieldsMap *AccessFieldsMap, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
 	rows, err := db.Queryx(*q)
 	if err != nil {
 		return &QueryResult{Error: err}
@@ -332,6 +390,7 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 	}
 	results := QueryResult{Query: *q}
 	var parsingTime int64 = 0
+	checkFields := fieldsMap != nil
 	for rows.Next() {
 		row := map[string]interface{}{}
 		start := time.Now()
@@ -339,7 +398,12 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 		err = rows.MapScan(row)
 		duration := time.Since(start)
 		parsingTime += duration.Nanoseconds()
+
 		for k, v := range row {
+			if checkFields && !fieldsMap.Check(k) {
+				delete(row, k)
+				continue
+			}
 			//TODO:: You need to think about how to get rid of the extra cycle
 			switch v.(type) {
 			case []byte:
@@ -383,14 +447,14 @@ func execQuery(db *sqlx.DB, q *string, cb ...func(rows *sqlx.Rows) bool) *QueryR
 	return &results
 }
 
-// ExecQuery exec query and run callback with query result
-func (table *SchemaTable) ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
-	return execQuery(table.DB, queryString, cb...)
-}
-
 // ExecQuery exec query in main database and run callback with query result
 func ExecQuery(queryString *string, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
-	return execQuery(DB, queryString, cb...)
+	return execQuery(DB, queryString, nil, cb...)
+}
+
+// ExecRestrictQuery exec query in main database and run callback with query result
+func ExecRestrictQuery(queryString *string, fieldsMap *AccessFieldsMap, cb ...func(rows *sqlx.Rows) bool) *QueryResult {
+	return execQuery(DB, queryString, fieldsMap, cb...)
 }
 
 // Find find records from database
@@ -792,7 +856,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 	if len(options) > 0 {
 		var id, user string
 		withLog := true
-		table := lowerFirst(typ.Name())
+		table := csxutils.LowerFirst(typ.Name())
 		opts, ok := options[0].([]string)
 		if !ok {
 			optsMap, okMap := options[0].(map[string]string)
@@ -806,7 +870,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 					withLog = false
 				}
 			} else {
-				log.Error("err get info for log model info:", options)
+				logrus.Error("err get info for log model info:", options)
 			}
 		} else if len(opts) > 1 {
 			// 0 - id
@@ -821,31 +885,10 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 
 		if table != "" && id != "" {
 			go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
-			registerSchema.RLock()
-			schemaTableReg, ok := registerSchema.tables[table]
-			registerSchema.RUnlock()
-			if ok {
-				if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-					for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
-						updateCallback := func() {
-							data := dataCallback(id)
-							go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
-						}
-						if queryObj.tx != nil {
-							queryObj.BindTxCommitCallback(updateCallback)
-						} else {
-							updateCallback()
-						}
-					}
-				}
-			}
 			if withLog {
-				queryObj.saveLog(table, id, user, diff)
+				queryObj.SaveLog(table, id, user, diff)
 			}
-		} else {
-			log.Error("missing table or id for save log", options)
 		}
-
 	}
 	return nil
 }
@@ -937,25 +980,6 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		table := settings["table"]
 		id := settings["id"]
 		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
-		registerSchema.RLock()
-		schemaTableReg, ok := registerSchema.tables[table]
-		registerSchema.RUnlock()
-		if ok {
-			if schemaTableReg.table != nil && schemaTableReg.table.getAmqpUpdateData != nil {
-				for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
-					updateCallback := func() {
-						data := dataCallback(id)
-						go amqp.SendUpdate(amqpURI, routingKey, id, "create", data)
-					}
-					if queryObj.tx != nil {
-						queryObj.BindTxCommitCallback(updateCallback)
-					} else {
-						updateCallback()
-					}
-				}
-			}
-		}
-
 	}
 	return nil
 }
@@ -1280,1401 +1304,30 @@ func PreparePaySystemQuery(field string, alias ...string) string {
 
 // Init open connection to database
 func Init() {
-	databases := map[string]*DatabaseParams{}
-	if sqlURIS != "" {
-		err := json.Unmarshal([]byte(sqlURIS), &databases)
-		if err != nil {
-			logrus.Error("SQL_URIS env var parse failed, err:", err)
-			return
-		}
+	if initialized() {
+		return
 	}
-
 	// << DEPRECATED:: Need for compatible with old connection logic
 	if mainDatabase == "" {
 		mainDatabase = "main"
 	}
-	if len(databases) == 0 && sqlURI != "" {
-		databases[mainDatabase] = &DatabaseParams{
-			DriverName:       "postgres",
-			ConnectionString: sqlURI,
-		}
-	}
-	// DEPRECATED:: >>
 
 	// TODO:: Need to deal with the default parameters
 	//db.DB.SetMaxIdleConns(10)  // The default is defaultMaxIdleConns (= 2)
 	//db.DB.SetMaxOpenConns(100)  // The default is 0 (unlimited)
 	//db.DB.SetConnMaxLifetime(3600 * time.Second)  // The default is 0 (connections reused forever)
 
-	registerSchema.connect(databases)
-	if len(registerSchema.databases) == 0 {
-		logrus.Error("fail connect to databases:", sqlURIS)
-		return
-	}
-	DB = registerSchema.databases[mainDatabase]
-	if DB == nil {
-		logrus.Error("missing main database:", sqlURIS)
-		return
+	var err error
+	DB, err = sqlx.Connect("postgres", sqlURI)
+	if err != nil {
+		logrus.Error("failed connect to main database:", sqlURI, " ", err)
+		time.Sleep(20 * time.Second)
+		Init()
 	}
 	// << DEPRECATED::
 	Q, _ = NewQuery(false)
 	// DEPRECATED:: >>
-	logrus.Info("success connect to databases:", sqlURIS)
-	registerSchema.prepare()
-	logrus.Info("success prepare schemas")
-}
-
-//---------------------------------------------------------------------------
-// Database schemas defenitions
-
-// SchemaField is definition of sql field
-type SchemaField struct {
-	Name      string
-	Type      string
-	IndexType string
-	Length    int
-	IsNull    bool
-	IsUUID    bool
-	Default   string
-	Key       int
-	Auto      int
-	checked   bool
-	Sequence  string
-}
-
-// SchemaTable is definition of sql table
-type SchemaTable struct {
-	DB           *sqlx.DB
-	DatabaseName string
-	Name         string
-	Fields       []*SchemaField
-	initalized   bool
-	IDFieldName  string
-	sqlSelect    string
-	SQLFields    []string
-	// GenFields   []string
-	getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
-	ExtKeys           []string
-	Extensions        []string
-	onUpdate          schemaTableUpdateCallback
-	LogChanges        bool
-	ExportFields      string
-	ExportTables      string
-	Struct            interface{}
-}
-
-// SchemaTableAmqpDataCallback is using for get data for amqp update
-type SchemaTableAmqpDataCallback func(id string) interface{}
-type schemaTablePrepareCallback func(table *SchemaTable, event string)
-type schemaTableUpdateCallback func(table *SchemaTable, msg interface{})
-type schemaTableReg struct {
-	table       *SchemaTable
-	callbacks   []schemaTableUpdateCallback
-	isConnector bool
-}
-type schemaTableMap map[string]*schemaTableReg
-
-type registerSchemeManager struct {
-	sync.RWMutex
-	tables    schemaTableMap
-	databases map[string]*sqlx.DB
-}
-
-func schemaLogSQL(sql string, err error) {
-	if err != nil {
-		logrus.Error(sql, ": ", err)
-	} else {
-		logrus.Info(sql)
-	}
-}
-
-func (reg *registerSchemeManager) connect(databases map[string]*DatabaseParams) {
-	reg.Lock()
-	defer reg.Unlock()
-	reg.databases = map[string]*sqlx.DB{}
-	for databaseName, databaseParams := range databases {
-		reg.initDatabase(databaseName, databaseParams)
-	}
-	logrus.Info(`connect to db in prepare scheme manager ended`)
-}
-
-func (reg *registerSchemeManager) prepare() {
-	registerSchema.Lock()
-	defer registerSchema.Unlock()
-	if registerSchema.tables == nil {
-		return
-	}
-	for _, tableManager := range registerSchema.tables {
-		err := tableManager.table.prepare()
-		if err != nil {
-			logrus.Error(`Table "` + tableManager.table.Name + `" schema check failed: ` + err.Error())
-		} else {
-			logrus.Debug(`Table "` + tableManager.table.Name + `" schema check successfully`)
-		}
-	}
-	logrus.Info(`prepare scheme manager success ended`)
-}
-
-func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallback, internal bool) error {
-	if !internal {
-		registerSchema.Lock()
-		defer registerSchema.Unlock()
-	}
-	if registerSchema.tables == nil {
-		return errors.New("Table not registered")
-	}
-	reg, ok := registerSchema.tables[tableName]
-	if !ok {
-		return errors.New("Table not registered")
-	}
-	reg.callbacks = append(reg.callbacks, cb)
-	if !reg.isConnector {
-		reg.isConnector = true
-		queueName := "csx.sql." + tableName
-		envName := os.Getenv("CSX_ENV")
-		consumerTag := os.Getenv("SERVICE_NAME")
-		if envName != "" {
-			queueName += "." + envName
-		}
-		if consumerTag != "" {
-			queueName += "." + consumerTag
-		} else {
-			queueName += "." + *csxstrings.NewId()
-		}
-		go amqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
-	}
-	return nil
-}
-
-func registerSchemaOnUpdate(d *amqp.Delivery) {
-	msg := amqp.Update{}
-	err := json.Unmarshal(d.Body, &msg)
-	if err != nil {
-		log.Error("HandleUpdates", "Error parse json: ", err)
-		return
-	}
-	registerSchema.RLock()
-	name := d.RoutingKey
-	reg, ok := registerSchema.tables[name]
-	if ok {
-		for _, cb := range reg.callbacks {
-			cb(reg.table, msg)
-		}
-	}
-	registerSchema.RUnlock()
-}
-
-// GetSchemaTable get schema table by table name
-func GetSchemaTable(table string) (*SchemaTable, bool) {
-	registerSchema.RLock()
-	schema, ok := registerSchema.tables[table]
-	registerSchema.RUnlock()
-	if !ok {
-		return nil, ok
-	}
-	return schema.table, ok
-}
-
-// GetSchemaTablesIds return tables names array
-func GetSchemaTablesIds() (res []string) {
-	res = make([]string, 0)
-	registerSchema.Lock()
-	for _, schemaReg := range registerSchema.tables {
-		res = append(res, schemaReg.table.Name)
-	}
-	registerSchema.Unlock()
-	return res
-}
-
-// GetSchemaTablesExtKeys return ext routing keys for amqp binding
-func GetSchemaTablesExtKeys() (res []string) {
-	res = make([]string, 0)
-	registerSchema.Lock()
-	for _, schemaReg := range registerSchema.tables {
-		res = append(res, schemaReg.table.ExtKeys...)
-	}
-	registerSchema.Unlock()
-	return res
-}
-
-// NewSchemaField create SchemaTable definition
-func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
-	field := new(SchemaField)
-	field.Name = name
-	field.Type = typ
-	ofs := 2
-	obj := reflect.ValueOf(field).Elem()
-	for index, arg := range args {
-		f := obj.Field(index + ofs)
-		v := reflect.ValueOf(arg)
-		f.Set(v)
-	}
-	return field
-}
-
-// NewSchemaTableFields create SchemaTable definition
-func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) *SchemaTable {
-	fields := make([]*SchemaField, len(fieldsInfo))
-	for index, field := range fieldsInfo {
-		fields[index] = field
-	}
-	newSchemaTable := SchemaTable{}
-	newSchemaTable.Name = name
-	newSchemaTable.Fields = fields
-	newSchemaTable.register()
-	return &newSchemaTable
-}
-
-// NewSchemaTable create SchemaTable definition from record structure
-func NewSchemaTable(name string, info interface{}, options map[string]interface{}) *SchemaTable {
-	var recType reflect.Type
-	infoType := reflect.TypeOf(info)
-	switch infoType.Kind() {
-	case reflect.Slice:
-		recType = infoType.Elem()
-	case reflect.Array:
-		recType = infoType.Elem()
-	default:
-		recType = infoType
-	}
-
-	newSchemaTable := SchemaTable{
-		Extensions: []string{},
-	}
-	// genFields := []string{}
-	idFieldName := ""
-	fields := make([]*SchemaField, 0)
-	if recType.Kind() == reflect.Struct {
-		fcnt := recType.NumField()
-		for i := 0; i < fcnt; i++ {
-			f := recType.Field(i)
-			name := f.Tag.Get("db")
-			dbFieldTag := f.Tag.Get("dbField")
-			if len(name) == 0 || name == "-" || dbFieldTag == "-" {
-				continue
-			}
-			field := new(SchemaField)
-			field.Name = name
-			field.Type = f.Tag.Get("type")
-			field.IndexType = f.Tag.Get("index")
-			if len(field.Type) == 0 {
-				field.Type = f.Type.Name()
-				if len(field.Type) == 0 || field.Type == "string" {
-					field.Type = "varchar"
-				}
-			}
-			field.Length, _ = strconv.Atoi(f.Tag.Get("len"))
-			field.Key, _ = strconv.Atoi(f.Tag.Get("key"))
-			field.Default = f.Tag.Get("def")
-			field.Auto, _ = strconv.Atoi(f.Tag.Get("auto"))
-			if f.Type.Kind() == reflect.Ptr || f.Type.Kind() == reflect.Map {
-				field.IsNull = true
-			}
-			field.IsUUID = field.Type == "uuid"
-			if (field.Key == 1 || name == "id") && field.IsUUID {
-				idFieldName = name
-			}
-			field.Sequence = f.Tag.Get("sequence")
-			fields = append(fields, field)
-			extension := f.Tag.Get("ext")
-			if len(extension) > 0 {
-				newSchemaTable.Extensions = append(newSchemaTable.Extensions, extension)
-			}
-			// if field.Default != "" || field.Auto != 0 {
-			// 	genFields = append(genFields, name)
-			// }
-		}
-	}
-
-	var onUpdate schemaTableUpdateCallback
-	var getAmqpUpdateData map[string]SchemaTableAmqpDataCallback
-	var logChanges bool
-	var extKeys []string
-	for key, val := range options {
-		switch key {
-		case "onUpdate":
-			if reflect.TypeOf(val).Kind() == reflect.Func {
-				onUpdate = val.(func(table *SchemaTable, msg interface{}))
-			}
-		case "logChanges":
-			logChanges = val.(bool)
-		case "getAmqpUpdateData":
-			getAmqpUpdateData = val.(map[string]SchemaTableAmqpDataCallback)
-		case "extKeys":
-			extKeys = val.([]string)
-		case "db":
-			newSchemaTable.DB = val.(*sqlx.DB)
-		case "databaseName":
-			newSchemaTable.DatabaseName = val.(string)
-		}
-	}
-	newSchemaTable.Name = name
-	newSchemaTable.Fields = fields
-	newSchemaTable.IDFieldName = idFieldName
-	newSchemaTable.onUpdate = onUpdate
-	newSchemaTable.getAmqpUpdateData = getAmqpUpdateData
-	newSchemaTable.ExtKeys = extKeys
-	newSchemaTable.LogChanges = logChanges
-	newSchemaTable.Struct = info
-	// newSchemaTable.GenFields = genFields
-	newSchemaTable.register()
-	return &newSchemaTable
-}
-
-func (table *SchemaTable) register() {
-	registerSchema.Lock()
-	if registerSchema.tables == nil {
-		registerSchema.tables = make(schemaTableMap)
-	}
-	reg, ok := registerSchema.tables[table.Name]
-	if !ok {
-		reg = &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
-		registerSchema.tables[table.Name] = reg
-	}
-	registerSchema.Unlock()
-}
-
-func (table *SchemaTable) registerMetadata() {
-	res := SchemaTableMetadata{}
-	err := table.DB.Get(&res, "SELECT id, collection, metadata FROM metadata WHERE collection = '"+table.Name+"'")
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return
-		}
-		logrus.Error("error get schema table metadata for collection: ", table.Name, " error: ", err)
-		return
-	}
-	metadataInt, ok := res.MetaData["export"]
-	if !ok {
-		return
-	}
-	metadata, ok := metadataInt.(map[string]interface{})
-	if !ok {
-		return
-	}
-	table.registerExportMetadata(metadata)
-}
-
-// RestrictRolesRights return complex restrict query based on all roles
-func (table *SchemaTable) RestrictRolesRights(roles map[string]*JsonB) string {
-	restrictQuery := ""
-	for _, rights := range roles {
-		if restrictQuery != "" {
-			restrictQuery += " OR "
-		}
-		restrictVal := table.GetRestrictQuery(rights)
-		if restrictVal != "" {
-			restrictQuery += "( " + restrictVal + " )"
-		}
-	}
-	return restrictQuery
-}
-
-// GetRestrictQuery returns sql restrict query by roles rights
-func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
-	if rights == nil {
-		return ""
-	}
-	restrictFieldsInt, ok := (*rights)[table.Name]
-	if !ok {
-		// if entity collection not found in rights map is FULL ACCESS
-		return ""
-	}
-	restrictFields, ok := restrictFieldsInt.(map[string]interface{})
-	if !ok {
-		// ignore invalid rights
-		return ""
-	}
-	restrictQuery := ""
-	for field, value := range restrictFields {
-		restrictField := reflect.ValueOf(value)
-		if restrictField.Kind() == reflect.Ptr {
-			restrictField = reflect.Indirect(restrictField)
-		}
-		var restrictVal string
-
-		switch restrictField.Interface().(type) {
-		case int, int8, int16, int32, int64:
-			restrictVal = strconv.FormatInt(restrictField.Int(), 10)
-		case uint, uint8, uint16, uint32, uint64:
-			restrictVal = strconv.FormatUint(restrictField.Uint(), 10)
-		case float32, float64:
-			restrictVal = strconv.FormatFloat(restrictField.Float(), 'E', -1, 64)
-		case string:
-			restrictVal = restrictField.String()
-		case bool:
-			restrictVal = strconv.FormatBool(restrictField.Bool())
-		default:
-			arrayValues, ok := value.([]interface{})
-			if !ok {
-				continue
-			}
-			inValues := ""
-			for i := 0; i < len(arrayValues); i++ {
-				if i > 0 && inValues != "" {
-					inValues += ","
-				}
-				if val, ok := arrayValues[i].(string); ok {
-					inValues += "'" + val + "'"
-				}
-			}
-			if inValues != "" {
-				if restrictQuery != "" {
-					restrictQuery += " AND "
-				}
-				restrictQuery += `"` + table.Name + `".` + field + " IN (" + inValues + ")"
-			}
-			continue
-		}
-
-		if restrictVal != "" {
-			if restrictQuery != "" {
-				restrictQuery += " AND "
-			}
-			restrictQuery += `"` + table.Name + `".` + field + " = '" + restrictVal + "'"
-		}
-	}
-	return restrictQuery
-}
-
-func (table *SchemaTable) registerExportMetadata(metadata map[string]interface{}) {
-	exportFieldsInt, ok := metadata["fields"]
-	if !ok {
-		return
-	}
-	exportFields, ok := exportFieldsInt.(string)
-	if !ok {
-		return
-	}
-	table.ExportFields = exportFields
-	exportTablesInt, ok := metadata["tables"]
-	if !ok {
-		return
-	}
-	exportTables, ok := exportTablesInt.(string)
-	if !ok {
-		return
-	}
-	table.ExportTables = exportTables
-}
-
-// Export is using for get xlsx bytes
-func (table *SchemaTable) Export(params map[string]string, extConditions ...string) []byte {
-	params["limit"] = "100000"
-	params["fields"] = table.ExportFields
-	params["join"] = table.ExportTables
-	var query string
-	if len(extConditions) > 0 {
-		query = MakeQueryFromReq(params, extConditions[0])
-	} else {
-		query = MakeQueryFromReq(params)
-	}
-	xlsx := bytes.NewBuffer([]byte{})
-	_ = ExecQuery(&query, func(rows *sqlx.Rows) bool {
-		reporter.GenerateXLSXFromRows(rows, xlsx)
-		return true
-	})
-	return xlsx.Bytes()
-}
-
-func (field *SchemaField) sql() string {
-	sql := `"` + field.Name + `" ` + field.Type
-	if field.Length > 0 {
-		sql += "(" + strconv.Itoa(field.Length) + ")"
-	}
-	if !field.IsNull {
-		sql += " NOT NULL"
-	}
-	if len(field.Default) > 0 {
-		sql += " DEFAULT " + field.Default
-	}
-	return sql
-}
-
-func (table *SchemaTable) create() error {
-	var keys string
-	skeys := []*SchemaField{}
-	sql := `CREATE TABLE "` + table.Name + `"(`
-	// enable extensions
-	for i := 0; i < len(table.Extensions); i++ {
-		ext := table.Extensions[i]
-		sql := `CREATE EXTENSION IF NOT EXISTS "` + ext + `"`
-		_, err := table.DB.Exec(sql)
-		schemaLogSQL(sql, err)
-	}
-	sqlSequence := ""
-	for index, field := range table.Fields {
-		if index > 0 {
-			sql += ", "
-		}
-		sql += field.sql()
-		if (field.Key & 1) != 0 {
-			if len(keys) > 0 {
-				keys += ","
-			}
-			keys += field.Name
-		}
-		if (field.Key&2) != 0 || field.IndexType != "" {
-			skeys = append(skeys, field)
-		}
-		if len(field.Sequence) > 0 {
-			sqlSequence += `CREATE SEQUENCE "` + table.Name + `_` + field.Sequence + `"; `
-		}
-	}
-	sql += `)`
-	_, err := table.DB.Exec(sql)
-	schemaLogSQL(sql, err)
-	if err == nil && len(keys) > 0 {
-		sql := `ALTER TABLE "` + table.Name + `" ADD PRIMARY KEY (` + keys + `)`
-		_, err = table.DB.Exec(sql)
-		schemaLogSQL(sql, err)
-	}
-	if err == nil && len(skeys) > 0 {
-		for _, field := range skeys {
-			table.createIndex(field)
-		}
-	}
-	// insert mandat info
-	sqlBaseMandat := `INSERT INTO "mandatInfo" ("id", "group", "subject")
-	SELECT uuid_generate_v4(), 'base', '` + table.Name + `'
-	WHERE NOT EXISTS (SELECT id FROM "mandatInfo" WHERE "subject" = '` + table.Name + `' and "group" = 'base')
-	RETURNING id;`
-	_, err = table.DB.Exec(sqlBaseMandat)
-	schemaLogSQL(sqlBaseMandat, err)
-	if len(sqlSequence) > 0 {
-		_, err = DB.Exec(sqlSequence)
-		schemaLogSQL(sqlSequence, err)
-	}
-	return err
-}
-
-func (table *SchemaTable) createIndex(field *SchemaField) error {
-	indexType := field.IndexType
-	if indexType == "" {
-		if field.Type == "json" || field.Type == "jsonb" {
-			indexType = "GIN"
-		} else {
-			indexType = "btree"
-		}
-	}
-	sql := `CREATE INDEX "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
-	_, err := table.DB.Exec(sql)
-	schemaLogSQL(sql, err)
-	return err
-}
-
-func (table *SchemaTable) alter(cols []string) error {
-	for _, name := range cols {
-		_, field := table.FindField(name)
-		if field != nil {
-			field.checked = true
-		}
-	}
-	var err error
-	for _, field := range table.Fields {
-		if !field.checked {
-			sql := `ALTER TABLE "` + table.Name + `" ADD COLUMN ` + field.sql()
-			_, err = table.DB.Exec(sql)
-			schemaLogSQL(sql, err)
-			if err != nil {
-				break
-			}
-			if (field.Key&2) != 0 || field.IndexType != "" {
-				table.createIndex(field)
-			}
-			field.checked = true
-		}
-	}
-	return err
-}
-
-// ParseConnectionString parse connection string map with params
-func ParseConnectionString(connString string) (params map[string]string) {
-	strArray := strings.Split(connString, " ")
-	params = map[string]string{}
-	for _, v := range strArray {
-		keyValArray := strings.Split(v, "=")
-		if len(keyValArray) != 2 {
-			continue
-		}
-		params[keyValArray[0]] = keyValArray[1]
-	}
-	return params
-}
-
-// GetDatabase get database pointer from schema manager map by name
-func (reg *registerSchemeManager) GetDatabase(databaseName string) (*sqlx.DB, bool) {
-	db, ok := reg.databases[databaseName]
-	return db, ok
-}
-
-// SetDatabase set database pointer in schema manager map by name
-func (reg *registerSchemeManager) SetDatabase(databaseName string, db *sqlx.DB) {
-	reg.databases[databaseName] = db
-}
-
-// Prepare check scheme initializing and and create or alter table
-func (reg *registerSchemeManager) initDatabase(databaseName string, databaseParams *DatabaseParams) {
-	if databaseParams == nil {
-		logrus.Error("nil database params, databaseName: ", databaseName)
-		return
-	}
-	if databaseParams.ConnectionString == "" {
-		logrus.Error("empty database connectionString, databaseName: ", databaseName)
-		return
-	}
-	if databaseParams.DriverName == "" {
-		logrus.Warn("connect to database: ", databaseName, " without set type, use postgres driver by default")
-		// default database type
-		// need for compatible with old code
-		databaseParams.DriverName = "postgres"
-	}
-	connectionString := databaseParams.ConnectionString
-	db, err := sqlx.Connect(databaseParams.DriverName, databaseParams.ConnectionString)
-	if err != nil {
-		logrus.Error("failed connect to database:", connectionString, " ", err)
-		time.Sleep(20 * time.Second)
-		reg.initDatabase(databaseName, databaseParams)
-	} else {
-		reg.SetDatabase(databaseName, db)
-	}
-}
-
-// Prepare check scheme initializing and and create or alter table
-func (table *SchemaTable) prepare() error {
-	if table.DatabaseName != "" {
-		db, ok := registerSchema.GetDatabase(table.DatabaseName)
-		if !ok {
-			return errors.New("wrong database name: " + table.DatabaseName + " in schema: " + table.Name)
-		}
-		table.DB = db
-	} else {
-		table.DB = DB
-	}
-	table.initalized = true
-	table.SQLFields = []string{}
-	table.sqlSelect = "SELECT "
-	for index, field := range table.Fields {
-		if index > 0 {
-			table.sqlSelect += ", "
-		}
-		fieldName := ""
-		if field.Type == "geometry" {
-			fieldName = "st_asgeojson(" + field.Name + `) as "` + field.Name + `"`
-		} else {
-			fieldName = `"` + field.Name + `" `
-		}
-		table.sqlSelect += fieldName
-		table.SQLFields = append(table.SQLFields, fieldName)
-	}
-	table.sqlSelect += ` FROM "` + table.Name + `"`
-
-	rows, err := table.DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
-	if err == nil {
-		defer rows.Close()
-		var cols []string
-		cols, err = rows.Columns()
-		if err == nil {
-			err = table.alter(cols)
-		}
-	} else {
-		code := GetDBErrorCode(err)
-		if code == TABLE_NOT_EXISTS { // not exists
-			err = table.create()
-		}
-	}
-	if err == nil && table.onUpdate != nil {
-		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
-	}
-	if !disableRegisterMetadata {
-		table.registerMetadata()
-	}
-	return err
-}
-
-// FindField search field by name
-func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
-	for index, field := range table.Fields {
-		if field.Name == name {
-			return index, field
-		}
-	}
-	return -1, nil
-}
-
-// OnUpdate init and set callback on table external update event
-func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
-	registerSchemaSetUpdateCallback(table.Name, cb, false)
-}
-
-// QueryParams execute  sql query with params
-func (table *SchemaTable) QueryParams(recs interface{}, params ...[]string) error {
-	var fields, where, order, groupby *[]string
-
-	if len(params) > 0 {
-		where = &params[0]
-	}
-	if len(params) > 1 {
-		order = &params[1]
-	}
-	if len(params) > 2 {
-		fields = &params[2]
-	} else {
-		fields = &table.SQLFields
-	}
-	if len(params) > 3 && params[3] != nil {
-		join := &params[3]
-		return table.QueryJoin(recs, fields, where, order, join)
-	}
-	if len(params) > 4 {
-		groupby = &params[4]
-	}
-
-	return table.Query(recs, fields, where, order, groupby)
-}
-
-// Query execute sql query with params
-func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[]string, args ...interface{}) error {
-	qparams := &QueryParams{
-		Select: fields,
-		From:   &table.Name,
-		Where:  where,
-		Order:  order,
-		Group:  group,
-	}
-
-	query, err := MakeQuery(qparams)
-	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error("err: ", err, " query:", *query)
-		return err
-	}
-	return nil
-}
-
-// QueryJoin execute sql query with params
-func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join *[]string, args ...interface{}) error {
-	if join == nil || len(*join) == 0 {
-		return errors.New("join arg is empty")
-	}
-	qparams := &QueryParams{
-		Select: fields,
-		From:   &(*join)[0],
-		Where:  where,
-		Order:  order,
-	}
-
-	query, err := MakeQuery(qparams)
-	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		log.Error(*query)
-		fmt.Println(err)
-		return err
-	}
-	return nil
-}
-
-// Select execute select sql string
-func (table *SchemaTable) Select(recs interface{}, where string, args ...interface{}) error {
-	sql := table.sqlSelect
-	if len(where) > 0 {
-		sql += " WHERE " + where
-	}
-	return table.DB.Select(recs, sql, args...)
-}
-
-// Get execute select sql string and return first record
-func (table *SchemaTable) Get(rec interface{}, where string, args ...interface{}) error {
-	sql := table.sqlSelect
-	if len(where) > 0 {
-		sql += " WHERE " + where
-	}
-	return table.DB.Get(rec, sql, args...)
-}
-
-// Count records with where sql string
-func (table *SchemaTable) Count(where string, args ...interface{}) (int, error) {
-	sql := `SELECT COUNT(*) FROM "` + table.Name + `"`
-	if len(where) > 0 {
-		sql += " WHERE " + where
-	}
-	rec := struct{ Count int }{}
-	err := table.DB.Get(&rec, sql, args...)
-	if err == nil {
-		return rec.Count, err
-	}
-	return -1, err
-}
-
-// Exists test records exists with where sql string
-func (table *SchemaTable) Exists(where string, args ...interface{}) (bool, error) {
-	cnt, err := table.Count(where, args...)
-	return cnt > 0, err
-}
-
-// TransactInsert execute insert sql string in transaction
-func (table *SchemaTable) TransactInsert(data interface{}, query *Query, options ...map[string]interface{}) error {
-	return table.insert(data, query, options...)
-}
-
-// Insert execute insert sql string
-func (table *SchemaTable) Insert(data interface{}, options ...map[string]interface{}) error {
-	return table.insert(data, nil, options...)
-}
-
-// insert execute insert sql string
-func (table *SchemaTable) insert(data interface{}, query *Query, options ...map[string]interface{}) error {
-	_, err := table.checkInsert(data, nil, query, options...)
-	return err
-}
-
-func (table *SchemaTable) getIDField(id string, options []map[string]interface{}) (idField, newID string, err error) {
-	idField = table.IDFieldName
-	newID = id
-	if len(options) > 0 {
-		option := options[0]
-		if option != nil && option["idField"] != nil {
-			idField = option["idField"].(string)
-		}
-
-		index, field := table.FindField(idField)
-		if index == -1 {
-			return "", "", errors.New("invalid id field: " + idField)
-		}
-		if field.Type == "uuid" && id == "" {
-			newID = *csxstrings.NewId()
-		}
-	}
-	if idField == "" {
-		idField = "id"
-	}
-	return idField, newID, nil
-}
-
-// TransactUpsertMultiple execute insert or update sql string in transaction
-func (table *SchemaTable) TransactUpsertMultiple(query *Query, data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
-	return table.upsertMultiple(query, data, where, options...)
-}
-
-// UpsertMultiple execute insert or update sql string
-func (table *SchemaTable) UpsertMultiple(data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
-	return table.upsertMultiple(nil, data, where, options...)
-}
-
-// UpsertMultiple execute insert or update sql string
-func (table *SchemaTable) upsertMultiple(query *Query, data interface{}, where string, options ...map[string]interface{}) (count int64, err error) {
-	result, err := table.checkInsert(data, &where, query, options...)
-	if err != nil {
-		return count, err
-	}
-	count, err = result.RowsAffected()
-	if err != nil {
-		_, _, _, err = table.updateMultiple(nil, data, where, query, options...)
-	}
-	return count, err
-}
-
-// Upsert execute insert or update sql string
-func (table *SchemaTable) Upsert(id string, data interface{}, options ...map[string]interface{}) error {
-	return table.upsert(id, data, nil, options...)
-}
-
-// TransactUpsert execute insert or update sql string in transaction
-func (table *SchemaTable) TransactUpsert(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
-	return table.upsert(id, data, query, options...)
-}
-
-// Upsert execute insert or update sql string
-func (table *SchemaTable) upsert(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
-	idField, id, err := table.getIDField(id, options)
-	if err != nil {
-		return err
-	}
-	where := `"` + idField + `"='` + id + "'"
-	result, err := table.checkInsert(data, &where, query, options...)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err == nil && rows == 0 {
-		err = table.update(id, data, query, options...)
-	}
-	return err
-}
-
-func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
-	diff = make(map[string]interface{})
-	diffPub = make(map[string]interface{})
-	args = []interface{}{}
-	cnt := 0
-	recType := rec.Type()
-	fcnt := recType.NumField()
-	oldRec := reflect.ValueOf(oldData)
-	compareWithOldRec := oldRec.IsValid()
-	for i := 0; i < fcnt; i++ {
-		f := recType.Field(i)
-		name := f.Tag.Get("db")
-		fType := f.Tag.Get("type")
-		if len(name) == 0 || name == "-" {
-			continue
-		}
-		newFld := rec.FieldByName(f.Name)
-		var oldFldInt interface{}
-		if compareWithOldRec {
-			oldFld := oldRec.FieldByName(f.Name)
-			if oldFld.IsValid() {
-				oldFldInt = oldFld.Interface()
-				if oldFldInt == newFld.Interface() {
-					continue
-				}
-			}
-		}
-		if checkExcludeFields(name, options...) {
-			continue
-		}
-		if cnt > 0 {
-			fields += ","
-			values += ","
-		}
-		cnt++
-		fields += `"` + name + `"`
-		fldInt := newFld.Interface()
-		if newFld.IsValid() {
-			if fType == "geometry" {
-				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
-			} else {
-				values += "$" + strconv.Itoa(cnt)
-			}
-			if name == idField {
-				itemID = fmt.Sprintf("%v", fldInt)
-			}
-			if name != idField || oldFldInt == nil {
-				diffVal := []interface{}{fldInt}
-				if oldFldInt != nil {
-					diffVal = append(diffVal, oldFldInt)
-				}
-				diff[name] = diffVal
-				diffPub[name] = fldInt
-			}
-			args = append(args, fldInt)
-		} else {
-			values += "NULL"
-		}
-	}
-	excludeFields(diff, diffPub, options...)
-	return args, values, fields, itemID, diff, diffPub
-}
-
-func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
-	diff = make(map[string]interface{})
-	diffPub = make(map[string]interface{})
-	args = []interface{}{}
-	cnt := 0
-	cntField := 0
-	compareWithOldRec := oldData != nil
-	for name := range data {
-		_, f := table.FindField(name)
-		if f == nil {
-			logrus.WithFields(logrus.Fields{"table": table.Name, "field": name}).Warn("invalid field")
-			continue
-		}
-		val := data[name]
-		oldVal := oldData[name]
-		if f.IsUUID {
-			if str, ok := val.(string); ok && str == "" {
-				val = nil
-			}
-		}
-		if compareWithOldRec && val == oldVal {
-			continue
-		}
-		if checkExcludeFields(name, options...) {
-			continue
-		}
-		if cntField > 0 {
-			fields += ","
-			values += ","
-		}
-		fields += `"` + name + `"`
-		if name == idField {
-			itemID = fmt.Sprintf("%v", val)
-		}
-		if name != idField || oldVal == nil {
-			diffVal := []interface{}{val}
-			if oldVal != nil {
-				diffVal = append(diffVal, oldVal)
-			}
-			diff[name] = diffVal
-			diffPub[name] = val
-		}
-		if f.Type == "uuid[]" {
-			val = pq.Array(val)
-		}
-		if val != nil {
-			cnt++
-			argNum := "$" + strconv.Itoa(cnt)
-			if f.Type == "geometry" {
-				values += "ST_GeomFromGeoJSON(" + argNum + ")"
-			} else if f.Type == "jsonb" {
-				valJSON, err := json.Marshal(val)
-				if err != nil {
-					logrus.Error("invalid jsonb value: ", val, " of field: ", name)
-				}
-				val = valJSON
-				values += argNum
-			} else {
-				values += argNum
-			}
-			args = append(args, val)
-		} else {
-			values += "NULL"
-		}
-		cntField++
-	}
-	excludeFields(diff, diffPub, options...)
-	return args, values, fields, itemID, diff, diffPub
-}
-
-func excludeFields(diff map[string]interface{}, diffPub map[string]interface{}, options ...map[string]interface{}) {
-	ignoreDiff := []string{}
-	if len(options) > 0 {
-		option := options[0]
-		if option["ignoreDiff"] != nil {
-			ignoreDiff = option["ignoreDiff"].([]string)
-		}
-	}
-	for i := 0; i < len(ignoreDiff); i++ {
-		field := ignoreDiff[i]
-		delete(diff, field)
-		delete(diffPub, field)
-	}
-}
-
-func checkExcludeFields(fieldName string, options ...map[string]interface{}) bool {
-	ignoreDiff := []string{}
-	if len(options) > 0 {
-		option := options[0]
-		if option["ignoreDiff"] != nil {
-			ignoreDiff = option["ignoreDiff"].([]string)
-		}
-	}
-	for i := 0; i < len(ignoreDiff); i++ {
-		f := ignoreDiff[i]
-		if f == fieldName {
-			return true
-		}
-	}
-	return false
-}
-
-// SelectMap select multiple items from db to []map[string]interfaces
-func (table *SchemaTable) SelectMap(where string) ([]map[string]interface{}, error) {
-	q := table.sqlSelect
-	if len(where) > 0 {
-		q += " WHERE " + where
-	}
-	results := make([]map[string]interface{}, 0)
-	rows, err := table.DB.Queryx(q)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		row := make(map[string]interface{})
-		err = rows.MapScan(row)
-		for k, v := range row {
-			switch v.(type) {
-			case []byte:
-				var jsonMap map[string]*json.RawMessage
-				err := json.Unmarshal(v.([]byte), &jsonMap)
-				if err != nil {
-					row[k] = string(v.([]byte))
-				} else {
-					row[k] = jsonMap
-				}
-			}
-		}
-		results = append(results, row)
-	}
-	return results, nil
-}
-
-// GetMap get one item form db and return as map[string]interfaces
-func (table *SchemaTable) GetMap(q string) (map[string]interface{}, error) {
-	results, err := table.SelectMap(q)
-	if err != nil {
-		return nil, err
-	}
-	lenResults := len(results)
-	if lenResults > 1 {
-		return nil, errors.New("multiple results for GetMap query not allowed")
-	} else if lenResults == 0 {
-		return nil, nil
-	} else {
-		return results[0], nil
-	}
-}
-
-// TransactCheckInsert execute insert sql string if not exist where expression in transaction
-func (table *SchemaTable) TransactCheckInsert(data interface{}, where *string, query *Query, options ...map[string]interface{}) (sql.Result, error) {
-	return table.checkInsert(data, where, query, options...)
-}
-
-// CheckInsert execute insert sql string if not exist where expression
-func (table *SchemaTable) CheckInsert(data interface{}, where *string, options ...map[string]interface{}) (sql.Result, error) {
-	return table.checkInsert(data, where, nil, options...)
-}
-
-// checkInsert execute insert sql string if not exist where expression
-func (table *SchemaTable) checkInsert(data interface{}, where *string, query *Query, options ...map[string]interface{}) (sql.Result, error) {
-	if query == nil {
-		query = table.NewQuery()
-	}
-	var diff, diffPub map[string]interface{}
-	idField, _, err := table.getIDField("", options)
-	if err != nil {
-		return nil, err
-	}
-	rec := reflect.ValueOf(data)
-	recType := rec.Type()
-
-	if recType.Kind() == reflect.Ptr {
-		rec = reflect.Indirect(rec)
-		recType = rec.Type()
-	}
-	var fields, values, itemID string
-	var args []interface{}
-	if recType.Kind() == reflect.Map {
-		dataMap, ok := data.(map[string]interface{})
-		if !ok {
-			return nil, errors.New("element must be a map[string]interface")
-		}
-		args, values, fields, itemID, diff, diffPub = table.prepareArgsMap(dataMap, nil, idField)
-	} else if recType.Kind() == reflect.Struct {
-		args, values, fields, itemID, diff, diffPub = table.prepareArgsStruct(rec, nil, idField)
-	} else {
-		return nil, errors.New("element must be struct or map[string]interface")
-	}
-
-	sql := `INSERT INTO "` + table.Name + `" (` + fields + `)`
-	if where == nil {
-		sql += ` VALUES (` + values + `)`
-	} else {
-		sql += ` SELECT ` + values + ` WHERE NOT EXISTS(SELECT * FROM "` + table.Name + `" WHERE ` + *where + `)`
-	}
-
-	res, err := query.Exec(sql, args...)
-	if err == nil {
-		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub, options...)
-		table.SaveLog(itemID, diff, options)
-	}
-	return res, err
-}
-
-// SaveLog save model logs to database
-func (table *SchemaTable) SaveLog(itemID string, diff map[string]interface{}, options []map[string]interface{}) error {
-	withLog := table.LogChanges
-	if len(options) > 0 {
-		option := options[0]
-		if option["withLog"] != nil {
-			withLog = option["withLog"].(bool)
-		}
-		if withLog {
-			id := itemID
-			user := ""
-			if option["idField"] != nil {
-				id = option["idField"].(string)
-			}
-			if option["user"] != nil {
-				user = option["user"].(string)
-			}
-			query, err := NewQuery(false)
-			if err != nil {
-				return err
-			}
-			query.saveLog(table.Name, id, user, diff)
-		}
-	}
-	return nil
-}
-
-// TransactUpdateMultiple execute update sql string in transaction
-func (table *SchemaTable) TransactUpdateMultiple(oldData, data interface{}, where string, query *Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
-	return table.updateMultiple(oldData, data, where, query, options...)
-}
-
-// UpdateMultiple execute update sql string
-func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
-	return table.updateMultiple(oldData, data, where, nil, options...)
-}
-
-// updateMultiple execute update sql string
-func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string, query *Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
-	if query == nil {
-		query = table.NewQuery()
-	}
-	rec := reflect.ValueOf(data)
-	recType := rec.Type()
-
-	if recType.Kind() == reflect.Ptr {
-		rec = reflect.Indirect(rec)
-		recType = rec.Type()
-	}
-	var fields, values string
-	var args []interface{}
-	if recType.Kind() == reflect.Map {
-		dataMap, ok := data.(map[string]interface{})
-		if !ok {
-			return nil, nil, nil, errors.New("data must be a map[string]interface")
-		}
-		oldDataMap, ok := oldData.(map[string]interface{})
-		if !ok {
-			return nil, nil, nil, errors.New("oldData must be a map[string]interface")
-		}
-		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
-	} else if recType.Kind() == reflect.Struct {
-		oldRec := reflect.ValueOf(oldData)
-		oldRecType := oldRec.Type()
-
-		if oldRecType.Kind() == reflect.Ptr {
-			oldRec = reflect.Indirect(oldRec)
-			oldRecType = oldRec.Type()
-		}
-		//if oldData is map and rec is struct - convert rec to map
-		if oldRecType.Kind() == reflect.Map {
-			str := GetMapFromStruct(data)
-			args, values, fields, _, diff, diffPub = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
-		} else {
-			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
-		}
-	} else {
-		return nil, nil, nil, errors.New("element must be struct or map[string]interface")
-	}
-
-	var sql string
-	lenDiff := len(diff)
-	if lenDiff == 1 {
-		sql = `UPDATE "` + table.Name + `" SET ` + fields + ` = ` + values + ` WHERE ` + where + ` RETURNING id`
-	} else if lenDiff > 0 {
-		sql = `UPDATE "` + table.Name + `" SET (` + fields + `) = (` + values + `) WHERE ` + where + ` RETURNING id`
-	}
-	ids = []string{}
-	if lenDiff > 0 {
-		err = query.Select(&ids, sql, args...)
-	}
-	return diff, diffPub, ids, err
-}
-
-// TransactUpdate update one item by id
-func (table *SchemaTable) TransactUpdate(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
-	return table.update(id, data, query, options...)
-}
-
-// Update update one item by id
-func (table *SchemaTable) Update(id string, data interface{}, options ...map[string]interface{}) error {
-	return table.update(id, data, nil, options...)
-}
-
-// update update one item by id
-func (table *SchemaTable) update(id string, data interface{}, query *Query, options ...map[string]interface{}) error {
-	idField, id, err := table.getIDField(id, options)
-	if err != nil {
-		return err
-	}
-	var oldData map[string]interface{}
-	if len(options) > 0 {
-		if _, ok := options[0]["oldData"]; ok {
-			oldData = options[0]["oldData"].(map[string]interface{})
-		}
-	}
-	where := `"` + idField + `"='` + id + `'`
-	if oldData == nil {
-		oldData, err = table.GetMap(where)
-		if err != nil {
-			return err
-		}
-	}
-	diff, diffPub, _, err := table.updateMultiple(oldData, data, where, query, options...)
-	if err == nil && len(diff) > 0 {
-		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub, options...)
-		table.SaveLog(id, diff, options)
-	}
-	return err
-}
-
-// TransactDeleteMultiple  delete all records with where sql string in transaction
-func (table *SchemaTable) TransactDeleteMultiple(where string, query *Query, options ...map[string]interface{}) (int, error) {
-	return table.deleteMultiple(where, query, options...)
-}
-
-// DeleteMultiple  delete all records with where sql string
-func (table *SchemaTable) DeleteMultiple(where string, options ...map[string]interface{}) (int, error) {
-	return table.deleteMultiple(where, nil, options...)
-}
-
-// DeleteMultiple  delete all records with where sql string
-func (table *SchemaTable) deleteMultiple(where string, query *Query, options ...map[string]interface{}) (int, error) {
-	if query == nil {
-		query = table.NewQuery()
-	}
-	sql := `DELETE FROM "` + table.Name + `"`
-	if len(where) > 0 {
-		sql += " WHERE " + where
-	}
-	sql += " RETURNING id"
-	var args []interface{}
-	if len(options) > 0 {
-		option := options[0]
-		if option["args"] != nil {
-			args = option["args"].([]interface{})
-		}
-	}
-	// ret, err := q.Exec(sql, args...)
-	ids := []string{}
-	err := query.Select(&ids, sql, args...)
-	if err == nil {
-		countDelete := len(ids)
-		if countDelete > 0 {
-			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil, options...)
-		}
-
-		return countDelete, err
-	}
-	return -1, err
-}
-
-// TransactDelete delete one record by id in transaction
-func (table *SchemaTable) TransactDelete(id string, query *Query, options ...map[string]interface{}) (int, error) {
-	return table.delete(id, query, options...)
-}
-
-// Delete delete one record by id
-func (table *SchemaTable) Delete(id string, options ...map[string]interface{}) (int, error) {
-	return table.delete(id, nil, options...)
-}
-
-// delete delete one record by id
-func (table *SchemaTable) delete(id string, query *Query, options ...map[string]interface{}) (int, error) {
-	idField, id, err := table.getIDField(id, options)
-	if err != nil {
-		return 0, err
-	}
-	count, err := table.deleteMultiple(idField+`='`+id+`'`, query, options...)
-	if count != 1 {
-		err = errors.New("record not found")
-	}
-	if err == nil {
-		var data interface{}
-		if len(options) > 0 {
-			data = options[0]["data"]
-		}
-		if data == nil {
-			data = map[string]interface{}{
-				"id": id,
-			}
-		}
-		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data, options...)
-		//table.SaveLog(id, diff, options)
-	}
-	return count, err
+	logrus.Info("success connect to main database:", sqlURI)
 }
 
 //---------------------------------------------------------------------------
@@ -2919,6 +1572,17 @@ func readItem(itemPtr interface{}, cb func()) {
 func GetDBErrorCode(err error) pq.ErrorCode {
 	pqErr := err.(*pq.Error)
 	return pqErr.Code
+}
+
+func (queryObj *Query) NamedExec(query string, resultMap map[string]interface{}) (*sql.Result, error) {
+	var err error
+	var result sql.Result
+	if queryObj.IsTransact() {
+		result, err = queryObj.tx.NamedExec(query, resultMap)
+	} else {
+		result, err = queryObj.db.NamedExec(query, resultMap)
+	}
+	return &result, err
 }
 
 //---------------------------------------------------------------------------

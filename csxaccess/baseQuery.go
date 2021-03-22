@@ -1,12 +1,14 @@
 package csxaccess
 
-import dbc "gitlab.com/battler/modules/sql"
+import (
+	"gitlab.com/battler/modules/csxschema"
+)
 
 // BaseQuery struct for get update, upsert and delete http queries
 type BaseQuery struct {
 	ID           string `json:"id"`
 	Collection   string `json:"collection"`
-	Schema       *dbc.SchemaTable
+	Schema       *csxschema.SchemaTable
 	StrictFields *[]string
 	Data         map[string]interface{} `json:"data"`
 	manager      *AccessManager

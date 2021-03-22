@@ -180,6 +180,10 @@ func SaveSession(ctx *csxhttp.Context, session *sessions.Session) error {
 	return sessionsStore.Save(ctx.Request(), ctx.Response(), session)
 }
 
+func SaveSessionWithoutCtx(session *sessions.Session) error {
+	return sessionsStore.SaveWithoutCtx(session)
+}
+
 func DeleteSession(ctx *csxhttp.Context, session *sessions.Session) error {
 	return sessionsStore.Delete(ctx.Request(), ctx.Response(), session)
 }
@@ -190,4 +194,8 @@ func GetSession(ctx *csxhttp.Context) (*sessions.Session, error) {
 
 func DeleteSessionByID(id string) error {
 	return sessionsStore.DeleteByID(id)
+}
+
+func GetSessionByID(id string) (*sessions.Session, error) {
+	return sessionsStore.GetByID(id, SessionKey)
 }

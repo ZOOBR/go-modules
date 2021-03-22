@@ -1,6 +1,6 @@
 module gitlab.com/battler/modules
 
-go 1.13
+go 1.16
 
 require (
 	github.com/Masterminds/semver v1.5.0
@@ -20,7 +20,6 @@ require (
 	github.com/mattn/go-colorable v0.1.8 // indirect
 	github.com/mohae/deepcopy v0.0.0-20170929034955-c48cc78d4826
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
-	github.com/prometheus/common v0.10.0
 	github.com/sirupsen/logrus v1.6.0
 	github.com/streadway/amqp v0.0.0-20200108173154-1c71cc93ed71
 	github.com/tealeg/xlsx v1.0.5
