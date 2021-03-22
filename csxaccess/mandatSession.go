@@ -55,7 +55,7 @@ func (mandatSession *MandatSession) GetSession(ctx *csxhttp.Context) (*sessions.
 }
 
 // CheckAccess check mandat access
-func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *ControlVersionInfo) (success bool, httpCode int, msg string) {
+func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, accessManager *AccessManager, info *ControlVersionInfo) (success bool, httpCode int, msg string) {
 	var locations, account, firm, ips, clientAppServer, id, token, phone string
 	var userStatus int
 	var err error
@@ -112,7 +112,7 @@ func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *Cont
 
 	// ignore mandats for super user
 	if !isSuperUser {
-		mandats, ok := mandatSession.GetMandatsBySubject(route, roles)
+		mandats, ok := accessManager.GetMandatsBySubject(route, roles)
 		if !ok {
 			return false, 401, msg
 		}
@@ -166,7 +166,7 @@ func (mandatSession *MandatSession) checkVersion(ctx echo.Context, info *Control
 	if len(parts) > 1 {
 		lang = parts[1]
 	}
-	if info.Domains != nil {
+	if info.Domains != nil && len(info.Domains) > 0 {
 		_, ok := info.Domains[domain]
 		if !ok {
 			return false, errors.New("InvalidDomain")

@@ -38,7 +38,7 @@ func (baseQ *BaseQuery) StrictAccess(mode int, fields []string, roles map[string
 }
 
 // PrepareBaseQuery prepares base SQL query
-func PrepareBaseQuery(ctx *csxhttp.Context, mode int, params map[string]string) (*BaseQuery, *dbc.SchemaTable, *string, map[string]string, int, string) {
+func PrepareBaseQuery(ctx *csxhttp.Context, mode int, params map[string]string, accessManager *AccessManager) (*BaseQuery, *dbc.SchemaTable, *string, map[string]string, int, string) {
 	// values := ctx.Values()
 	route := ctx.Request().URL.RequestURI()
 	status, ok := ctx.GetInt("status")
@@ -50,7 +50,7 @@ func PrepareBaseQuery(ctx *csxhttp.Context, mode int, params map[string]string) 
 	// 	return nil, nil, nil, nil, csxerrors.Error(ctx, "MethodNotAllowed", "method not allowed ", route), ""
 	// }
 
-	baseQ := BaseQuery{}
+	baseQ := BaseQuery{manager: accessManager}
 	if mode > QueryModeRead {
 		err := ctx.Bind(&baseQ)
 		if err != nil || baseQ.Collection == "" {
@@ -98,7 +98,7 @@ func PrepareBaseQuery(ctx *csxhttp.Context, mode int, params map[string]string) 
 }
 
 // PrepareQuery prepares SQL query
-func PrepareQuery(ctx *csxhttp.Context, mode int, params map[string]string) (map[string]string, int, string) {
-	_, _, _, params, status, restrictAccessCondition := PrepareBaseQuery(ctx, mode, params)
+func PrepareQuery(ctx *csxhttp.Context, mode int, params map[string]string, accessManager *AccessManager) (map[string]string, int, string) {
+	_, _, _, params, status, restrictAccessCondition := PrepareBaseQuery(ctx, mode, params, accessManager)
 	return params, status, restrictAccessCondition
 }
