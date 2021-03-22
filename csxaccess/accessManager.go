@@ -301,7 +301,8 @@ func NewAccessManager(categorizer func(mandat *Mandat) (string, string)) *Access
 			isView := strings.HasPrefix(mandat.Subject, "view.")
 			if isView {
 				// mandat.Subject = mandat.Subject[5:]
-				return mandat.Group, mandat.Subject[5:]
+				// return mandat.Group, mandat.Subject[5:]
+				return "view", mandat.Subject[5:]
 			}
 			return mandat.Group, mandat.Subject
 		}
