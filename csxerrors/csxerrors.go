@@ -5,6 +5,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/csxhttp"
 )
 
@@ -41,8 +42,7 @@ func GetCtxLang(ctx *csxhttp.Context) string {
 	return lang
 }
 
-// Error return response message and status code by error ID
-func Error(errorCode string, lang string) (msg string, statusCode int) {
+func getErrorMsg(errorCode string, lang string) (msg string, statusCode int) {
 	if lang == "" {
 		lang = "en"
 	} else {
@@ -63,13 +63,18 @@ func Error(errorCode string, lang string) (msg string, statusCode int) {
 	return itemMsg, item.statusCode
 }
 
+// GetErrorMsg is using for returning localized error messages & status
+func GetErrorMsg(errorCode, locale string) (msg string, status int) {
+	return getErrorMsg(errorCode, locale)
+}
+
 // Result get request lang and return result status, status code and translated message
 func Result(ctx *csxhttp.Context, errorID string) (bool, int, string) {
 	if errorID == "" {
 		return true, 200, ""
 	}
 	lang := GetCtxLang(ctx)
-	msg, statusCode := Error(errorID, lang)
+	msg, statusCode := GetErrorMsg(errorID, lang)
 	subject := ctx.Path()
 	if msg != "" {
 		tmpl, err := template.New(errorID).Parse(msg)
@@ -80,6 +85,55 @@ func Result(ctx *csxhttp.Context, errorID string) (bool, int, string) {
 		}
 	}
 	return statusCode < 400, statusCode, msg
+}
+
+//Error is using for handling error responses
+func Error(ctx *csxhttp.Context, errorCode string, err ...interface{}) error {
+	lenErr := len(err)
+	if lenErr > 0 {
+		newErrs := make([]interface{}, 0)
+		if lenErr > 1 {
+			newErrs = append(newErrs, "[", err[0], "]", err[1:])
+		} else {
+			newErrs = append(newErrs, "[", err[0], "]")
+		}
+		logrus.Error(newErrs...)
+	}
+	lang := strings.Replace(ctx.GetHeader("Accept-Language"), " ", "", -1)
+	parts := strings.Split(lang, ",")
+	if len(parts) > 1 {
+		lang = parts[1]
+	}
+	msg, status := getErrorMsg(errorCode, lang)
+	return ctx.String(status, msg)
+}
+
+//ChatError is using for handling error chat responses
+func ChatError(ctx *csxhttp.Context, errorCode string, clientID string, regStateID *string, err ...interface{}) error {
+	if len(err) > 0 {
+		logrus.Error(err...)
+	}
+	lang := strings.Replace(ctx.GetHeader("Accept-Language"), " ", "", -1)
+	parts := strings.Split(lang, ",")
+	if len(parts) > 1 {
+		lang = parts[1]
+	}
+	msg, status := getErrorMsg(errorCode, lang)
+	return ctx.String(status, msg)
+}
+
+//Success is using for handling success responses
+func Success(ctx *csxhttp.Context, messageCode string, info ...interface{}) error {
+	if len(info) > 0 {
+		logrus.Info(info...)
+	}
+	lang := strings.Replace(ctx.GetHeader("Accept-Language"), " ", "", -1)
+	parts := strings.Split(lang, ",")
+	if len(parts) > 1 {
+		lang = parts[1]
+	}
+	msg, status := getErrorMsg(messageCode, lang)
+	return ctx.String(status, msg)
 }
 
 // Init load translates for responses

@@ -15,14 +15,14 @@ import (
 
 type ControlVersionInfo struct {
 	Version         string
-	domains         map[string]interface{}
+	Domains         map[string]interface{}
 	AllowedVersions map[string]string
 }
 
 // MandatSession struct for manipulate access to http methods
 type MandatSession struct {
 	*AccessManager
-	defaultRoles        map[string]int
+	defaultRoles        map[string]interface{}
 	sessionStore        *csxsession.CsxStore
 	sessionKey          string
 	passCheckAuthMap    map[string]bool
@@ -34,7 +34,7 @@ type MandatSession struct {
 // NewMandatSession create struct for manipulate access to http methods
 func NewMandatSession(sessionStore *csxsession.CsxStore, sessionKey string, passCheckAuthMap, passCheckVersionMap, passLogMap map[string]bool, login func(ctc echo.Context)) *MandatSession {
 	return &MandatSession{
-		defaultRoles:        map[string]int{},
+		defaultRoles:        map[string]interface{}{},
 		sessionStore:        sessionStore,
 		sessionKey:          sessionKey,
 		passCheckAuthMap:    passCheckAuthMap,
@@ -45,7 +45,7 @@ func NewMandatSession(sessionStore *csxsession.CsxStore, sessionKey string, pass
 }
 
 // SetDefaultRole get session from store
-func (mandatSession *MandatSession) SetDefaultRole(roles map[string]int) {
+func (mandatSession *MandatSession) SetDefaultRole(roles map[string]interface{}) {
 	mandatSession.defaultRoles = roles
 }
 
@@ -55,7 +55,7 @@ func (mandatSession *MandatSession) GetSession(ctx *csxhttp.Context) (*sessions.
 }
 
 // CheckAccess check mandat access
-func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *ControlVersionInfo) (success bool, httpCode int, msg string) {
+func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, accessManager *AccessManager, info *ControlVersionInfo) (success bool, httpCode int, msg string) {
 	var locations, account, firm, ips, clientAppServer, id, token, phone string
 	var userStatus int
 	var err error
@@ -83,7 +83,8 @@ func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *Cont
 		}
 		id, ok := session.Values["id"]
 		if ok {
-			roles, _ = session.Values["roles"].(map[string]int)
+			rolesInt := session.Values["roles"]
+			roles, _ = rolesInt.(map[string]interface{})
 			locations, _ = session.Values["locations"].(string)
 			account, _ = session.Values["account"].(string)
 			firm, _ = session.Values["firm"].(string)
@@ -111,7 +112,7 @@ func (mandatSession *MandatSession) CheckAccess(ctx *csxhttp.Context, info *Cont
 
 	// ignore mandats for super user
 	if !isSuperUser {
-		mandats, ok := mandatSession.GetMandatsBySubject(route, roles)
+		mandats, ok := accessManager.GetMandatsBySubject(route, roles)
 		if !ok {
 			return false, 401, msg
 		}
@@ -165,15 +166,14 @@ func (mandatSession *MandatSession) checkVersion(ctx echo.Context, info *Control
 	if len(parts) > 1 {
 		lang = parts[1]
 	}
-	if info.domains != nil {
-		_, ok := info.domains[domain]
+	if info.Domains != nil && len(info.Domains) > 0 {
+		_, ok := info.Domains[domain]
 		if !ok {
 			return false, errors.New("InvalidDomain")
 		}
 	}
 
 	var allowedVersion string
-
 	allowedVersion, ok := info.AllowedVersions[osType]
 	if ok {
 		c, err := semver.NewConstraint(">= " + allowedVersion)

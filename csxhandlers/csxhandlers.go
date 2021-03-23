@@ -81,7 +81,7 @@ func HandleRoute(app *echo.Echo, prefix, methodName string, cb func(ctx echo.Con
 // HandleController Bypasses all methods of the structure and registers them as api handlers.
 // The name of the handler is formed by converting pascal case to url.
 // For example PostSendInfo will be converted to send/info. The function prefix defines the http method.
-func HandleController(app *echo.Echo, controller interface{}) {
+func HandleController(app *echo.Echo, controller interface{}, ctrlFields map[string]interface{}) {
 	structType := reflect.TypeOf(controller)
 	structName := structType.Elem().Name()
 	ctrlNameParts := strings.Split(structName, "Controller")
@@ -114,6 +114,20 @@ func HandleController(app *echo.Echo, controller interface{}) {
 			}
 			return nil
 		})
+	}
+
+	// allows to transfer data to the controller
+	if ctrlFields != nil {
+		structElem := structType.Elem()
+		structValue := reflect.ValueOf(controller).Elem()
+		for i := 0; i < structValue.NumField(); i++ {
+			ctrlField := structValue.Field(i)
+			field, ok := ctrlFields[structElem.Field(i).Name]
+			if !ok {
+				continue
+			}
+			ctrlField.Set(reflect.ValueOf(field))
+		}
 	}
 }
 
@@ -155,11 +169,15 @@ func InitController(controller interface{}) {
 	}
 }
 
-func Start(app *echo.Echo, sessStore *csxsession.CsxStore, sessionKey string) {
+func Start(app *echo.Echo, sessStore *csxsession.CsxStore, sessionKey string, ctrlFields ...map[string]interface{}) {
 	App = app
 	for i := 0; i < len(controllers); i++ {
 		ctrl := controllers[i]
-		HandleController(app, ctrl)
+		if len(ctrlFields) > 0 {
+			HandleController(app, ctrl, ctrlFields[0])
+		} else {
+			HandleController(app, ctrl, nil)
+		}
 		InitController(ctrl)
 	}
 	sessionsStore = sessStore
