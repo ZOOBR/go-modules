@@ -26,6 +26,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxfilters"
 	"gitlab.com/battler/modules/csxjson"
 	csxstrings "gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
@@ -1662,48 +1663,65 @@ func (table *SchemaTable) RestrictRolesRights(roles map[string]*JsonB) string {
 		if restrictQuery != "" {
 			restrictQuery += " OR "
 		}
-		restrictVal := table.GetRestrictQuery(rights)
-		if restrictVal != "" {
-			restrictQuery += "( " + restrictVal + " )"
+		restrictFilters := table.GetRestrictQuery(rights)
+		if restrictFilters != nil {
+			restrictVal := csxfilters.PrepareSQLFilters(restrictFilters)
+			if restrictVal != "" {
+				restrictQuery += "( " + restrictVal + " )"
+			}
 		}
+
 	}
 	return restrictQuery
 }
 
-// GetRestrictQuery returns sql restrict query by roles rights
-func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
+// GetRestrictQuery returns array of filters by roles rights
+func (table *SchemaTable) GetRestrictQuery(rights *JsonB) []csxfilters.Filter {
 	if rights == nil {
-		return ""
+		return nil
 	}
 	restrictFieldsInt, ok := (*rights)[table.Name]
 	if !ok {
 		// if entity collection not found in rights map is FULL ACCESS
-		return ""
+		return nil
 	}
 	restrictFields, ok := restrictFieldsInt.(map[string]interface{})
 	if !ok {
 		// ignore invalid rights
-		return ""
+		return nil
 	}
-	restrictQuery := ""
+
+	filters := []csxfilters.Filter{}
 	for field, value := range restrictFields {
 		restrictField := reflect.ValueOf(value)
 		if restrictField.Kind() == reflect.Ptr {
 			restrictField = reflect.Indirect(restrictField)
 		}
-		var restrictVal string
 
+		filter := csxfilters.Filter{Field: `"` + table.Name + `".` + field}
+
+		var restrictVal string
 		switch restrictField.Interface().(type) {
 		case int, int8, int16, int32, int64:
 			restrictVal = strconv.FormatInt(restrictField.Int(), 10)
+			filter.Type = csxfilters.TypeEqual
+			filter.Value = restrictVal
 		case uint, uint8, uint16, uint32, uint64:
 			restrictVal = strconv.FormatUint(restrictField.Uint(), 10)
+			filter.Type = csxfilters.TypeEqual
+			filter.Value = restrictVal
 		case float32, float64:
 			restrictVal = strconv.FormatFloat(restrictField.Float(), 'E', -1, 64)
+			filter.Type = csxfilters.TypeEqual
+			filter.Value = restrictVal
 		case string:
 			restrictVal = restrictField.String()
+			filter.Type = csxfilters.TypeEqual
+			filter.Value = "'" + restrictVal + "'"
 		case bool:
 			restrictVal = strconv.FormatBool(restrictField.Bool())
+			filter.Type = csxfilters.TypeEqual
+			filter.Value = restrictVal
 		default:
 			arrayValues, ok := value.([]interface{})
 			if !ok {
@@ -1718,23 +1736,20 @@ func (table *SchemaTable) GetRestrictQuery(rights *JsonB) string {
 					inValues += "'" + val + "'"
 				}
 			}
+
 			if inValues != "" {
-				if restrictQuery != "" {
-					restrictQuery += " AND "
-				}
-				restrictQuery += `"` + table.Name + `".` + field + " IN (" + inValues + ")"
+				filter.Type = csxfilters.TypeIn
+				filter.Value = `"` + inValues + `"`
+			} else if restrictVal != "" {
+				filter.Type = csxfilters.TypeEqual
+				filter.Value = "'" + restrictVal + "'"
 			}
-			continue
 		}
 
-		if restrictVal != "" {
-			if restrictQuery != "" {
-				restrictQuery += " AND "
-			}
-			restrictQuery += `"` + table.Name + `".` + field + " = '" + restrictVal + "'"
-		}
+		filters = append(filters, filter)
 	}
-	return restrictQuery
+
+	return filters
 }
 
 func (table *SchemaTable) registerExportMetadata(metadata map[string]interface{}) {
