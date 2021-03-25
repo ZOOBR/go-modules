@@ -7,10 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 
-	"gitlab.com/battler/modules/csxhttp"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -43,6 +41,13 @@ type Mandat struct {
 	Priority int
 	Access   int
 	Params   map[string]interface{}
+}
+
+type ContextFields struct {
+	Route  string
+	Roles  map[string]interface{}
+	Status int
+	Fields string
 }
 
 // CheckAccess check manadat access
@@ -220,18 +225,11 @@ func (manager *AccessManager) StrictAccess(subject string, mode int, fields []st
 	return success, newFields
 }
 
-func (manager *AccessManager) CheckAccessFields(ctx *csxhttp.Context, defFields []string, db bool) (int, []string) {
-	route := ctx.Path()
-	userRoles, ok := ctx.Get("roles").(map[string]interface{})
-	if !ok {
-		return 0, nil
-	}
-
-	fieldStr := ctx.QueryParam("fields")
-	status, ok := ctx.GetInt("status")
-	if !ok {
-		status = 0
-	}
+func (manager *AccessManager) CheckAccessFields(ctxFields *ContextFields, defFields []string, db bool) (int, []string) {
+	route := ctxFields.Route
+	userRoles := ctxFields.Roles
+	fieldStr := ctxFields.Fields
+	status := ctxFields.Status
 	isSuperUser := status == 1
 	if isSuperUser && fieldStr == "" {
 		return 1, defFields
@@ -261,7 +259,7 @@ func (manager *AccessManager) CheckAccessFields(ctx *csxhttp.Context, defFields 
 }
 
 // Load ---
-func (manager *AccessManager) Load(mandats []*Mandat, print bool) {
+func (manager *AccessManager) Load(mandats []*Mandat) {
 	for _, mandatIn := range mandats {
 		mandat := mandatIn
 		var mandats []*Mandat
@@ -269,48 +267,26 @@ func (manager *AccessManager) Load(mandats []*Mandat, print bool) {
 		if subject != "" {
 			mandat.Subject = subject
 		}
-		mandatsInt, ok := manager.accessMap.Load(mandat.Subject)
-		if ok {
-			mandats = mandatsInt.([]*Mandat)
-			mandats = append(mandats, mandat)
-		} else {
-			mandats = []*Mandat{mandat}
-		}
-		manager.accessMap.Store(mandat.Subject, mandats)
+		appendMandat(mandat, mandats, &manager.accessMap, subject)
 		if category != "" {
-			manager.categoryMap.Store(category, mandats)
+			appendMandat(mandat, mandats, &manager.categoryMap, category)
 		}
-	}
-
-	if print {
-		manager.accessMap.Range(func(key, val interface{}) bool {
-			logrus.Debug("load mandat:", key)
-			return true
-		})
-		manager.categoryMap.Range(func(key, val interface{}) bool {
-			logrus.Debug("load mandat category:", key)
-			return true
-		})
 	}
 }
 
-func NewAccessManager(categorizer func(mandat *Mandat) (string, string)) *AccessManager {
-	var categorizerFunc func(mandat *Mandat) (string, string)
-	if categorizer != nil {
-		categorizerFunc = categorizer
+func appendMandat(mandat *Mandat, mandats []*Mandat, mandatsMap *sync.Map, key string) {
+	mandatsInt, ok := mandatsMap.Load(key)
+	if ok {
+		mandats = mandatsInt.([]*Mandat)
+		mandats = append(mandats, mandat)
 	} else {
-		categorizerFunc = func(mandat *Mandat) (string, string) {
-			isView := strings.HasPrefix(mandat.Subject, "view.")
-			if isView {
-				// mandat.Subject = mandat.Subject[5:]
-				// return mandat.Group, mandat.Subject[5:]
-				return "view", mandat.Subject[5:]
-			}
-			return mandat.Group, mandat.Subject
-		}
+		mandats = []*Mandat{mandat}
 	}
+	mandatsMap.Store(key, mandats)
+}
 
-	return &AccessManager{categorizer: categorizerFunc}
+func NewAccessManager(categorizer func(mandat *Mandat) (string, string)) *AccessManager {
+	return &AccessManager{categorizer: categorizer}
 }
 
 func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
@@ -495,30 +471,6 @@ func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[stri
 	return roleMandats, true
 }
 
-// CheckNeedRedirect check need redirect to another app server
-func CheckNeedRedirect(ctx echo.Context, clientAppServer string, id string) (bool, string) {
-	request := ctx.Request()
-	if len(clientAppServer) == 0 {
-		return false, ""
-	}
-	var scheme string
-	if request.TLS == nil {
-		scheme = "http"
-	} else {
-		scheme = "https"
-	}
-	appServerURL := scheme + "://" + request.Host
-	if clientAppServer != "" && clientAppServer != appServerURL {
-		if appServerURL != "" {
-			redirectTo := clientAppServer + request.URL.Path + "?" + request.URL.RawQuery
-			logrus.WithFields(map[string]interface{}{"route": 123, "from:": appServerURL, "to:": redirectTo}).Info("client " + id + " redirected")
-			return true, redirectTo
-		}
-		logrus.Error("App server URL is missing! Redirection of client " + id + " to " + clientAppServer + " is not performed")
-	}
-	return false, ""
-}
-
 // GetRolesRights returns map of role interfaces from string
 func GetRolesRights(roles map[string]interface{}) map[string]*dbc.JsonB {
 	result := map[string]*dbc.JsonB{}
@@ -532,4 +484,15 @@ func GetRolesRights(roles map[string]interface{}) map[string]*dbc.JsonB {
 		result[roleID] = &rights
 	}
 	return result
+}
+
+func (manager *AccessManager) PrintMandats() {
+	manager.accessMap.Range(func(key, val interface{}) bool {
+		logrus.Debug("load mandat:", key)
+		return true
+	})
+	manager.categoryMap.Range(func(key, val interface{}) bool {
+		logrus.Debug("load mandat category:", key)
+		return true
+	})
 }

@@ -169,15 +169,11 @@ func InitController(controller interface{}) {
 	}
 }
 
-func Start(app *echo.Echo, sessStore *csxsession.CsxStore, sessionKey string, ctrlFields ...map[string]interface{}) {
+func Start(app *echo.Echo, sessStore *csxsession.CsxStore, sessionKey string) {
 	App = app
 	for i := 0; i < len(controllers); i++ {
 		ctrl := controllers[i]
-		if len(ctrlFields) > 0 {
-			HandleController(app, ctrl, ctrlFields[0])
-		} else {
-			HandleController(app, ctrl, nil)
-		}
+		HandleController(app, ctrl, nil)
 		InitController(ctrl)
 	}
 	sessionsStore = sessStore
