@@ -15,7 +15,6 @@ import (
 	"gitlab.com/battler/modules/amqpconnector"
 	amqp "gitlab.com/battler/modules/amqpconnector"
 	dbc "gitlab.com/battler/modules/sql"
-	"gitlab.com/battler/modules/templater"
 )
 
 const (
@@ -324,28 +323,7 @@ func SendBot(msg, title string, botID, chatID string) {
 func (msg *Message) Send(data interface{}) {
 	var text, typ, title, info string
 	var options map[string]string
-	if msg.Mode != MessageModeWebPush {
-		text = msg.Msg
-		isTemplate := false
-		if len(text) > 0 && text[0] == '#' {
-			text = text[1:]
-			isTemplate = true
-		}
-		text, typ, options, _ = templater.Format(text, msg.Lang, data, map[string]interface{}{
-			"isTemplate": isTemplate,
-		})
-		if len(msg.Title) > 0 && (msg.Mode&(MessageModePush|MessageModeMail|MessageModeBot)) != 0 {
-			title = msg.Title
-			isTemplate := false
-			if title[0] == '#' {
-				title = title[1:]
-				isTemplate = true
-			}
-			title, _, _, _ = templater.Format(title, msg.Lang, data, map[string]interface{}{
-				"isTemplate": isTemplate,
-			})
-		}
-	}
+
 	if (msg.Mode & MessageModeSMS) != 0 {
 		for _, phone := range msg.Phones {
 			if len(info) > 0 {
@@ -410,6 +388,12 @@ func NewMessage(lang, msg, title string, phones, tokens, mails, images []string,
 		MsgId:      msgID,
 		SenderName: senderName,
 	}
+}
+
+func (msg *Message) Prepare(cb func(data interface{}, msg *Message)) *Message {
+	var data interface{}
+	cb(data, msg)
+	return msg
 }
 
 // SendMessage format and send universal message by SMS, Push, Mail

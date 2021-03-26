@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"os"
 	"reflect"
 	"strconv"
@@ -21,6 +22,12 @@ import (
 	"gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
 	dbc "gitlab.com/battler/modules/sql"
+)
+
+const (
+	JoinIn    = 1
+	JoinEqual = 2
+	JoinLike  = 3
 )
 
 var (
@@ -42,17 +49,19 @@ type SchemaTableMetadata struct {
 
 // SchemaField is definition of sql field
 type SchemaField struct {
-	Name      string
-	Type      string
-	IndexType string
-	Length    int
-	IsNull    bool
-	IsUUID    bool
-	Default   string
-	Key       int
-	Auto      int
-	checked   bool
-	Sequence  string
+	Name       string
+	Type       string
+	IndexType  string
+	Length     int
+	IsNull     bool
+	IsUUID     bool
+	Default    string
+	Key        int
+	Auto       int
+	checked    bool
+	Sequence   string
+	Alias      string
+	TableAlias string
 }
 
 // SchemaTable is definition of sql table
@@ -91,6 +100,31 @@ type registerSchemeManager struct {
 	sync.RWMutex
 	tables    schemaTableMap
 	databases map[string]*sqlx.DB
+}
+
+type QueryCondition struct {
+	field        string
+	operator     int
+	value        string
+	template     string
+	templateData map[string]interface{}
+	tableAlias   string
+}
+
+type Join struct {
+	table       *SchemaTable
+	fields      []QueryCondition
+	whereParams []QueryCondition
+	tableAlias  string
+}
+
+type SchemaQuery struct {
+	sync.RWMutex
+	table         *SchemaTable
+	join          []Join
+	where         []QueryCondition
+	fields        []SchemaField
+	tableAliasMap map[string]int
 }
 
 func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
@@ -1751,6 +1785,204 @@ func (table *SchemaTable) InsertStructValues(queryObj *dbc.Query, query string, 
 	return nil
 }
 
+func prepareJoinParamField(joinParam *QueryCondition) string {
+	if joinParam == nil {
+		return ""
+	}
+	var condition string
+	switch joinParam.operator {
+	case JoinIn:
+		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " IN (" + joinParam.value + ")"
+	case JoinEqual:
+		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " = " + joinParam.value
+	case JoinLike:
+		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " ILIKE '%" + joinParam.value + "%'"
+	}
+	return condition
+}
+
+func prepareJoinParamTemplate(joinParam *QueryCondition) string {
+	if joinParam == nil {
+		return ""
+	}
+	return GenTextTemplateNew(&joinParam.template, joinParam.templateData)
+}
+
+func (schemaQuery *SchemaQuery) Find(dest interface{}) error {
+	table := schemaQuery.table
+	sql := schemaQuery.GetQueryString()
+	return table.DB.Select(dest, sql)
+}
+
+func (schemaQuery *SchemaQuery) FindOne(dest interface{}) error {
+	table := schemaQuery.table
+	sql := schemaQuery.GetQueryString()
+	return table.DB.Get(dest, sql)
+}
+
+func Table(tableName string) *SchemaQuery {
+	schemaTable, ok := GetSchemaTable(tableName)
+	if !ok {
+		logrus.Error("SchemaTable " + tableName + " not exists")
+		return nil
+	}
+
+	return &SchemaQuery{
+		table:         schemaTable,
+		tableAliasMap: map[string]int{},
+	}
+}
+
+func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
+
+	table := schemaQuery.table
+	selectFields := []SchemaField{}
+	if len(fields) == 0 {
+		for i := 0; i < len(table.Fields); i++ {
+			selectFields = append(selectFields, *table.Fields[i])
+		}
+
+	} else {
+		paramFields := fields[0]
+		for i := 0; i < len(paramFields); i++ {
+			if count, field := table.FindField(paramFields[i]); count > 0 {
+				selectFields = append(selectFields, *field)
+			}
+
+		}
+	}
+	schemaQuery.fields = selectFields
+	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) Where(queryConditions ...*QueryCondition) *SchemaQuery {
+	if len(queryConditions) == 0 {
+		logrus.Error("Call SchemaQuery.Where(<>) without params, schemaQuery: " + schemaQuery.table.Name)
+	}
+	schemaQuery.Lock()
+	defer schemaQuery.Unlock()
+	for i := 0; i < len(queryConditions); i++ {
+		schemaQuery.where = append(schemaQuery.where, *queryConditions[i])
+	}
+
+	return schemaQuery
+}
+
+// LeftJoin execute sql query with params
+func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
+	schemaQuery.Lock()
+	defer schemaQuery.Unlock()
+
+	tableName := joinParam.table.Name
+	tableAliasCounter := schemaQuery.tableAliasMap[tableName]
+	var tableAlias string
+	if tableAliasCounter > 0 {
+		tableAlias = tableName + strconv.Itoa(tableAliasCounter)
+	} else {
+		tableAlias = tableName
+	}
+	for i := 0; i < len(joinParam.fields); i++ {
+		joinParam.fields[i].tableAlias = tableAlias
+	}
+	for i := 0; i < len(joinParam.whereParams); i++ {
+		joinParam.whereParams[i].tableAlias = tableAlias
+	}
+	joinParam.tableAlias = tableAlias
+	schemaQuery.join = append(schemaQuery.join, joinParam)
+	schemaQuery.where = append(schemaQuery.where, joinParam.whereParams...)
+	schemaQuery.tableAliasMap[tableName]++
+	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) GetQueryString() string {
+	var joinStr string
+	joinParams := schemaQuery.join
+
+	for i := 0; i < len(joinParams); i++ {
+		join := joinParams[i]
+		if join.table == nil || len(join.fields) == 0 {
+			continue
+		}
+
+		var joinPart string
+		for i := 0; i < len(join.fields); i++ {
+			field := join.fields[i]
+			if count, _ := join.table.FindField(field.field); count == 0 {
+				continue
+			}
+			if len(joinPart) > 0 {
+				joinPart += " AND "
+			}
+			// TODO:: support "OR" condition
+			if len(field.template) > 0 && field.templateData != nil {
+				joinPart += prepareJoinParamTemplate(&field)
+			} else {
+				joinPart += prepareJoinParamField(&field)
+			}
+		}
+
+		if len(joinPart) > 0 {
+			joinStr += ` left join "` + join.table.Name + `" "` + join.tableAlias + `" ON ` + joinPart
+
+		}
+	}
+
+	whereParams := schemaQuery.where
+	var whereStr string
+	for i := 0; i < len(whereParams); i++ {
+		var wherePart string
+		if len(whereStr) > 0 {
+			whereStr += " AND "
+		}
+		whereParam := whereParams[i]
+		if len(whereParam.template) > 0 && whereParam.templateData != nil {
+			wherePart += prepareJoinParamTemplate(&whereParam)
+		} else {
+			wherePart += prepareJoinParamField(&whereParam)
+		}
+		whereStr += wherePart
+	}
+
+	selectParams := schemaQuery.fields
+	var selectStr string
+	for i := 0; i < len(selectParams); i++ {
+		if len(selectStr) > 0 {
+			selectStr += ", "
+		}
+		selectParam := schemaQuery.fields[i]
+
+		if len(selectParam.TableAlias) > 0 {
+			selectStr += `"` + selectParam.TableAlias + `".`
+		}
+
+		selectStr += selectParam.Name
+
+		if len(selectParam.Alias) > 0 {
+			selectStr += ` AS "` + selectParam.Alias + `"`
+		}
+	}
+	if len(selectStr) == 0 {
+		logrus.Error("GetQueryString: fields list is empty for SELECT")
+		return ""
+	}
+
+	queryTable := schemaQuery.table.Name
+	queryTableAlias := schemaQuery.tableAliasMap[queryTable]
+
+	fromParam := ` FROM ` + `"` + queryTable + `"`
+	if queryTableAlias > 0 {
+		fromParam += ` AS "` + queryTable + strconv.Itoa(queryTableAlias) + `"`
+	}
+
+	queryStr := "SELECT " + selectStr + fromParam + joinStr
+
+	if len(whereStr) > 0 {
+		queryStr += " WHERE " + whereStr
+	}
+
+	return queryStr
+}
+
 func Init() {
 	dbc.Init()
 	databases := map[string]*dbc.DatabaseParams{}
@@ -1770,4 +2002,46 @@ func Init() {
 	registerSchema.connect(databases)
 	registerSchema.prepare()
 	logrus.Info("success prepare schemas")
+}
+
+// TODO:: refact templater
+// correctDataForExec convert struct to map, needed for zero on not found
+func correctDataForExecNew(data interface{}) interface{} {
+	rec := reflect.ValueOf(data)
+	if !rec.IsValid() {
+		return data
+	}
+	recType := reflect.TypeOf(data)
+
+	if recType.Kind() == reflect.Ptr {
+		rec = reflect.ValueOf(data).Elem()
+		recType = reflect.TypeOf(data)
+	}
+	if recType.Kind() == reflect.Map {
+		res, ok := data.(map[string]interface{})
+		if !ok /* recType.String() == "models.JsonB" */ {
+			return rec.Convert(reflect.TypeOf(res))
+		}
+		return res
+	} else if recType.Kind() != reflect.Struct {
+		return data
+	}
+	m := map[string]interface{}{}
+	fcnt := recType.NumField()
+	for i := 0; i < fcnt; i++ {
+		f := recType.Field(i)
+		v := reflect.Indirect(rec.FieldByName(f.Name))
+		if v.IsValid() {
+			m[f.Name] = reflect.Indirect(rec.FieldByName(f.Name))
+		}
+	}
+	return m
+}
+
+// GenTextTemplate generate message from template string
+func GenTextTemplateNew(tpl *string, data interface{}) string {
+	var gen bytes.Buffer
+	t := template.Must(template.New("").Parse(*tpl))
+	t.Execute(&gen, correctDataForExecNew(data))
+	return gen.String()
 }
