@@ -469,17 +469,16 @@ func MapToBinary(inputData map[string]interface{}) (res []byte) {
 }
 
 // ReadData convert binary to map and save to BinaryReader.Data if you wanna read one element, use reset()
-func (r *BinaryReader) ReadData() (int16, map[string]interface{}) {
+func (r *BinaryReader) ReadData() (map[string]interface{}, int16) {
 	// init result variable
-	var result map[string]interface{}
-	result = make(map[string]interface{})
+	result := make(map[string]interface{})
 	//check size
 	if r.Size < 8 {
-		return errorBinarySize, nil
+		return nil, errorBinarySize
 	}
 	//check sign and pass invalid data
 	if !r.CheckSign() {
-		return errorBinarySize, nil
+		return nil, errorBinarySize
 	}
 	// sign and version (2+2 bytes)
 	r.offset += 4
@@ -491,7 +490,7 @@ func (r *BinaryReader) ReadData() (int16, map[string]interface{}) {
 		//check type
 		st := r.Buf[r.offset]
 		if st != binaryString {
-			return errorBinaryRead, nil
+			return nil, errorBinaryRead
 		}
 		r.offset++
 		// read string
@@ -524,24 +523,24 @@ func (r *BinaryReader) ReadData() (int16, map[string]interface{}) {
 			result[keyName] = r.ReadArray()
 		default:
 			log.Error(vt)
-			return errorBinaryRead, nil
+			return nil, errorBinaryRead
 		}
 	}
 
-	return 0, result
+	return result, 0
 }
 
 // ReadAllData sequential reading of all data
-func (r *BinaryReader) ReadAllData() (bool, []map[string]interface{}) {
+func (r *BinaryReader) ReadAllData() ([]map[string]interface{}, int16) {
 	r.Reset()
 	var result []map[string]interface{}
 	for r.Size > r.offset {
-		err, item := r.ReadData()
+		item, err := r.ReadData()
 		if err != 0 {
-			return false, nil
+			return nil, err
 		}
 		result = append(result, item)
 	}
 
-	return true, result
+	return result, 0
 }
