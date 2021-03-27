@@ -120,6 +120,11 @@ func (mandat *Mandat) CheckRole(roles map[string]interface{}) bool {
 
 func createNewFields(fields []string, newFields []string, strictFields map[string]bool, db bool) {
 	idx := 0
+	pattern := `^[a-zA-Z0-9]*$`
+	regexpInst, err := regexp.Compile(pattern)
+	if err != nil {
+		logrus.Error("invalid createNewFields() pattern:" + pattern)
+	}
 	for _, field := range fields {
 		if strictFields != nil {
 			if _, ok := strictFields[field]; !ok {
@@ -128,8 +133,7 @@ func createNewFields(fields []string, newFields []string, strictFields map[strin
 		}
 		if db {
 			// check alphanumeric
-			pattern := `^[a-zA-Z0-9]*$`
-			matched, _ := regexp.Match(pattern, []byte(field))
+			matched := regexpInst.Match([]byte(field))
 			if matched {
 				newFields[idx] = `"` + field + `"`
 			} else {
