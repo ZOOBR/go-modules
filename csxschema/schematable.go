@@ -1955,7 +1955,7 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 			selectStr += `"` + selectParam.TableAlias + `".`
 		}
 
-		selectStr += selectParam.Name
+		selectStr += `"` + selectParam.Name + `"`
 
 		if len(selectParam.Alias) > 0 {
 			selectStr += ` AS "` + selectParam.Alias + `"`
