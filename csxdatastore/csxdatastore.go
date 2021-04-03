@@ -34,51 +34,38 @@ func NewDataStore(storeName, propID string, indexes []string, load DataStoreLoad
 }
 
 // Find data store search element by id
-func (store *DataStore) Find(args ...interface{}) (result interface{}, ok bool) {
-	var propID string
-	var propVal interface{}
-	argcnt := len(args)
-	if argcnt > 1 {
-		propVal = args[0]
-		propIDValue := reflect.Indirect(reflect.ValueOf(args[1]))
-		if propIDValue.IsValid() {
-			propID = propIDValue.String()
-		}
-		if propID == "" {
-			logrus.Error("store '" + store.name + "' invalid index id")
-			return nil, false
-		}
-	} else if argcnt > 0 {
-		propVal = args[0]
+func (store *DataStore) Find(id interface{}) (result interface{}, ok bool) {
+	if id == nil {
+		logrus.Warn("store '" + store.name + "', missing id in store.Find(<>) call")
 	}
-	if propVal == nil {
-		return nil, false
-	}
+	store.RLock()
+	result, ok = store.items.Load(id)
+	store.RUnlock()
+	return result, ok
+}
 
-	if propID == "" {
-		val := reflect.Indirect(reflect.ValueOf(propVal))
-		if val.IsValid() {
-			id := val.String()
-			if id == "" {
-				ok = false
-			} else {
-				result, ok = store.items.Load(id)
-				if !ok {
-					logrus.Warn("store '"+store.name+"' not found: ", id)
-				}
-			}
+// Find data store search element by id
+func (store *DataStore) FindByIndex(indexID string, value interface{}) (result interface{}, ok bool) {
+	if len(indexID) == 0 {
+		logrus.Warn("store '" + store.name + "', missing indexID in store.FindByIndex(<>) call")
+		return result, ok
+	}
+	if value == nil {
+		logrus.Warn("store '" + store.name + "', missing value in store.FindByIndex(indexID, <>) call")
+		return result, ok
+	}
+	store.RLock()
+	// search by index id and value
+	indexInt, isIndex := store.indexes.Load(indexID)
+	if isIndex {
+		index, isValid := indexInt.(*sync.Map)
+		if isValid {
+			result, ok = index.Load(value)
 		}
 	} else {
-		indexInt, isIndex := store.indexes.Load(propID)
-		if isIndex {
-			index, isValid := indexInt.(*sync.Map)
-			if isValid {
-				result, ok = index.Load(propVal)
-			}
-		} else {
-			logrus.Error("store '"+store.name+"' not found index: ", propID)
-		}
+		logrus.Error("store '"+store.name+"' not found index: ", indexID)
 	}
+	store.RUnlock()
 	return result, ok
 }
 
@@ -103,7 +90,7 @@ func (store *DataStore) Load() {
 		itemID := itemVal.FieldByName(store.propID).String()
 		store.items.Store(itemID, itemPtr)
 		if cntIndexes > 0 {
-			store.updateIndexies(itemVal, itemPtr, nil)
+			store.updateIndexies(itemPtr, nil)
 		}
 	}
 }
@@ -113,14 +100,48 @@ func (store *DataStore) Items() *sync.Map {
 }
 
 // Range iterate datastore map and run callback
-// func (store *DataStore) Range(cb func(key, val interface{}) bool) {
-// 	for key, val := range store.items {
-// 		res := cb(key, val)
-// 		if !res {
-// 			break
-// 		}
-// 	}
-// }
+func (store *DataStore) Range(cb func(key, val interface{}) bool) {
+	store.items.Range(func(key, value interface{}) bool {
+		res := cb(key, value)
+		return res
+	})
+}
+
+// Store data store by data
+func (store *DataStore) Store(id string, data interface{}) {
+	var itemPtr interface{}
+	var oldValues []interface{}
+	cntIndexes := len(store.propIndexes)
+	itemPtr, ok := store.items.Load(id)
+	if ok {
+		if cntIndexes > 0 {
+			oldValues = store.readIndexies(itemPtr)
+		}
+		store.items.Store(id, itemPtr)
+		if cntIndexes > 0 {
+			store.updateIndexies(itemPtr, oldValues)
+		}
+		logrus.Info("store '"+store.name+"' update: ", id, " ", data)
+	}
+}
+
+// Store data store by data
+func (store *DataStore) Delete(id string) {
+	var itemPtr interface{}
+	var oldValues []interface{}
+	cntIndexes := len(store.propIndexes)
+	itemPtr, ok := store.items.Load(id)
+	if ok {
+		if cntIndexes > 0 {
+			oldValues = store.readIndexies(itemPtr)
+		}
+		store.items.Delete(id)
+		if cntIndexes > 0 {
+			store.deleteIndexies(itemPtr, oldValues)
+		}
+		logrus.Info("store '"+store.name+"' delete: ", id)
+	}
+}
 
 // Update data store by data
 func (store *DataStore) Update(cmd, id, data string) {
@@ -153,11 +174,7 @@ func (store *DataStore) Update(cmd, id, data string) {
 	} else {
 		var err error
 		if cntIndexes > 0 {
-			itemVal = reflect.ValueOf(itemPtr)
-			if itemVal.Kind() == reflect.Ptr {
-				itemVal = reflect.Indirect(itemVal)
-			}
-			oldValues = store.readIndexies(itemVal, itemPtr)
+			oldValues = store.readIndexies(itemPtr)
 		}
 		writeItem(itemPtr, func(locked bool) {
 			if !locked {
@@ -175,13 +192,17 @@ func (store *DataStore) Update(cmd, id, data string) {
 	if itemPtr != nil {
 		store.items.Store(id, itemPtr)
 		if cntIndexes > 0 {
-			store.updateIndexies(itemVal, itemPtr, oldValues)
+			store.updateIndexies(itemPtr, oldValues)
 		}
 		logrus.Warn("store '"+store.name+"' update: ", id, " ", data)
 	}
 }
 
-func (store *DataStore) readIndexies(itemVal reflect.Value, itemPtr interface{}) []interface{} {
+func (store *DataStore) readIndexies(itemPtr interface{}) []interface{} {
+	itemVal := reflect.ValueOf(itemPtr)
+	if itemVal.Kind() == reflect.Ptr {
+		itemVal = reflect.Indirect(itemVal)
+	}
 	cnt := len(store.propIndexes)
 	result := make([]interface{}, cnt)
 	readItem(itemPtr, func() {
@@ -199,7 +220,11 @@ func (store *DataStore) readIndexies(itemVal reflect.Value, itemPtr interface{})
 	return result
 }
 
-func (store *DataStore) updateIndexies(itemVal reflect.Value, itemPtr interface{}, oldValues []interface{}) {
+func (store *DataStore) updateIndexies(itemPtr interface{}, oldValues []interface{}) {
+	itemVal := reflect.ValueOf(itemPtr)
+	if itemVal.Kind() == reflect.Ptr {
+		itemVal = reflect.Indirect(itemVal)
+	}
 	cnt := len(store.propIndexes)
 	for i := 0; i < cnt; i++ {
 		store.RLock()
@@ -223,6 +248,33 @@ func (store *DataStore) updateIndexies(itemVal reflect.Value, itemPtr interface{
 		}
 		if propVal != nil {
 			index.Store(propVal, itemPtr)
+		}
+	}
+}
+
+func (store *DataStore) deleteIndexies(itemPtr interface{}, oldValues []interface{}) {
+	itemVal := reflect.ValueOf(itemPtr)
+	if itemVal.Kind() == reflect.Ptr {
+		itemVal = reflect.Indirect(itemVal)
+	}
+	cnt := len(store.propIndexes)
+	for i := 0; i < cnt; i++ {
+		store.RLock()
+		propID := store.propIndexes[i]
+		store.RUnlock()
+		prop := reflect.Indirect(itemVal.FieldByName(propID))
+		indexInt, isIndex := store.indexes.Load(propID)
+		if !isIndex || !prop.IsValid() {
+			continue
+		}
+		index, ok := indexInt.(*sync.Map)
+		if !ok {
+			continue
+		}
+		propVal := prop.Interface()
+		val, ok := index.Load(propVal)
+		if ok && val == itemPtr {
+			index.Delete(propVal)
 		}
 	}
 }
