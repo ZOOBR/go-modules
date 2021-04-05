@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	tmt "gitlab.com/battler/modules/telemetry"
+	dbc "gitlab.com/battler/modules/sql"
 )
 
 const (
@@ -80,9 +80,9 @@ func (filter *Filter) Apply(fields map[string]interface{}) bool {
 	}
 	var destValueInt interface{}
 	var ok bool
-	if strings.HasPrefix(filter.Field, "position.") {
+	if isValueRecursive(filter.Field) {
 		var err error
-		destValueInt, err = tmt.GetValueFromPosition(fields, filter.Field)
+		destValueInt, err = getValueFromMapRecursive(fields, filter.Field)
 		if err != nil {
 			return false
 		}
@@ -92,6 +92,7 @@ func (filter *Filter) Apply(fields map[string]interface{}) bool {
 			return false
 		}
 	}
+
 	compValInt := getFilterValueInterface(filter)
 	switch filter.Type {
 	case TypeEqual:
@@ -302,4 +303,32 @@ func getFilterValueInterface(filter *Filter) interface{} {
 		compValInt = compValDateTime
 	}
 	return compValInt
+}
+
+func isValueRecursive(field string) bool {
+	parts := strings.Split(field, ".")
+	return len(parts) > 2
+}
+
+func getValueFromMapRecursive(fields map[string]interface{}, field string) (interface{}, error) {
+	parts := strings.Split(field, ".")
+	fieldName := parts[0]
+	valueInt := fields[fieldName]
+	reflectValue := reflect.ValueOf(valueInt)
+	if reflectValue.Kind() == reflect.Ptr {
+		reflectValue = reflect.Indirect(reflectValue)
+	}
+	if reflectValue.Kind() == reflect.Struct {
+		subfields := strings.Join(parts[1:], ".")
+		mapFromStruct := dbc.GetMapFromStruct(valueInt, map[string]interface{}{
+			"checkTags": false,
+			"mapToJson": false,
+		})
+		return getValueFromMapRecursive(mapFromStruct, subfields)
+	}
+	if reflectValue.Kind() == reflect.Map {
+		subfields := strings.Join(parts[1:], ".")
+		return getValueFromMapRecursive(valueInt.(map[string]interface{}), subfields)
+	}
+	return valueInt, nil
 }

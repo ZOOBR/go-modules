@@ -985,9 +985,20 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 }
 
 // GetMapFromStruct return map from struct
-func GetMapFromStruct(structVal interface{}) map[string]interface{} {
+func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) map[string]interface{} {
 	iVal := reflect.Indirect(reflect.ValueOf(structVal))
 	typ := iVal.Type()
+	checkTags := true
+	mapToJson := true
+	if len(options) > 0 {
+		opts := options[0]
+		if val, ok := opts["checkTags"]; ok {
+			checkTags = val.(bool)
+		}
+		if val, ok := opts["mapToJson"]; ok {
+			mapToJson = val.(bool)
+		}
+	}
 	res := make(map[string]interface{})
 	for i := 0; i < iVal.NumField(); i++ {
 		f := iVal.Field(i)
@@ -997,11 +1008,39 @@ func GetMapFromStruct(structVal interface{}) map[string]interface{} {
 		ft := typ.Field(i)
 		tag := ft.Tag.Get("db")
 
-		if tag == "" || tag == "-" {
-			continue
+		if checkTags {
+			if tag == "" || tag == "-" {
+				continue
+			}
+		} else {
+			tag = strings.ToLower(ft.Name)
 		}
 
 		if f.IsValid() {
+			if f.Kind() == reflect.Map && !mapToJson {
+				mapInt := map[string]interface{}{}
+				for _, key := range f.MapKeys() {
+					var keyStr string
+					switch key.Interface().(type) {
+					case bool:
+						keyStr = fmt.Sprintf("%t", key.Bool())
+					case int, int8, int16, int32, int64:
+						keyStr = fmt.Sprintf("%d", key.Int())
+					case uint, uint8, uint16, uint32, uint64:
+						keyStr = fmt.Sprintf("%d", key.Uint())
+					case float32, float64:
+						keyStr = fmt.Sprintf("%f", key.Float())
+					case []byte:
+						v := string(key.Bytes())
+						keyStr = v
+					case string:
+						keyStr = key.String()
+					}
+					mapInt[keyStr] = f.MapIndex(key).Interface()
+				}
+				res[tag] = mapInt
+				continue
+			}
 			switch val := f.Interface().(type) {
 			case bool:
 				res[tag] = f.Bool()
