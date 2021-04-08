@@ -23,3 +23,7 @@ func MonthBegin(timeCheck time.Time) time.Time {
 	firstDay := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
 	return firstDay
 }
+
+func NowTimeToMilliseconds() float64 {
+	return float64(time.Now().UTC().UnixNano() / int64(time.Millisecond))
+}
