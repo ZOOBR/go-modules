@@ -86,8 +86,20 @@ func (store *DataStore) Load() {
 	}
 	for i := 0; i < cnt; i++ {
 		itemVal := itemsVal.Index(i)
-		itemPtr := itemVal.Addr().Interface()
-		itemID := itemVal.FieldByName(store.propID).String()
+		var itemPtr interface{}
+		if itemVal.Kind() == reflect.Ptr {
+			itemPtr = itemVal.Interface()
+			itemVal = reflect.Indirect(itemVal)
+		} else {
+			itemPtr = itemVal.Addr().Interface()
+		}
+		itemIDVal := itemVal.FieldByName(store.propID)
+		var itemID string
+		if itemIDVal.Kind() == reflect.Ptr {
+			itemID = reflect.Indirect(itemIDVal).String()
+		} else {
+			itemID = itemIDVal.String()
+		}
 		store.items.Store(itemID, itemPtr)
 		if cntIndexes > 0 {
 			store.updateIndexies(itemPtr, nil)
