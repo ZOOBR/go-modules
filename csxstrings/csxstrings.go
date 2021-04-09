@@ -4,7 +4,9 @@ import (
 	"math/rand"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -92,4 +94,58 @@ func SplitPascal(str string, delimiter string) string {
 	snake := matchFirstCap.ReplaceAllString(str, "${1}"+delimiter+"${2}")
 	snake = matchAllCap.ReplaceAllString(snake, "${1}"+delimiter+"${2}")
 	return snake
+}
+
+func ParseTimeString(str *string, timeFormat *string) (*time.Time, error) {
+	var result *time.Time
+	if str != nil && *str != "" && *str != "0" {
+		if timeFormat != nil && *timeFormat == "ms" {
+			msInt, err := strconv.ParseInt(*str, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			parsedTime := time.Unix(0, msInt*int64(time.Millisecond)).UTC()
+			return &parsedTime, nil
+		}
+		f, _ := GetDateFormat(*str)
+		t, err := time.Parse(f, *str)
+		if err != nil {
+			return nil, err
+		}
+		tu := t.UTC()
+		result = &tu
+	}
+	return result, nil
+}
+
+func GetStrMapFromList(list *string) map[string]bool {
+	result := make(map[string]bool)
+	if list == nil || *list == "" {
+		return result
+	}
+	if list != nil {
+		arr := strings.Split(*list, ",")
+		for _, val := range arr {
+			val = strings.TrimSpace(val)
+			result[val] = true
+		}
+	}
+	return result
+}
+
+func GetIntMapFromList(list *string, zero bool) map[int]bool {
+	result := make(map[int]bool)
+	if list != nil {
+		arr := strings.Split(*list, ",")
+		for i := 0; i < len(arr); i++ {
+			str := arr[i]
+			if len(str) > 0 {
+				v, _ := strconv.Atoi(str)
+				if v != 0 || zero {
+					result[v] = true
+				}
+			}
+		}
+	}
+	return result
 }

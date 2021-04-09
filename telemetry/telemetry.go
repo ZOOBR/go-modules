@@ -426,10 +426,8 @@ func (r *BinaryReader) CheckSign() bool {
 
 func (r *BinaryReader) CheckVersion() bool {
 	offset := 2
-	if protocolVersion != ReadUint16(r.Buf[offset:offset+2]) {
-		return false
-	}
-	return true
+	packetProtocolVersion := ReadUint16(r.Buf[offset : offset+2])
+	return protocolVersion == packetProtocolVersion
 }
 
 func (r *BinaryReader) ReadArray(kind uint8) int16 {
@@ -793,7 +791,7 @@ func (reader *BinaryReader) ReadStructPositions() (int16, []BinaryPosition) {
 	return 0, posArr
 }
 
-func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
+func (reader *BinaryReader) ReadFlatPositions() ([]FlatPosition, int16) {
 	reader.PositionFormat = "flat"
 	reader.Reset()
 	posArr := make([]FlatPosition, 0)
@@ -804,13 +802,13 @@ func (reader *BinaryReader) ReadFlatPositions() (int16, []FlatPosition) {
 			continue
 		}
 		if res == errorBinarySize || res == errorBinaryLen || res == errorBinaryRead || res == errorProtoTime {
-			return res, posArr
+			return posArr, res
 		}
-		if reader.flatPos != nil && (reader.lenEvents == 0 || reader.pass == true) {
+		if reader.flatPos != nil && (reader.lenEvents == 0 || reader.pass) {
 			posArr = append(posArr, *reader.flatPos)
 		}
 	}
-	return 0, posArr
+	return posArr, 0
 }
 
 func FlatPositionToBinary(pos *FlatPosition) (res []byte) {

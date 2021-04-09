@@ -375,6 +375,15 @@ func PublishHeader(amqpURI, consumerName, exchangeName string, msg []byte, heade
 	return Publish(amqpURI, consumerName, exchangeName, "header", "", msg, nil)
 }
 
+func InitSendUpdate() error {
+	consumer, err := NewPublisher(amqpURI, "SendUpdate", Exchange{Name: updateExch, Type: "direct", Durable: true})
+	if err != nil {
+		return err
+	}
+	consumers.Store("SendUpdate", consumer)
+	return nil
+}
+
 // SendUpdate Send rpc update command to services
 func SendUpdate(amqpURI, collection, id, method string, data interface{}, options ...map[string]interface{}) error {
 	objectJSON, err := json.Marshal(data)
@@ -406,16 +415,12 @@ func SendUpdate(amqpURI, collection, id, method string, data interface{}, option
 	}
 	var consumer *Consumer
 	consumerInt, ok := consumers.Load("SendUpdate")
-	if !ok {
-		consumer, err = NewPublisher(amqpURI, "SendUpdate", Exchange{Name: updateExch, Type: "direct", Durable: true})
-		if err != nil {
-			return err
-		}
-		consumers.Store("SendUpdate", consumer)
-	} else {
+	if ok {
 		consumer = consumerInt.(*Consumer)
+		return consumer.Publish(msgJSON, collection)
+	} else {
+		return errors.New("publisher SendUpdate not inited")
 	}
-	return consumer.Publish(msgJSON, collection)
 }
 
 func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {

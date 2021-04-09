@@ -28,6 +28,7 @@ var (
 	disableRegisterMetadata = os.Getenv("DISABLE_REGISTER_METADATA") == "1"
 	amqpURI                 = os.Getenv("AMQP_URI")
 	sqlURIS                 = os.Getenv("SQL_URIS")
+	moduleInited            = false
 )
 
 //---------------------------------------------------------------------------
@@ -1752,6 +1753,9 @@ func (table *SchemaTable) InsertStructValues(queryObj *dbc.Query, query string, 
 }
 
 func Init() {
+	if moduleInited {
+		return
+	}
 	dbc.Init()
 	databases := map[string]*dbc.DatabaseParams{}
 	if sqlURIS != "" {
@@ -1770,4 +1774,5 @@ func Init() {
 	registerSchema.connect(databases)
 	registerSchema.prepare()
 	logrus.Info("success prepare schemas")
+	moduleInited = true
 }
