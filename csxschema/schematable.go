@@ -25,9 +25,10 @@ import (
 )
 
 const (
-	JoinIn    = 1
-	JoinEqual = 2
-	JoinLike  = 3
+	JoinIn       = 1
+	JoinEqual    = 2
+	JoinLike     = 3
+	JoinNotEqual = 4
 )
 
 var (
@@ -103,12 +104,12 @@ type registerSchemeManager struct {
 }
 
 type QueryCondition struct {
-	field        string
-	operator     int
-	value        string
-	template     string
-	templateData map[string]interface{}
-	tableAlias   string
+	Field        string
+	Operator     int
+	Value        string
+	Template     string
+	TemplateData map[string]interface{}
+	TableAlias   string
 }
 
 type Join struct {
@@ -123,8 +124,19 @@ type SchemaQuery struct {
 	table         *SchemaTable
 	join          []Join
 	where         []QueryCondition
+	jsonWhere     *JSONExpression
 	fields        []SchemaField
 	tableAliasMap map[string]int
+	queryStr      string
+}
+
+type JSONExpression struct {
+	column      string
+	keys        []string
+	hasKeys     bool
+	schemaQuery *SchemaQuery
+	// equals      bool
+	// equalsValue interface{}
 }
 
 func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
@@ -1789,14 +1801,23 @@ func prepareJoinParamField(joinParam *QueryCondition) string {
 	if joinParam == nil {
 		return ""
 	}
+	var field string
+	if joinParam.TableAlias != "" {
+		field = `"` + joinParam.TableAlias + `"."` + joinParam.Field + `"`
+	} else {
+		field = `"` + joinParam.Field + `"`
+	}
+
 	var condition string
-	switch joinParam.operator {
+	switch joinParam.Operator {
 	case JoinIn:
-		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " IN (" + joinParam.value + ")"
+		condition = field + " IN (" + joinParam.Value + ")"
 	case JoinEqual:
-		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " = " + joinParam.value
+		condition = field + " = " + "'" + joinParam.Value + "'"
 	case JoinLike:
-		condition = `"` + joinParam.tableAlias + `"."` + joinParam.field + `"` + " ILIKE '%" + joinParam.value + "%'"
+		condition = field + " ILIKE '%" + joinParam.Value + "%'"
+	case JoinNotEqual:
+		condition = field + " <> " + joinParam.Value
 	}
 	return condition
 }
@@ -1805,13 +1826,18 @@ func prepareJoinParamTemplate(joinParam *QueryCondition) string {
 	if joinParam == nil {
 		return ""
 	}
-	return GenTextTemplateNew(&joinParam.template, joinParam.templateData)
+	return GenTextTemplateNew(&joinParam.Template, joinParam.TemplateData)
 }
 
 func (schemaQuery *SchemaQuery) Find(dest interface{}) error {
 	table := schemaQuery.table
 	sql := schemaQuery.GetQueryString()
 	return table.DB.Select(dest, sql)
+}
+
+func (schemaQuery *SchemaQuery) ExecQuery() *dbc.QueryResult {
+	sql := schemaQuery.GetQueryString()
+	return dbc.ExecQuery(&sql)
 }
 
 func (schemaQuery *SchemaQuery) FindOne(dest interface{}) error {
@@ -1845,7 +1871,7 @@ func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
 	} else {
 		paramFields := fields[0]
 		for i := 0; i < len(paramFields); i++ {
-			if count, field := table.FindField(paramFields[i]); count > 0 {
+			if count, field := table.FindField(paramFields[i]); count > -1 {
 				selectFields = append(selectFields, *field)
 			}
 
@@ -1868,6 +1894,20 @@ func (schemaQuery *SchemaQuery) Where(queryConditions ...*QueryCondition) *Schem
 	return schemaQuery
 }
 
+func (schemaQuery *SchemaQuery) JSONWhere(column string) *JSONExpression {
+	return &JSONExpression{
+		column:      column,
+		schemaQuery: schemaQuery,
+	}
+}
+
+func (jsonExpr *JSONExpression) HasKey(keys ...string) *SchemaQuery {
+	jsonExpr.keys = keys
+	jsonExpr.hasKeys = true
+	jsonExpr.schemaQuery.jsonWhere = jsonExpr
+	return jsonExpr.schemaQuery
+}
+
 // LeftJoin execute sql query with params
 func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
 	schemaQuery.Lock()
@@ -1882,16 +1922,20 @@ func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
 		tableAlias = tableName
 	}
 	for i := 0; i < len(joinParam.fields); i++ {
-		joinParam.fields[i].tableAlias = tableAlias
+		joinParam.fields[i].TableAlias = tableAlias
 	}
 	for i := 0; i < len(joinParam.whereParams); i++ {
-		joinParam.whereParams[i].tableAlias = tableAlias
+		joinParam.whereParams[i].TableAlias = tableAlias
 	}
 	joinParam.tableAlias = tableAlias
 	schemaQuery.join = append(schemaQuery.join, joinParam)
 	schemaQuery.where = append(schemaQuery.where, joinParam.whereParams...)
 	schemaQuery.tableAliasMap[tableName]++
 	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) writeQuoted(field string) {
+
 }
 
 func (schemaQuery *SchemaQuery) GetQueryString() string {
@@ -1907,14 +1951,14 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 		var joinPart string
 		for i := 0; i < len(join.fields); i++ {
 			field := join.fields[i]
-			if count, _ := join.table.FindField(field.field); count == 0 {
+			if count, _ := join.table.FindField(field.Field); count == 0 {
 				continue
 			}
 			if len(joinPart) > 0 {
 				joinPart += " AND "
 			}
 			// TODO:: support "OR" condition
-			if len(field.template) > 0 && field.templateData != nil {
+			if len(field.Template) > 0 && field.TemplateData != nil {
 				joinPart += prepareJoinParamTemplate(&field)
 			} else {
 				joinPart += prepareJoinParamField(&field)
@@ -1935,12 +1979,23 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 			whereStr += " AND "
 		}
 		whereParam := whereParams[i]
-		if len(whereParam.template) > 0 && whereParam.templateData != nil {
+		if len(whereParam.Template) > 0 && whereParam.TemplateData != nil {
 			wherePart += prepareJoinParamTemplate(&whereParam)
 		} else {
 			wherePart += prepareJoinParamField(&whereParam)
 		}
 		whereStr += wherePart
+	}
+
+	jsonWhere := schemaQuery.jsonWhere
+	var jsonStr string
+	switch {
+	case jsonWhere == nil:
+		jsonStr = ""
+	case jsonWhere.hasKeys:
+		if len(jsonWhere.keys) > 0 {
+			jsonStr += `"` + jsonWhere.column + `"::jsonb ? ` + "'" + jsonWhere.keys[0] + "'"
+		}
 	}
 
 	selectParams := schemaQuery.fields
@@ -1978,6 +2033,10 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 
 	if len(whereStr) > 0 {
 		queryStr += " WHERE " + whereStr
+	}
+
+	if len(jsonStr) > 0 {
+		queryStr += " WHERE " + jsonStr
 	}
 
 	return queryStr
