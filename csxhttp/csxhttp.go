@@ -94,7 +94,7 @@ func (ctx *Context) GetHeader(key string) string {
 
 // SetHeader set header value by key
 func (ctx *Context) SetHeader(key, value string) {
-	ctx.Request().Header.Set(key, value)
+	ctx.Response().Header().Set(key, value)
 }
 
 // QueryParamInt return string value by key
