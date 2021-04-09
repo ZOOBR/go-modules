@@ -16,7 +16,7 @@ import (
 type Context struct {
 	echo.Context
 	store         echo.Map
-	mandatSession *MandatSession
+	accessManager *csxaccess.AccessManager
 }
 
 // ErrorItem struct for send errors
@@ -154,13 +154,13 @@ func (ctx *Context) Success() error {
 }
 
 // SetMandatSession sets mandat session to ctx
-func (ctx *Context) SetMandatSession(mandatSession *MandatSession) {
-	ctx.mandatSession = mandatSession
+func (ctx *Context) SetAccessManager(accessManager *csxaccess.AccessManager) {
+	ctx.accessManager = accessManager
 }
 
 // SetMandatSession sets mandat session to ctx
 func (ctx *Context) AccessManager() *csxaccess.AccessManager {
-	return ctx.mandatSession.accessManager
+	return ctx.accessManager
 }
 
 // GetCtxLang return lang from request

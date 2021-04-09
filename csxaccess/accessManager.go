@@ -289,8 +289,10 @@ func appendMandat(mandat *Mandat, mandats []*Mandat, mandatsMap *sync.Map, key s
 	mandatsMap.Store(key, mandats)
 }
 
-func NewAccessManager(categorizer func(mandat *Mandat) (string, string)) *AccessManager {
-	return &AccessManager{categorizer: categorizer}
+func NewAccessManager(accessMandats []*Mandat, categorizer func(mandat *Mandat) (string, string)) *AccessManager {
+	accessManager := AccessManager{categorizer: categorizer}
+	accessManager.Load(accessMandats)
+	return &accessManager
 }
 
 func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
