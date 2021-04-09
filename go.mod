@@ -3,7 +3,6 @@ module gitlab.com/battler/modules
 go 1.16
 
 require (
-	github.com/Masterminds/semver v1.5.0
 	github.com/aws/aws-sdk-go v1.31.4
 	github.com/buger/jsonparser v1.1.1
 	github.com/disintegration/imaging v1.6.2
