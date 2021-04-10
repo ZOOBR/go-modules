@@ -53,6 +53,9 @@ func PrepareBaseQuery(ctx *Context, mode int, params map[string]string) (*BaseQu
 // PrepareQuery prepares SQL query
 func PrepareQuery(ctx *Context, mode int, params map[string]string) (int, string) {
 	baseQ, status := prepareBaseQuery(ctx, mode, params)
+	if baseQ == nil {
+		return status, ""
+	}
 	return status, baseQ.RestrictAccessCondition
 }
 
