@@ -133,6 +133,21 @@ func GetStrMapFromList(list *string) map[string]bool {
 	return result
 }
 
+func GetStrMapFromListWithPrepare(list *string, cb func(val string) string) map[string]bool {
+	result := make(map[string]bool)
+	if list == nil || *list == "" {
+		return result
+	}
+	if list != nil {
+		arr := strings.Split(*list, ",")
+		for _, val := range arr {
+			val = cb(strings.TrimSpace(val))
+			result[val] = true
+		}
+	}
+	return result
+}
+
 func GetIntMapFromList(list *string, zero bool) map[int]bool {
 	result := make(map[int]bool)
 	if list != nil {
