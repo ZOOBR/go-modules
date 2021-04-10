@@ -80,7 +80,6 @@ type Delivery amqp.Delivery
 // TODO:: Get from env
 var (
 	reconTime = time.Second * 20
-	lifetime  = time.Duration(0)
 )
 
 func (c *Consumer) logInfo(log string) string {
@@ -158,7 +157,7 @@ func (c *Consumer) QueueDeclare(exchange string, keys []string) (<-chan amqp.Del
 		}
 		if len(c.queue.Keys) > 0 && keys == nil {
 			err = c.BindKeys(c.queue.Keys)
-		} else if keys != nil && len(keys) > 0 {
+		} else if len(keys) > 0 {
 			err = c.BindKeys(keys) // if reconnect or create new consumer cases
 		} else {
 			err = c.BindKeys([]string{c.queue.ConsumerTag})
@@ -279,24 +278,24 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 		content.Headers = headers
 	}
 	if c == nil {
-		logrus.Error(c.logInfo("c == nil"))
 		c.Reconnect(nil)
+		logrus.Error(c.logInfo("reconnected after c == nil"))
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
 	if c.conn == nil {
-		logrus.Error(c.logInfo("c.conn == nil"))
 		c.Reconnect(nil)
+		logrus.Error(c.logInfo("reconnected after c.conn == nil"))
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
 	if c.channel == nil {
-		logrus.Error(c.logInfo("c.channel == nil"))
 		c.Reconnect(nil)
+		logrus.Error(c.logInfo("reconnected after c.channel == nil"))
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
 	errPublish := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
 	if errPublish != nil {
-		logrus.Error(c.logInfo("try reconnect after publish err: "), errPublish)
 		c.Reconnect(nil)
+		logrus.Error(c.logInfo("reconnected after publish err: "), errPublish)
 		return c.PublishWithHeaders(msg, routingKey, headers)
 	}
 	return nil
