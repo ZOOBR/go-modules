@@ -986,15 +986,38 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) map[string]interface{} {
 	iVal := reflect.Indirect(reflect.ValueOf(structVal))
 	typ := iVal.Type()
-	checkTags := true
+	var checkTags *bool
+	var tagsForCheck map[string]bool
 	mapToJson := true
 	if len(options) > 0 {
 		opts := options[0]
 		if val, ok := opts["checkTags"]; ok {
-			checkTags = val.(bool)
+			v := val.(bool)
+			checkTags = &v
 		}
 		if val, ok := opts["mapToJson"]; ok {
 			mapToJson = val.(bool)
+		}
+		if val, ok := opts["roles"]; ok {
+			tagsForCheck = map[string]bool{}
+			roles := val.(map[string]interface{})
+			for _, roleInt := range roles {
+				role := roleInt.(map[string]interface{})
+				rightsInt := role["rights"]
+				if rightsInt == nil {
+					continue
+				}
+				allRights := JsonB(rightsInt.(map[string]interface{}))
+				if val, ok := opts["collection"]; ok {
+					rightsInt := allRights[val.(string)]
+					rights, ok := rightsInt.(map[string]interface{})
+					if ok {
+						for key := range rights {
+							tagsForCheck[key] = true
+						}
+					}
+				}
+			}
 		}
 	}
 	res := make(map[string]interface{})
@@ -1006,12 +1029,23 @@ func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) 
 		ft := typ.Field(i)
 		tag := ft.Tag.Get("db")
 
-		if checkTags {
-			if tag == "" || tag == "-" {
-				continue
+		if checkTags != nil {
+			if *checkTags {
+				if tag == "" || tag == "-" {
+					continue
+				}
+			} else {
+				tag = strings.ToLower(ft.Name)
 			}
 		} else {
-			tag = strings.ToLower(ft.Name)
+			if len(tagsForCheck) > 0 {
+				tag = strings.ToLower(ft.Name)
+				if !tagsForCheck[tag] {
+					continue
+				}
+			} else if tag == "" || tag == "-" {
+				continue
+			}
 		}
 
 		if f.IsValid() {
