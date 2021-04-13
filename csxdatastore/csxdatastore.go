@@ -134,7 +134,7 @@ func (store *DataStore) Store(id string, data interface{}) {
 	if cntIndexes > 0 {
 		store.updateIndexies(data, oldValues)
 	}
-	logrus.Info("store '"+store.name+"' update: ", id, " ", data)
+	logrus.Info("store '"+store.name+"' update: ", id)
 }
 
 // Store data store by data
