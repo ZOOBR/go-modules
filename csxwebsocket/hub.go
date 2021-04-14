@@ -29,6 +29,10 @@ func NewHub() *Hub {
 	}
 }
 
+func (h *Hub) GetHubClients() map[string]*Client {
+	return h.clients
+}
+
 // Run prepare hub channels
 func (h *Hub) Run() {
 	for {
