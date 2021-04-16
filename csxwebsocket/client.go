@@ -44,14 +44,19 @@ type Message struct {
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	id  string
+	ID  string
 	hub *Hub
 
 	// The websocket connection.
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send chan *Message
+	send    chan *Message
+	context *csxhttp.Context
+}
+
+func (c *Client) GetContext() *csxhttp.Context {
+	return c.context
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -61,7 +66,7 @@ type Client struct {
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.Unregister <- c
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
@@ -129,7 +134,7 @@ func ServeWs(clientID string, hub *Hub, ctx *csxhttp.Context) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{id: clientID, hub: hub, conn: conn, send: make(chan *Message, 256)}
+	client := &Client{ID: clientID, hub: hub, conn: conn, send: make(chan *Message, 256), context: ctx}
 	client.hub.register <- client
 
 	// Allow collection of memory referenced by the caller by doing all work in
