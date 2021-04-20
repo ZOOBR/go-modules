@@ -268,6 +268,29 @@ func NewPublisher(amqpURI, name string, exchange Exchange) (*Consumer, error) {
 	return c, err
 }
 
+// NewPublisher create publisher for send amqp messages
+func NewPublisherWithRPC(amqpURI, name string, exchange Exchange, rpcQueueName string, keys []string, cb ...func(*Delivery)) (*Consumer, error) {
+	c, err := NewPublisher(amqpURI, name, exchange)
+	if err != nil {
+		return nil, err
+	}
+	queue := Queue{
+		Name:        rpcQueueName,
+		ConsumerTag: rpcQueueName,
+		AutoDelete:  true,
+		Durable:     false,
+		Keys:        keys,
+	}
+	if err != nil {
+		return nil, err
+	}
+	_, err = NewConsumer(amqpURI, name, &exchange, &queue, cb)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // PublishWithHeaders sends messages and reconnects in case of error
 func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map[string]interface{}) error {
 	content := amqp.Publishing{
@@ -277,26 +300,30 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 	if headers != nil {
 		content.Headers = headers
 	}
+	return c.channelPublish(msg, routingKey, &content)
+}
+
+func (c *Consumer) channelPublish(msg []byte, routingKey string, content *amqp.Publishing) error {
 	if c == nil {
 		c.Reconnect(nil)
 		logrus.Error(c.logInfo("reconnected after c == nil"))
-		return c.PublishWithHeaders(msg, routingKey, headers)
+		return c.PublishWithHeaders(msg, routingKey, content.Headers)
 	}
 	if c.conn == nil {
 		c.Reconnect(nil)
 		logrus.Error(c.logInfo("reconnected after c.conn == nil"))
-		return c.PublishWithHeaders(msg, routingKey, headers)
+		return c.PublishWithHeaders(msg, routingKey, content.Headers)
 	}
 	if c.channel == nil {
 		c.Reconnect(nil)
 		logrus.Error(c.logInfo("reconnected after c.channel == nil"))
-		return c.PublishWithHeaders(msg, routingKey, headers)
+		return c.PublishWithHeaders(msg, routingKey, content.Headers)
 	}
-	errPublish := c.channel.Publish(c.exchange.Name, routingKey, false, false, content)
+	errPublish := c.channel.Publish(c.exchange.Name, routingKey, false, false, *content)
 	if errPublish != nil {
 		c.Reconnect(nil)
 		logrus.Error(c.logInfo("reconnected after publish err: "), errPublish)
-		return c.PublishWithHeaders(msg, routingKey, headers)
+		return c.PublishWithHeaders(msg, routingKey, content.Headers)
 	}
 	return nil
 }
@@ -304,6 +331,17 @@ func (c *Consumer) PublishWithHeaders(msg []byte, routingKey string, headers map
 // Publish sends messages and reconnects in case of error
 func (c *Consumer) Publish(msg []byte, routingKey string) error {
 	return c.PublishWithHeaders(msg, routingKey, nil)
+}
+
+// ReplyTo sends messages to receiver that passed in replyTo parameter and correlationId of delivery
+func (c *Consumer) ReplyTo(msg []byte, routingKey, replyTo, correlationId string) error {
+	content := amqp.Publishing{
+		ContentType:   "text/plain",
+		Body:          msg,
+		ReplyTo:       replyTo,
+		CorrelationId: correlationId,
+	}
+	return c.channelPublish(msg, routingKey, &content)
 }
 
 // GetConsumer get or create publish/consume consumer
