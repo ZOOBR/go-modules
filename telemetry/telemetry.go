@@ -24,6 +24,9 @@ const (
 	// calculated
 	ParamCalcOdo  = 3001
 	ParamSpeedAvg = 3005
+
+	ParamClientLat = 4101
+	ParamClientLon = 4102
 )
 
 var mapParamsPrecision = map[uint16]float64{
