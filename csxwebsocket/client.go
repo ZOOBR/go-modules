@@ -1,7 +1,6 @@
 package csxwebsocket
 
 import (
-	"bytes"
 	"log"
 	"net/http"
 	"time"
@@ -45,14 +44,19 @@ type Message struct {
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	id  string
+	ID  string
 	hub *Hub
 
 	// The websocket connection.
 	conn *websocket.Conn
 
 	// Buffered channel of outbound messages.
-	send chan *Message
+	send    chan *Message
+	context *csxhttp.Context
+}
+
+func (c *Client) GetContext() *csxhttp.Context {
+	return c.context
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -62,7 +66,7 @@ type Client struct {
 // reads from this goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.Unregister <- c
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
@@ -72,15 +76,15 @@ func (c *Client) readPump() {
 		return nil
 	})
 	for {
-		_, message, err := c.conn.ReadMessage()
+		_, _, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("error: %v", err)
 			}
 			break
 		}
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
-		c.hub.Broadcast <- &Message{Clients: []string{c.id}, Data: message}
+		// message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
+		// c.conn.WriteMessage(websocket.PingMessage, message)
 	}
 }
 
@@ -109,15 +113,8 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message.Data)
 
-			// Add queued chat messages to the current websocket message.
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(newline)
-				message := <-c.send
-				w.Write(message.Data)
-			}
+			w.Write(message.Data)
 
 			if err := w.Close(); err != nil {
 				return
@@ -137,7 +134,7 @@ func ServeWs(clientID string, hub *Hub, ctx *csxhttp.Context) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	client := &Client{id: clientID, hub: hub, conn: conn, send: make(chan *Message)}
+	client := &Client{ID: clientID, hub: hub, conn: conn, send: make(chan *Message, 256), context: ctx}
 	client.hub.register <- client
 
 	// Allow collection of memory referenced by the caller by doing all work in

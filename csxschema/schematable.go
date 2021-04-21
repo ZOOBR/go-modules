@@ -997,6 +997,12 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 	for i := 0; i < fcnt; i++ {
 		f := recType.Field(i)
 		name := f.Tag.Get("db")
+		tag := recType.Field(i).Tag.Get("db")
+		tagWrite := recType.Field(i).Tag.Get("dbField")
+		if tagWrite == "-" || tag == "-" ||
+			(tag == "" && tagWrite == "") {
+			continue
+		}
 		fType := f.Tag.Get("type")
 		if len(name) == 0 || name == "-" {
 			continue
