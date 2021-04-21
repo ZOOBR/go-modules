@@ -13,7 +13,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/amqpconnector"
-	amqp "gitlab.com/battler/modules/amqpconnector"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -33,8 +32,8 @@ const (
 var (
 	amqpURI               = os.Getenv("AMQP_URI")
 	mailingsExchange      = initMailingsExchange()
-	publisher             *amqp.Consumer
-	notificationPublisher *amqp.Consumer
+	publisher             *amqpconnector.Consumer
+	notificationPublisher *amqpconnector.Consumer
 	reconTime             = time.Second * 20
 	botProxy              = os.Getenv("BOT_HTTP_PROXY")
 	emailSender           = os.Getenv("EMAIL_SENDER")
@@ -90,7 +89,7 @@ func initEventsPublisher() {
 	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
 	if amqpURI != "" && amqpTelemetryExchange != "" {
 		var err error
-		publisher, err = amqp.NewPublisher(amqpURI, "initEventsPublisher", amqp.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
+		publisher, err = amqpconnector.NewPublisher(amqpURI, "initEventsPublisher", amqpconnector.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
 		if err != nil {
 			log.Error("init events publisher err:", err)
 			log.Warn("try reconnect to rabbitmq after:", reconTime)
@@ -105,7 +104,7 @@ func initEventsPublisher() {
 func initNotificationsPublisher() {
 	if amqpURI != "" && mailingsExchange != "" {
 		var err error
-		notificationPublisher, err = amqp.NewPublisher(amqpURI, "initNotificationsPublisher", amqp.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
+		notificationPublisher, err = amqpconnector.NewPublisher(amqpURI, "initNotificationsPublisher", amqpconnector.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
 		if err != nil {
 			log.Error("init notification publisher err:", err)
 			log.Warn("try reconnect to rabbitmq after:", reconTime)
@@ -116,24 +115,32 @@ func initNotificationsPublisher() {
 	}
 }
 
+type PreparedMessage struct {
+	Text    string
+	Title   string
+	Typ     string
+	Options map[string]string
+}
+
 // Message is a common simple message struct
 type Message struct {
-	Mode       int         `json:"mode"`
-	Msg        string      `json:"msg"`
-	Title      string      `json:"title"`
-	Lang       string      `json:"lang"`
-	Phones     []string    `json:"phones"`
-	Tokens     []string    `json:"tokens"`
-	Addrs      []string    `json:"addrs"`
-	Images     []string    `json:"images"`
-	Sender     string      `json:"sender"`
-	Payload    interface{} `json:"payload"`
-	Trigger    string      `json:"trigger"`
-	BotID      string      `json:"bot"`
-	ChatID     string      `json:"chat"`
-	Type       int         `json:"type"`
-	MsgId      *string     `json:"msgId"`
-	SenderName *string     `json:"senderName"`
+	Mode        int         `json:"mode"`
+	Msg         string      `json:"msg"`
+	Title       string      `json:"title"`
+	Lang        string      `json:"lang"`
+	Phones      []string    `json:"phones"`
+	Tokens      []string    `json:"tokens"`
+	Addrs       []string    `json:"addrs"`
+	Images      []string    `json:"images"`
+	Sender      string      `json:"sender"`
+	Payload     interface{} `json:"payload"`
+	Trigger     string      `json:"trigger"`
+	BotID       string      `json:"bot"`
+	ChatID      string      `json:"chat"`
+	Type        int         `json:"type"`
+	MsgId       *string     `json:"msgId"`
+	SenderName  *string     `json:"senderName"`
+	PreparedMsg PreparedMessage
 }
 
 // SMS is a basic SMS struct
@@ -264,7 +271,6 @@ func SendWeb(routingKey string, payload interface{}) {
 	switch payload.(type) {
 	case amqpconnector.Update:
 		event = payload.(amqpconnector.Update)
-		break
 	case map[string]interface{}:
 		payload := payload.(map[string]interface{})
 		event.Cmd = "notify"
@@ -272,7 +278,6 @@ func SendWeb(routingKey string, payload interface{}) {
 		if firm, ok := payload["firm"]; ok {
 			event.Groups = []string{firm.(string)}
 		}
-		break
 	case dbc.JsonB:
 		payload := payload.(dbc.JsonB)
 		event.Cmd = "notify"
@@ -280,7 +285,6 @@ func SendWeb(routingKey string, payload interface{}) {
 		if firm, ok := payload["firm"]; ok {
 			event.Groups = []string{firm.(string)}
 		}
-		break
 
 	default:
 		event.Cmd = "notify"
@@ -321,8 +325,7 @@ func SendBot(msg, title string, botID, chatID string) {
 
 // Send format and send universal message by SMS, Push, Mail
 func (msg *Message) Send(data interface{}) {
-	var text, typ, title, info string
-	var options map[string]string
+	var info string
 
 	if (msg.Mode & MessageModeSMS) != 0 {
 		for _, phone := range msg.Phones {
@@ -334,7 +337,7 @@ func (msg *Message) Send(data interface{}) {
 			if msg.MsgId != nil {
 				msgID = *msg.MsgId
 			}
-			SendSMS(phone, text, msg.Payload, msgID, fmt.Sprintf("%d", msg.Type))
+			SendSMS(phone, msg.PreparedMsg.Text, msg.Payload, msgID, fmt.Sprintf("%d", msg.Type))
 		}
 	}
 	if (msg.Mode&MessageModePush) != 0 && len(msg.Tokens) > 0 {
@@ -342,34 +345,34 @@ func (msg *Message) Send(data interface{}) {
 			info += ","
 		}
 		info += strings.Join(msg.Tokens[:], ",")
-		SendPush(text, title, msg.Tokens, msg.Payload, false)
+		SendPush(msg.PreparedMsg.Text, msg.PreparedMsg.Title, msg.Tokens, msg.Payload, false)
 	}
 	if (msg.Mode & MessageModeWebPush) != 0 {
 		SendWeb(msg.Trigger, msg.Payload)
 	}
 	if (msg.Mode & MessageModeBot) != 0 {
-		SendBot(text, title, msg.BotID, msg.ChatID)
+		SendBot(msg.PreparedMsg.Text, msg.PreparedMsg.Title, msg.BotID, msg.ChatID)
 	}
 	if (msg.Mode & MessageModeMail) != 0 {
 		var contentType string
-		if typ == "html" {
+		if msg.PreparedMsg.Typ == "html" {
 			contentType = "text/html"
 		} else {
 			contentType = "text/plain"
 		}
 		if msg.SenderName != nil {
-			options["senderName"] = *msg.SenderName
+			msg.PreparedMsg.Options["senderName"] = *msg.SenderName
 		}
 		for _, addr := range msg.Addrs {
 			if len(info) > 0 {
 				info += ","
 			}
 			info += addr
-			SendEmail(addr, title, text, contentType, &msg.Images, options, data)
+			SendEmail(addr, msg.PreparedMsg.Title, msg.PreparedMsg.Text, contentType, &msg.Images, msg.PreparedMsg.Options, data)
 		}
 		return
 	}
-	log.Debug("Message", " [Send] ", info+": ", text)
+	log.Debug("Message", " [Send] ", info+": ", msg.PreparedMsg.Text)
 }
 
 // NewMessage create new message structure
@@ -404,20 +407,20 @@ func SendMessage(lang, msg, title string, phones, tokens, mails, images []string
 }
 
 // SendMessageSMS format and send universal message by SMS
-func SendMessageSMS(lang, msg, title, phone string, data interface{}, msgType int, msgID *string) {
-	NewMessage(lang, msg, title, []string{phone}, nil, nil, nil, msgType, msgID, nil).Send(data)
+func NewMessageSMS(lang, msg, title, phone string, data interface{}, msgType int, msgID *string) *Message {
+	return NewMessage(lang, msg, title, []string{phone}, nil, nil, nil, msgType, msgID, nil)
 }
 
 // SendMessagePush format and send universal message by phone push
-func SendMessagePush(lang, msg, title, token string, data interface{}, payload interface{}, msgType int, msgID *string) {
+func NewMessagePush(lang, msg, title, token string, data interface{}, payload interface{}, msgType int, msgID *string) *Message {
 	message := NewMessage(lang, msg, title, nil, []string{token}, nil, nil, msgType, msgID, nil)
 	message.Payload = payload
-	message.Send(data)
+	return message
 }
 
 // SendMessageMail format and send universal message by e-mail
-func SendMessageMail(lang, msg, title, addr string, data interface{}, msgType int, msgID, senderName *string) {
-	NewMessage(lang, msg, title, nil, nil, []string{addr}, nil, msgType, msgID, senderName).Send(data)
+func NewMessageMail(lang, msg, title, addr string, data interface{}, msgType int, msgID, senderName *string) *Message {
+	return NewMessage(lang, msg, title, nil, nil, []string{addr}, nil, msgType, msgID, senderName)
 }
 
 // Init initializes initEventsPublisher
