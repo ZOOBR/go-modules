@@ -1941,10 +1941,6 @@ func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
 	return schemaQuery
 }
 
-func (schemaQuery *SchemaQuery) writeQuoted(field string) {
-
-}
-
 func (schemaQuery *SchemaQuery) GetQueryString() string {
 	var joinStr string
 	joinParams := schemaQuery.join
