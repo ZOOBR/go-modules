@@ -393,8 +393,7 @@ func NewMessage(lang, msg, title string, phones, tokens, mails, images []string,
 	}
 }
 
-func (msg *Message) Prepare(cb func(data interface{}, msg *Message)) *Message {
-	var data interface{}
+func (msg *Message) Prepare(data interface{}, cb func(data interface{}, msg *Message)) *Message {
 	cb(data, msg)
 	return msg
 }
