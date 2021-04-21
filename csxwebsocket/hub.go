@@ -1,5 +1,7 @@
 package csxwebsocket
 
+import "github.com/sirupsen/logrus"
+
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
 type Hub struct {
@@ -16,7 +18,7 @@ type Hub struct {
 	register chan *Client
 
 	// Unregister requests from clients.
-	unregister chan *Client
+	Unregister chan *Client
 }
 
 // NewHub constructor for create new hub
@@ -24,9 +26,14 @@ func NewHub() *Hub {
 	return &Hub{
 		Broadcast:  make(chan *Message),
 		register:   make(chan *Client),
-		unregister: make(chan *Client),
+		Unregister: make(chan *Client),
 		clients:    make(map[string]*Client),
+		Send:       make(chan *Message),
 	}
+}
+
+func (h *Hub) GetHubClients() map[string]*Client {
+	return h.clients
 }
 
 // Run prepare hub channels
@@ -34,10 +41,12 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
-			h.clients[client.id] = client
-		case client := <-h.unregister:
-			if _, ok := h.clients[client.id]; ok {
-				delete(h.clients, client.id)
+			logrus.Debug("register websocket client: ", client.ID)
+			h.clients[client.ID] = client
+		case client := <-h.Unregister:
+			logrus.Debug("unregister websocket client: ", client.ID)
+			if _, ok := h.clients[client.ID]; ok {
+				delete(h.clients, client.ID)
 				close(client.send)
 			}
 		case message := <-h.Send:
