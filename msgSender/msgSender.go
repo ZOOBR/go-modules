@@ -376,9 +376,9 @@ func (msg *Message) Send(data interface{}) {
 }
 
 // NewMessage create new message structure
-func NewMessage(lang, msg, title string, phones, tokens, mails, images []string, msgType int, msgID, senderName *string) *Message {
+func NewMessage(lang, msg, title string, phones, tokens, mails, images []string, msgType int, msgID, senderName *string, payload interface{}) *Message {
 	mode := MessageModeSMS | MessageModePush | MessageModeMail
-	return &Message{
+	newMessage := &Message{
 		Mode:       mode,
 		Msg:        msg,
 		Title:      title,
@@ -391,6 +391,10 @@ func NewMessage(lang, msg, title string, phones, tokens, mails, images []string,
 		MsgId:      msgID,
 		SenderName: senderName,
 	}
+	if payload != nil {
+		newMessage.Payload = payload
+	}
+	return newMessage
 }
 
 func (msg *Message) Prepare(data interface{}, cb func(data interface{}, msg *Message)) *Message {
@@ -400,26 +404,24 @@ func (msg *Message) Prepare(data interface{}, cb func(data interface{}, msg *Mes
 
 // SendMessage format and send universal message by SMS, Push, Mail
 func SendMessage(lang, msg, title string, phones, tokens, mails, images []string, data interface{}, payload interface{}, msgType int, msgID, senderName *string) {
-	message := NewMessage(lang, msg, title, phones, tokens, mails, images, msgType, msgID, senderName)
-	message.Payload = payload
+	message := NewMessage(lang, msg, title, phones, tokens, mails, images, msgType, msgID, senderName, payload)
 	message.Send(data)
 }
 
 // SendMessageSMS format and send universal message by SMS
 func NewMessageSMS(lang, msg, title, phone string, data interface{}, msgType int, msgID *string) *Message {
-	return NewMessage(lang, msg, title, []string{phone}, nil, nil, nil, msgType, msgID, nil)
+	return NewMessage(lang, msg, title, []string{phone}, nil, nil, nil, msgType, msgID, nil, nil)
 }
 
 // SendMessagePush format and send universal message by phone push
 func NewMessagePush(lang, msg, title, token string, data interface{}, payload interface{}, msgType int, msgID *string) *Message {
-	message := NewMessage(lang, msg, title, nil, []string{token}, nil, nil, msgType, msgID, nil)
-	message.Payload = payload
+	message := NewMessage(lang, msg, title, nil, []string{token}, nil, nil, msgType, msgID, nil, payload)
 	return message
 }
 
 // SendMessageMail format and send universal message by e-mail
 func NewMessageMail(lang, msg, title, addr string, data interface{}, msgType int, msgID, senderName *string) *Message {
-	return NewMessage(lang, msg, title, nil, nil, []string{addr}, nil, msgType, msgID, senderName)
+	return NewMessage(lang, msg, title, nil, nil, []string{addr}, nil, msgType, msgID, senderName, nil)
 }
 
 // Init initializes initEventsPublisher
