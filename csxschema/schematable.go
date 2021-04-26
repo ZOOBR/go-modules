@@ -1462,7 +1462,6 @@ func (table *SchemaTable) delete(id string, query *dbc.Query, options ...map[str
 				"id": id,
 			}
 		}
-		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data, options...)
 		//table.SaveLog(id, diff, options)
 	}
 	return count, err
