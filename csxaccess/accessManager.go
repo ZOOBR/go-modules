@@ -9,6 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"gitlab.com/battler/modules/csxdatastore"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -26,9 +27,7 @@ const (
 )
 
 type AccessManager struct {
-	accessMap   sync.Map
-	categoryMap sync.Map
-	categorizer func(mandat *Mandat) (string, string)
+	accessMap *csxdatastore.DataStore
 }
 
 // Mandat is a base partner struct
@@ -36,6 +35,7 @@ type Mandat struct {
 	ID       string
 	Subject  string
 	Group    string
+	Category string
 	Role     *string
 	Fields   []string
 	Priority int
@@ -155,30 +155,32 @@ func (manager *AccessManager) StrictAccess(subject string, mode int, fields []st
 		createNewFields(fields, newFields, nil, db)
 		return true, newFields
 	}
-	mandatsInt, ok := manager.accessMap.Load(subject)
+	mandatsInt, ok := manager.accessMap.FindByIndex("Subject", subject)
 	if !ok {
 		return success, nil
 	}
-	mandats, ok := mandatsInt.([]*Mandat)
+	mandats, ok := mandatsInt.(*sync.Map)
 	if !ok {
 		return success, nil
 	}
-	countMandats := len(mandats)
 	strictFields := make(map[string]bool)
-	for i := 0; i < countMandats; i++ {
-		mandat := mandats[i]
+	mandats.Range(func(_, mandatInt interface{}) bool {
+		mandat, ok := mandatInt.(*Mandat)
+		if !ok {
+			return true
+		}
 		access := mandat.CheckAccess(roles)
 
 		// prohibit access to fields if prohibited
 		denyMode := access <= 0
 		if denyMode && mandat.Fields == nil {
-			continue
+			return true
 		}
 
 		// mandates less than zero prohibit access
 		currentAccess := int(math.Abs(float64(access)))
 		if mode&currentAccess == 0 {
-			continue
+			return true
 		}
 
 		// There may be several mandates, they are applied in accordance with priority
@@ -191,7 +193,7 @@ func (manager *AccessManager) StrictAccess(subject string, mode int, fields []st
 			for _, field := range fields {
 				strictFields[field] = true
 			}
-			continue
+			return true
 		}
 
 		// All fields requested for work are bypassed and fields are checked according to the mandate.
@@ -217,7 +219,8 @@ func (manager *AccessManager) StrictAccess(subject string, mode int, fields []st
 				}
 			}
 		}
-	}
+		return true
+	})
 	var lenFields int
 	if isSuperUser {
 		lenFields = len(fields)
@@ -264,33 +267,20 @@ func (manager *AccessManager) CheckAccessFields(ctxFields *ContextFields, defFie
 
 // Load ---
 func (manager *AccessManager) Load(mandats []*Mandat) {
-	for _, mandatIn := range mandats {
-		mandat := mandatIn
-		var mandats []*Mandat
-		category, subject := manager.categorizer(mandat)
-		if subject != "" {
-			mandat.Subject = subject
-		}
-		appendMandat(mandat, mandats, &manager.accessMap, subject)
-		if category != "" {
-			appendMandat(mandat, mandats, &manager.categoryMap, category)
-		}
+	sortMandats(mandats)
+	indexies := map[string]csxdatastore.DataStoreIndex{
+		"ID":       {IndexType: csxdatastore.IndexTypeUnique},
+		"Subject":  {IndexType: csxdatastore.IndexTypeMap},
+		"Category": {IndexType: csxdatastore.IndexTypeMap},
 	}
+	manager.accessMap = csxdatastore.NewDataStore("mandats", "ID", indexies, func(id *string) (interface{}, error) {
+		return mandats, nil
+	})
+	manager.accessMap.Load()
 }
 
-func appendMandat(mandat *Mandat, mandats []*Mandat, mandatsMap *sync.Map, key string) {
-	mandatsInt, ok := mandatsMap.Load(key)
-	if ok {
-		mandats = mandatsInt.([]*Mandat)
-		mandats = append(mandats, mandat)
-	} else {
-		mandats = []*Mandat{mandat}
-	}
-	mandatsMap.Store(key, mandats)
-}
-
-func NewAccessManager(accessMandats []*Mandat, categorizer func(mandat *Mandat) (string, string)) *AccessManager {
-	accessManager := AccessManager{categorizer: categorizer}
+func NewAccessManager(accessMandats []*Mandat) *AccessManager {
+	accessManager := AccessManager{}
 	accessManager.Load(accessMandats)
 	return &accessManager
 }
@@ -320,160 +310,79 @@ func sortMandats(mandatsNew []*Mandat) (result []*Mandat) {
 	return mandatsNew
 }
 
+func (manager *AccessManager) FindMandat(id string) (*Mandat, bool) {
+	mandatInt, ok := manager.accessMap.FindByIndex("Id", id)
+	if !ok {
+		return nil, ok
+	}
+	mandat, ok := mandatInt.(*Mandat)
+	return mandat, ok
+}
+
+func (manager *AccessManager) AddMandat(id string, newMandat *Mandat) {
+	manager.accessMap.Store(id, newMandat)
+}
+
 func (manager *AccessManager) DeleteMandats(ids []string) {
-	manager.accessMap.Range(func(key, value interface{}) bool {
-		subject, ok := key.(string)
-		if !ok {
-			return true
-		}
-		mandatsArray, ok := value.([]Mandat)
-		if !ok {
-			return true
-		}
-
-		newMandatsArray := mandatsArray
-		for i := 0; i < len(mandatsArray); i++ {
-			m := mandatsArray[i]
-			isFound := false
-			for _, deletedID := range ids {
-				if deletedID == m.ID {
-					isFound = true
-					break
-				}
-			}
-			if isFound {
-				newMandatsArray = append(mandatsArray[:i], mandatsArray[i+1:]...)
-			}
-		}
-		manager.accessMap.Store(subject, newMandatsArray)
-
-		return true
-	})
-
-	manager.categoryMap.Range(func(key, value interface{}) bool {
-		category, ok := key.(string)
-		if !ok {
-			return true
-		}
-		mandatsArray, ok := value.([]Mandat)
-		if !ok {
-			return true
-		}
-
-		newMandatsArray := mandatsArray
-		for i := 0; i < len(mandatsArray); i++ {
-			m := mandatsArray[i]
-			isFound := false
-			for _, deletedID := range ids {
-				if deletedID == m.ID {
-					isFound = true
-					break
-				}
-			}
-			if isFound {
-				newMandatsArray = append(mandatsArray[:i], mandatsArray[i+1:]...)
-			}
-		}
-		manager.accessMap.Store(category, newMandatsArray)
-
-		return true
-	})
-}
-
-func (manager *AccessManager) updateOrDeleteMandatBySubject(mandat *Mandat, id, cmd string) {
-	isDelete := cmd == "delete"
-	mandatsInt, ok := manager.accessMap.Load(mandat.Subject)
-	var mandatsOld []*Mandat
-	mandatsNew := []*Mandat{}
-	if ok {
-		mandatsOld = mandatsInt.([]*Mandat)
+	for i := 0; i < len(ids); i++ {
+		id := ids[i]
+		manager.accessMap.Delete(id)
 	}
-	found := false
-	if mandatsOld != nil {
-		for i := 0; i < len(mandatsOld); i++ {
-			m := mandatsOld[i]
-			if m.ID == id {
-				found = true
-				if isDelete {
-					continue
-				}
-				m = mandat
-			}
-			mandatsNew = append(mandatsNew, m)
-		}
-	}
-	if !found && !isDelete {
-		mandatsNew = append(mandatsNew, mandat)
-	}
-	mandatsNew = sortMandats(mandatsNew)
-	manager.accessMap.Store(mandat.Subject, mandatsNew)
-}
-
-func (manager *AccessManager) updateOrDeleteMandatByCategory(mandat *Mandat, id, cmd string) {
-	isDelete := cmd == "delete"
-	mandatsInt, ok := manager.categoryMap.Load(mandat.Group)
-	var mandatsOld []*Mandat
-	mandatsNew := []*Mandat{}
-	if ok {
-		mandatsOld = mandatsInt.([]*Mandat)
-	}
-	found := false
-	if mandatsOld != nil {
-		for i := 0; i < len(mandatsOld); i++ {
-			m := mandatsOld[i]
-			if m.ID == id {
-				found = true
-				if isDelete {
-					continue
-				}
-				m = mandat
-			}
-			mandatsNew = append(mandatsNew, m)
-		}
-	}
-	if !found && !isDelete {
-		mandatsNew = append(mandatsNew, mandat)
-	}
-	mandatsNew = sortMandats(mandatsNew)
-	manager.categoryMap.Store(mandat.Subject, mandatsNew)
-}
-
-func (manager *AccessManager) UpdateOrDeleteMandat(mandat *Mandat, id, cmd string) {
-	manager.updateOrDeleteMandatBySubject(mandat, id, cmd)
-	manager.updateOrDeleteMandatByCategory(mandat, id, cmd)
 }
 
 // GetMandatsByCategory ---
 func (manager *AccessManager) GetMandatsByCategory(category string) ([]*Mandat, bool) {
-	mandatsInt, ok := manager.categoryMap.Load(category)
-	return mandatsInt.([]*Mandat), ok
+	mandatsInt, ok := manager.accessMap.FindByIndex("Category", category)
+	if !ok {
+		return nil, false
+	}
+	mandats, ok := mandatsInt.(*sync.Map)
+	if !ok {
+		return nil, true
+	}
+	resultMandats := []*Mandat{}
+	mandats.Range(func(mandatID, mandatInt interface{}) bool {
+		currentMandat, ok := mandatInt.(*Mandat)
+		if !ok {
+			return true
+		}
+		resultMandats = append(resultMandats, currentMandat)
+		return true
+	})
+	sortMandats(resultMandats)
+	return resultMandats, true
 }
 
 // GetMandatsBySubject ---
 func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[string]interface{}) ([]*Mandat, bool) {
-	mandatsInt, ok := manager.accessMap.Load(subject)
+	mandatsInt, ok := manager.accessMap.FindByIndex("Subject", subject)
 	if !ok {
 		return nil, false
 	}
-	mandats := mandatsInt.([]*Mandat)
-	if mandats == nil {
+	mandats, ok := mandatsInt.(*sync.Map)
+	if !ok {
 		return nil, true
 	}
 	roleMandats := []*Mandat{}
 	mandat := &Mandat{}
-	for i := 0; i < len(mandats); i++ {
-		currentMandat := mandats[i]
+	mandats.Range(func(mandatID, mandatInt interface{}) bool {
+		currentMandat, ok := mandatInt.(*Mandat)
+		if !ok {
+			return true
+		}
 		if mandat.ID == "" {
 			mandat = currentMandat
 		}
 		if !currentMandat.CheckRole(roles) {
-			continue
+			return true
 		}
 		if mandat.ID != currentMandat.ID {
 			mandat.Assign(currentMandat)
 		}
 		roleMandats = append(roleMandats, mandat)
-	}
+		return true
+	})
+	sortMandats(roleMandats)
 	return roleMandats, true
 }
 
@@ -497,8 +406,5 @@ func (manager *AccessManager) PrintMandats() {
 		logrus.Debug("load mandat:", key)
 		return true
 	})
-	manager.categoryMap.Range(func(key, val interface{}) bool {
-		logrus.Debug("load mandat category:", key)
-		return true
-	})
+
 }
