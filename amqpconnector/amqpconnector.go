@@ -246,7 +246,7 @@ func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 	}
 	for i := 0; i < len(handlers); i++ {
 		handler := handlers[i]
-		c.AddConsumeHandler([]string{name}, handler)
+		c.AddConsumeHandler(queue.Keys, handler)
 	}
 	var keys []string
 	if len(c.queue.Keys) > 0 {
@@ -472,7 +472,7 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 					if !ok {
 						return true
 					}
-					if routingKey != key {
+					if key != "#" && routingKey != key {
 						return true
 					}
 					cbs, ok := cbInt.([]func(*Delivery))
