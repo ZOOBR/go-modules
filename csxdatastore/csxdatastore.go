@@ -9,12 +9,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	IndexTypeUnique = 0
+	IndexTypeMap    = 1
+)
+
+// DataStoreIndex
+type DataStoreIndex struct {
+	IndexType int
+}
+
 // DataStore store local data
 type DataStore struct {
 	sync.RWMutex
 	name        string
 	propID      string
-	propIndexes []string
+	propIndexes map[string]DataStoreIndex
 	load        DataStoreLoadProc
 	items       sync.Map
 	indexes     sync.Map
@@ -24,7 +34,7 @@ type DataStore struct {
 type DataStoreLoadProc func(id *string) (interface{}, error)
 
 // NewDataStore create DataStore
-func NewDataStore(storeName, propID string, indexes []string, load DataStoreLoadProc) *DataStore {
+func NewDataStore(storeName, propID string, indexes map[string]DataStoreIndex, load DataStoreLoadProc) *DataStore {
 	return &DataStore{
 		name:        storeName,
 		propID:      propID,
@@ -50,17 +60,37 @@ func (store *DataStore) FindByIndex(indexID string, value interface{}) (result i
 		logrus.Warn("store '" + store.name + "', missing indexID in store.FindByIndex(<>) call")
 		return result, ok
 	}
+	storeIndex, ok := store.propIndexes[indexID]
+	if !ok {
+		logrus.Warn("store '" + store.name + "', missing invalid indexID:" + indexID + " in store.FindByIndex(<>) call")
+		return result, ok
+	}
 	if value == nil {
 		logrus.Warn("store '" + store.name + "', missing value in store.FindByIndex(indexID, <>) call")
 		return result, ok
 	}
+
 	store.RLock()
 	// search by index id and value
 	indexInt, isIndex := store.indexes.Load(indexID)
 	if isIndex {
 		index, isValid := indexInt.(*sync.Map)
+		var indexItems *sync.Map
+		if storeIndex.IndexType == IndexTypeMap {
+			indexItemsInt, ok := index.Load(indexID)
+			if !ok {
+				isValid = false
+			} else {
+				indexItems, ok = indexItemsInt.(*sync.Map)
+				if !ok {
+					isValid = false
+				}
+			}
+		} else {
+			indexItems = index
+		}
 		if isValid {
-			result, ok = index.Load(value)
+			result, ok = indexItems.Load(value)
 		}
 	} else {
 		logrus.Error("store '"+store.name+"' not found index: ", indexID)
@@ -78,10 +108,13 @@ func (store *DataStore) Load() {
 	itemsVal := reflect.ValueOf(items)
 	cnt := itemsVal.Len()
 	cntIndexes := len(store.propIndexes)
-	for i := 0; i < cntIndexes; i++ {
+	store.RLock()
+	propIndexes := store.propIndexes
+	store.RUnlock()
+	for indexID := range propIndexes {
 		indexesMap := sync.Map{}
 		store.RLock()
-		store.indexes.Store(store.propIndexes[i], &indexesMap)
+		store.indexes.Store(indexID, &indexesMap)
 		store.RUnlock()
 	}
 	for i := 0; i < cnt; i++ {
@@ -122,7 +155,7 @@ func (store *DataStore) Range(cb func(key, val interface{}) bool) {
 // Store data store by data
 func (store *DataStore) Store(id string, data interface{}) {
 	var itemPtr interface{}
-	var oldValues []interface{}
+	var oldValues map[string]interface{}
 	cntIndexes := len(store.propIndexes)
 	itemPtr, ok := store.items.Load(id)
 	if ok {
@@ -140,7 +173,7 @@ func (store *DataStore) Store(id string, data interface{}) {
 // Store data store by data
 func (store *DataStore) Delete(id string) {
 	var itemPtr interface{}
-	var oldValues []interface{}
+	var oldValues map[string]interface{}
 	cntIndexes := len(store.propIndexes)
 	itemPtr, ok := store.items.Load(id)
 	if ok {
@@ -159,7 +192,7 @@ func (store *DataStore) Delete(id string) {
 func (store *DataStore) Update(cmd, id, data string) {
 	var itemPtr interface{}
 	var itemVal reflect.Value
-	var oldValues []interface{}
+	var oldValues map[string]interface{}
 	cntIndexes := len(store.propIndexes)
 	isUpdate := cmd == "update"
 	if isUpdate {
@@ -210,72 +243,103 @@ func (store *DataStore) Update(cmd, id, data string) {
 	}
 }
 
-func (store *DataStore) readIndexies(itemPtr interface{}) []interface{} {
+func (store *DataStore) readIndexies(itemPtr interface{}) map[string]interface{} {
 	itemVal := reflect.ValueOf(itemPtr)
 	if itemVal.Kind() == reflect.Ptr {
 		itemVal = reflect.Indirect(itemVal)
 	}
 	cnt := len(store.propIndexes)
-	result := make([]interface{}, cnt)
+	result := make(map[string]interface{}, cnt)
+	store.RLock()
+	propIndexes := store.propIndexes
+	store.RUnlock()
 	readItem(itemPtr, func() {
-		for i := 0; i < cnt; i++ {
-			store.RLock()
-			propID := store.propIndexes[i]
-			store.RUnlock()
-			prop := reflect.Indirect(itemVal.FieldByName(propID))
+		for indexID := range propIndexes {
+			prop := reflect.Indirect(itemVal.FieldByName(indexID))
 			if !prop.IsValid() {
 				continue
 			}
-			result[i] = prop.Interface()
+			result[indexID] = prop.Interface()
 		}
 	})
 	return result
 }
 
-func (store *DataStore) updateIndexies(itemPtr interface{}, oldValues []interface{}) {
+func getIndexItemsMap(index *sync.Map, indexID string, propIndexVal interface{}) (*sync.Map, bool) {
+	// index store map with indexies
+	indexItemsInt, _ := index.LoadOrStore(indexID, &sync.Map{})
+	if indexItemsInt == nil {
+		return nil, false
+	}
+	indexItems, ok := indexItemsInt.(*sync.Map)
+	if !ok {
+		return nil, false
+	}
+	// indexItems store map with items by index prop
+	itemsInt, _ := indexItems.LoadOrStore(propIndexVal, &sync.Map{})
+	items, ok := itemsInt.(*sync.Map)
+	if !ok {
+		return nil, false
+	}
+	return items, true
+}
+
+func (store *DataStore) updateIndexies(itemPtr interface{}, oldValues map[string]interface{}) {
 	itemVal := reflect.ValueOf(itemPtr)
 	if itemVal.Kind() == reflect.Ptr {
 		itemVal = reflect.Indirect(itemVal)
 	}
-	cnt := len(store.propIndexes)
-	for i := 0; i < cnt; i++ {
-		store.RLock()
-		propID := store.propIndexes[i]
-		store.RUnlock()
-		prop := reflect.Indirect(itemVal.FieldByName(propID))
-		indexInt, isIndex := store.indexes.Load(propID)
+	store.RLock()
+	propIndexes := store.propIndexes
+	store.RUnlock()
+	for indexID, storeIndex := range propIndexes {
+
+		prop := reflect.Indirect(itemVal.FieldByName(indexID))
+		indexInt, isIndex := store.indexes.Load(indexID)
 		if !isIndex || !prop.IsValid() {
 			continue
 		}
+		propIndexVal := prop.Interface()
+
 		index, ok := indexInt.(*sync.Map)
 		if !ok {
 			continue
 		}
-		propVal := prop.Interface()
+
 		if oldValues != nil {
-			oldVal := oldValues[i]
-			if oldVal != propVal && oldVal != nil {
+			oldVal := oldValues[indexID]
+			if oldVal != propIndexVal && oldVal != nil {
 				index.Delete(oldVal)
 			}
 		}
-		if propVal != nil {
-			index.Store(propVal, itemPtr)
+		if storeIndex.IndexType == IndexTypeMap {
+			items, ok := getIndexItemsMap(index, indexID, propIndexVal)
+			if !ok {
+				continue
+			}
+			// store items to finally map by primary key
+			prop := reflect.Indirect(itemVal.FieldByName(store.propID))
+			propVal := prop.Interface()
+			items.Store(propVal, itemPtr)
+		} else {
+			if propIndexVal != nil {
+				index.Store(propIndexVal, itemPtr)
+			}
 		}
 	}
 }
 
-func (store *DataStore) deleteIndexies(itemPtr interface{}, oldValues []interface{}) {
+func (store *DataStore) deleteIndexies(itemPtr interface{}, oldValues map[string]interface{}) {
 	itemVal := reflect.ValueOf(itemPtr)
 	if itemVal.Kind() == reflect.Ptr {
 		itemVal = reflect.Indirect(itemVal)
 	}
-	cnt := len(store.propIndexes)
-	for i := 0; i < cnt; i++ {
-		store.RLock()
-		propID := store.propIndexes[i]
-		store.RUnlock()
-		prop := reflect.Indirect(itemVal.FieldByName(propID))
-		indexInt, isIndex := store.indexes.Load(propID)
+	store.RLock()
+	propIndexes := store.propIndexes
+	store.RUnlock()
+	for indexID, storeIndex := range propIndexes {
+		prop := reflect.Indirect(itemVal.FieldByName(indexID))
+		indexInt, isIndex := store.indexes.Load(indexID)
 		if !isIndex || !prop.IsValid() {
 			continue
 		}
@@ -283,11 +347,23 @@ func (store *DataStore) deleteIndexies(itemPtr interface{}, oldValues []interfac
 		if !ok {
 			continue
 		}
-		propVal := prop.Interface()
-		val, ok := index.Load(propVal)
-		if ok && val == itemPtr {
-			index.Delete(propVal)
+		propIndexVal := prop.Interface()
+		if storeIndex.IndexType == IndexTypeMap {
+			items, ok := getIndexItemsMap(index, indexID, propIndexVal)
+			if !ok {
+				continue
+			}
+			// delete items from finally map by primary key
+			prop := reflect.Indirect(itemVal.FieldByName(store.propID))
+			propVal := prop.Interface()
+			items.Delete(propVal)
+		} else {
+			val, ok := index.Load(propIndexVal)
+			if ok && val == itemPtr {
+				index.Delete(propIndexVal)
+			}
 		}
+
 	}
 }
 
