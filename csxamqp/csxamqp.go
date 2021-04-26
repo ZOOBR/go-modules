@@ -1,6 +1,6 @@
-// Package amqpconnector is a wrapper for amqp package
+// Package csxamqp is a wrapper for amqp package
 // with reconnect functional support
-package amqpconnector
+package csxamqp
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
-	csxstrings "gitlab.com/battler/modules/csxstrings"
+	"gitlab.com/battler/modules/csxstrings"
 )
 
 var (

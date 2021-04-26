@@ -17,7 +17,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
-	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxamqp"
 	"gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
 	"gitlab.com/battler/modules/reporter"
@@ -149,7 +149,7 @@ func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
 			for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
 				updateCallback := func() {
 					data := dataCallback(id)
-					go amqp.SendUpdate(amqpURI, routingKey, id, "update", data)
+					go csxamqp.SendUpdate(amqpURI, routingKey, id, "update", data)
 				}
 				if queryObj.IsTransact() {
 					queryObj.BindTxCommitCallback(updateCallback)
@@ -221,13 +221,13 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		} else {
 			queueName += "." + *csxstrings.NewId()
 		}
-		go amqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
+		go csxamqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
 	}
 	return nil
 }
 
-func registerSchemaOnUpdate(d *amqp.Delivery) {
-	msg := amqp.Update{}
+func registerSchemaOnUpdate(d *csxamqp.Delivery) {
+	msg := csxamqp.Update{}
 	err := json.Unmarshal(d.Body, &msg)
 	if err != nil {
 		logrus.Error("HandleUpdates", "Error parse json: ", err)
@@ -1254,7 +1254,7 @@ func (table *SchemaTable) checkInsert(data interface{}, where *string, query *db
 
 	res, err := query.Exec(sql, args...)
 	if err == nil {
-		go amqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub, options...)
+		go csxamqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub, options...)
 		table.SaveLog(itemID, diff, options)
 	}
 	return res, err
@@ -1385,7 +1385,7 @@ func (table *SchemaTable) update(id string, data interface{}, query *dbc.Query, 
 	}
 	diff, diffPub, _, err := table.updateMultiple(oldData, data, where, query, options...)
 	if err == nil && len(diff) > 0 {
-		go amqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub, options...)
+		go csxamqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub, options...)
 		table.SaveLog(id, diff, options)
 	}
 	return err
@@ -1424,7 +1424,7 @@ func (table *SchemaTable) deleteMultiple(where string, query *dbc.Query, options
 	if err == nil {
 		countDelete := len(ids)
 		if countDelete > 0 {
-			go amqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil, options...)
+			go csxamqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil, options...)
 		}
 
 		return countDelete, err
@@ -1462,7 +1462,7 @@ func (table *SchemaTable) delete(id string, query *dbc.Query, options ...map[str
 				"id": id,
 			}
 		}
-		go amqp.SendUpdate(amqpURI, table.Name, id, "delete", data, options...)
+		go csxamqp.SendUpdate(amqpURI, table.Name, id, "delete", data, options...)
 		//table.SaveLog(id, diff, options)
 	}
 	return count, err
@@ -1689,7 +1689,7 @@ func (table *SchemaTable) UpdateStructValues(queryObj *dbc.Query, query string, 
 		}
 
 		if table != "" && id != "" {
-			go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+			go csxamqp.SendUpdate(amqpURI, table, id, "update", diffPub)
 			applyAmqpUpdates(table, id, queryObj)
 			if withLog {
 				queryObj.SaveLog(table, id, user, diff)
@@ -1780,7 +1780,7 @@ func (table *SchemaTable) InsertStructValues(queryObj *dbc.Query, query string, 
 		}
 		table := settings["table"]
 		id := settings["id"]
-		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
+		go csxamqp.SendUpdate(amqpURI, table, id, "create", diffPub)
 		registerSchema.RLock()
 		schemaTableReg, ok := registerSchema.tables[table]
 		registerSchema.RUnlock()
@@ -1789,7 +1789,7 @@ func (table *SchemaTable) InsertStructValues(queryObj *dbc.Query, query string, 
 				for routingKey, dataCallback := range schemaTableReg.table.getAmqpUpdateData {
 					updateCallback := func() {
 						data := dataCallback(id)
-						go amqp.SendUpdate(amqpURI, routingKey, id, "create", data)
+						go csxamqp.SendUpdate(amqpURI, routingKey, id, "create", data)
 					}
 					if queryObj.IsTransact() {
 						queryObj.BindTxCommitCallback(updateCallback)
