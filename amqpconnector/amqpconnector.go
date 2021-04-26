@@ -46,7 +46,7 @@ type Consumer struct {
 	queue    *Queue
 	uri      string
 	name     string // consumer name for logs
-	handlers []func(*Delivery)
+	handlers sync.Map
 }
 
 // Exchange struct for receive exchange params
@@ -244,8 +244,9 @@ func NewConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 		uri:      amqpURI,
 		name:     name,
 	}
-	if len(handlers) > 0 {
-		c.handlers = handlers
+	for i := 0; i < len(handlers); i++ {
+		handler := handlers[i]
+		c.AddConsumeHandler([]string{name}, handler)
 	}
 	var keys []string
 	if len(c.queue.Keys) > 0 {
@@ -357,7 +358,7 @@ func GetConsumer(amqpURI, name string, exchange *Exchange, queue *Queue, handler
 			}
 			consumer, err = NewPublisher(amqpURI, name, exch)
 		} else {
-			consumer, err = NewConsumer(amqpURI, name, exchange, queue, []func(*Delivery){handler})
+			consumer, err = NewConsumer(amqpURI, name, exchange, queue, nil)
 		}
 		if err != nil {
 			return nil, err
@@ -465,11 +466,26 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 		logrus.Info(c.logInfo("handle deliveries"))
 		go func() {
 			for d := range deliveries {
-				for i := 0; i < len(c.handlers); i++ {
-					cb := c.handlers[i]
+				routingKey := d.RoutingKey
+				c.handlers.Range(func(keyInt, cbInt interface{}) bool {
+					key, ok := keyInt.(string)
+					if !ok {
+						return true
+					}
+					if routingKey != key {
+						return true
+					}
+					cbs, ok := cbInt.([]func(*Delivery))
+					if !ok {
+						return true
+					}
 					dv := Delivery(d)
-					cb(&dv)
-				}
+					for i := 0; i < len(cbs); i++ {
+						cb := cbs[i]
+						cb(&dv)
+					}
+					return true
+				})
 				d.Ack(false)
 			}
 		}()
@@ -486,12 +502,18 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 	}
 }
 
-// AddConsumeHandler add handler for queue consumer
-func (c *Consumer) AddConsumeHandler(handler func(*Delivery)) {
-	if len(c.handlers) == 0 {
-		c.handlers = []func(*Delivery){handler}
-	} else {
-		c.handlers = append(c.handlers, handler)
+// AddConsumeHandler add handler for queue consumer by routingKeys
+func (c *Consumer) AddConsumeHandler(keys []string, handler func(*Delivery)) {
+	for i := 0; i < len(keys); i++ {
+		key := keys[i]
+		handlersInt, _ := c.handlers.LoadOrStore(key, []func(*Delivery){})
+		handlers, ok := handlersInt.([]func(*Delivery))
+		if !ok {
+			logrus.Error("invalid onUpdates handlers (not []func(*Delivery)) for key: " + key)
+			continue
+		}
+		handlers = append(handlers, handler)
+		c.handlers.Store(key, handlers)
 	}
 }
 
@@ -523,8 +545,8 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 		Durable:     false,
 		Keys:        keys,
 	}
-	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, cb)
-	if err != nil || cUpdates == nil {
+	cUpdates, err := GetConsumer(amqpURI, "OnUpdates", &exchange, &queue, nil)
+	if err != nil {
 		logrus.Error("[OnUpdates] consumer init err: ", err)
 		logrus.Warn("[OnUpdates] try reconnect to rabbitmq after ", reconTime)
 		time.Sleep(reconTime)
@@ -532,12 +554,7 @@ func OnUpdates(cb func(data *Delivery), keys []string) {
 		return
 	}
 
-	if cUpdates.handlers == nil || len(cUpdates.handlers) == 0 {
-		cUpdates.handlers = make([]func(*Delivery), 0)
-		cUpdates.handlers = append(cUpdates.handlers, cb)
-	} else {
-		cUpdates.handlers = append(cUpdates.handlers, cb)
-	}
+	cUpdates.AddConsumeHandler(keys, cb)
 }
 
 //Shutdown channel on set app time to live
