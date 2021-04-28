@@ -76,6 +76,7 @@ type Queue struct {
 }
 
 type Delivery amqp.Delivery
+type Table amqp.Table
 
 // TODO:: Get from env
 var (
