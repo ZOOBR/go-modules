@@ -334,8 +334,8 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 	return c.PublishWithHeaders(msg, routingKey, nil)
 }
 
-// ReplyTo sends messages to receiver that passed in replyTo parameter and correlationId of delivery
-func (c *Consumer) ReplyTo(msg []byte, routingKey, replyTo, correlationId string) error {
+// PublishWithReply sends messages to receiver that passed in replyTo parameter and correlationId of delivery
+func (c *Consumer) PublishWithReply(msg []byte, routingKey, replyTo, correlationId string) error {
 	content := amqp.Publishing{
 		ContentType:   "text/plain",
 		Body:          msg,
@@ -506,6 +506,9 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 func (c *Consumer) AddConsumeHandler(keys []string, handler func(*Delivery)) {
 	for i := 0; i < len(keys); i++ {
 		key := keys[i]
+		if key == "" {
+			key = "#"
+		}
 		handlersInt, _ := c.handlers.LoadOrStore(key, []func(*Delivery){})
 		handlers, ok := handlersInt.([]func(*Delivery))
 		if !ok {
