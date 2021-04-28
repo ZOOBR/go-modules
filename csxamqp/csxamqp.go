@@ -335,12 +335,13 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 }
 
 // ReplyTo sends messages to receiver that passed in replyTo parameter and correlationId of delivery
-func (c *Consumer) ReplyTo(msg []byte, routingKey, replyTo, correlationId string) error {
+func (c *Consumer) ReplyTo(msg []byte, routingKey, replyTo, correlationId string, headers map[string]interface{}) error {
 	content := amqp.Publishing{
 		ContentType:   "text/plain",
 		Body:          msg,
 		ReplyTo:       replyTo,
 		CorrelationId: correlationId,
+		Headers:       headers,
 	}
 	return c.channelPublish(msg, routingKey, &content)
 }
