@@ -1,6 +1,7 @@
 package csxhandlers
 
 import (
+	"net/http"
 	"os"
 	"reflect"
 	"strings"
@@ -204,6 +205,10 @@ func DeleteSession(ctx *csxhttp.Context, session *sessions.Session) error {
 
 func GetSession(ctx *csxhttp.Context) (*sessions.Session, error) {
 	return sessionsStore.Get(ctx.Request(), SessionKey)
+}
+
+func GetSessionByRequest(req *http.Request) (*sessions.Session, error) {
+	return sessionsStore.Get(req, SessionKey)
 }
 
 func DeleteSessionByID(id string) error {
