@@ -34,7 +34,7 @@ var (
 	mailingsExchange      = initMailingsExchange()
 	publisher             *csxamqp.Consumer
 	notificationPublisher *csxamqp.Consumer
-	reconTime             = time.Second * 20
+	reconTime             = csxamqp.GetReconnectionTime()
 	botProxy              = os.Getenv("BOT_HTTP_PROXY")
 	emailSender           = os.Getenv("EMAIL_SENDER")
 

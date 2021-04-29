@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -78,13 +79,27 @@ type Queue struct {
 type Delivery amqp.Delivery
 type Table amqp.Table
 
-// TODO:: Get from env
 var (
-	reconTime = time.Second * 20
+	defaultAmqpReconnectionTime = 20 // in seconds
+
+	reconTime = prepareReconnectionTime() // in seconds
 )
 
 func (c *Consumer) logInfo(log string) string {
 	return "[" + c.name + "]" + log
+}
+
+func prepareReconnectionTime() time.Duration {
+	amqpReconTime, err := strconv.Atoi(os.Getenv("AMQP_RECONNECTION_TIME"))
+	if err != nil {
+		amqpReconTime = defaultAmqpReconnectionTime
+	}
+	return time.Second * time.Duration(amqpReconTime)
+}
+
+// GetReconnectionTime returns AMQP reconnection time
+func GetReconnectionTime() time.Duration {
+	return reconTime
 }
 
 // ExchangeDeclare dial amqp server, decrare echange an queue if set
