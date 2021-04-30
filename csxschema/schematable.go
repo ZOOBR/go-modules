@@ -2044,6 +2044,10 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 	return queryStr
 }
 
+func GetRegisterSchemaManager() *registerSchemeManager {
+	return &registerSchema
+}
+
 func Init() {
 	if moduleInited {
 		return
