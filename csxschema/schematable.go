@@ -753,26 +753,28 @@ func (table *SchemaTable) prepare() error {
 		table.SQLFields = append(table.SQLFields, fieldName)
 	}
 	table.sqlSelect += ` FROM "` + table.Name + `"`
-
-	rows, err := table.DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
-	if err == nil {
-		defer rows.Close()
-		var cols []string
-		cols, err = rows.Columns()
+	var err error
+	var rows *sql.Rows
+	if !disableRegisterMetadata {
+		rows, err = table.DB.Query(`SELECT * FROM "` + table.Name + `" limit 1`)
 		if err == nil {
-			err = table.alter(cols)
+			defer rows.Close()
+			var cols []string
+			cols, err = rows.Columns()
+			if err == nil {
+				err = table.alter(cols)
+			}
+		} else {
+			code := dbc.GetDBErrorCode(err)
+			if code == dbc.TABLE_NOT_EXISTS { // not exists
+				err = table.create()
+			}
 		}
-	} else {
-		code := dbc.GetDBErrorCode(err)
-		if code == dbc.TABLE_NOT_EXISTS { // not exists
-			err = table.create()
-		}
+
+		table.registerMetadata()
 	}
 	if err == nil && table.onUpdate != nil {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
-	}
-	if !disableRegisterMetadata {
-		table.registerMetadata()
 	}
 	return err
 }
