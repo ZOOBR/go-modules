@@ -12,6 +12,12 @@ import (
 	"gitlab.com/battler/modules/csxaccess"
 )
 
+type Handlers map[string]func(ctx *Context) error
+type Controller struct {
+	Name     string
+	Handlers Handlers
+}
+
 // Context Custom context
 type Context struct {
 	echo.Context

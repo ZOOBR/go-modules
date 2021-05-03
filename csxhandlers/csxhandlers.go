@@ -19,44 +19,80 @@ var (
 	SessionKey    string
 )
 
-// HandlerManager wrapper for work with custom context and other functional
-type HandlerManager struct {
-	echo *echo.Echo
-}
-
-// GET Wrapper for GET query
-func (manager *HandlerManager) GET(route string, cb func(ctx *csxhttp.Context) error) {
-	manager.echo.GET(route, func(c echo.Context) error {
-		return cb(c.(*csxhttp.Context))
-	})
-}
-
-// POST Wrapper for POST query
-func (manager *HandlerManager) POST(route string, cb func(ctx *csxhttp.Context) error) {
-	manager.echo.POST(route, func(c echo.Context) error {
-		return cb(c.(*csxhttp.Context))
-	})
-}
-
-// PUT Wrapper for PUT query
-func (manager *HandlerManager) PUT(route string, cb func(ctx *csxhttp.Context) error) {
-	manager.echo.PUT(route, func(c echo.Context) error {
-		return cb(c.(*csxhttp.Context))
-	})
-}
-
-// DELETE Wrapper for DELETE query
-func (manager *HandlerManager) DELETE(route string, cb func(ctx *csxhttp.Context) error) {
-	manager.echo.DELETE(route, func(c echo.Context) error {
-		return cb(c.(*csxhttp.Context))
-	})
+type route struct {
+	method     string
+	controller string
+	name       string
+	cb         func(ctx *csxhttp.Context) error
 }
 
 var (
-	App         *echo.Echo
-	Manager     = HandlerManager{}
-	controllers = []interface{}{}
+	App           *echo.Echo
+	controllers   = []interface{}{}
+	initCallbacks = []func(){}
+	routes        = []route{}
 )
+
+func initRoutes() {
+	for i := 0; i < len(routes); i++ {
+		route := routes[i]
+		var routeName string
+		if route.controller != "" {
+			routeName = "/" + route.controller + "/" + route.name
+		} else {
+			routeName = "/" + route.name
+		}
+
+		logrus.Debug("init method: " + routeName)
+		var handle func(string, echo.HandlerFunc, ...echo.MiddlewareFunc) *echo.Route
+		switch route.method {
+		case "GET":
+			handle = App.GET
+		case "POST":
+			handle = App.POST
+		case "PUT":
+			handle = App.PUT
+		case "DELETE":
+			handle = App.DELETE
+		case "OPTIONS":
+			handle = App.OPTIONS
+		case "HEAD":
+			handle = App.HEAD
+		}
+		handle(routeName, func(c echo.Context) error {
+			return route.cb(c.(*csxhttp.Context))
+		})
+	}
+}
+
+func handleRoute(method, controller, name string, cb func(*csxhttp.Context) error) {
+	routes = append(routes, route{
+		method:     method,
+		controller: controller,
+		name:       name,
+		cb:         cb,
+	})
+}
+
+// GET Wrapper for GET query
+func GET(controller, name string, cb func(ctx *csxhttp.Context) error) {
+	handleRoute("GET", controller, name, cb)
+}
+
+// POST Wrapper for POST query
+func POST(controller, name string, cb func(ctx *csxhttp.Context) error) {
+	handleRoute("POST", controller, name, cb)
+}
+
+// PUT Wrapper for PUT query
+func PUT(controller, name string, cb func(ctx *csxhttp.Context) error) {
+	handleRoute("PUT", controller, name, cb)
+}
+
+// DELETE Wrapper for DELETE query
+func DELETE(controller, name string, cb func(ctx *csxhttp.Context) error) {
+	handleRoute("DELETE", controller, name, cb)
+}
 
 func prepareMethodName(prefix, method string) string {
 	if method != "" {
@@ -132,10 +168,6 @@ func HandleController(app *echo.Echo, controller interface{}, ctrlFields map[str
 	}
 }
 
-func NewHandlerManager(app *echo.Echo) *HandlerManager {
-	return &HandlerManager{echo: app}
-}
-
 func RegisterController(ctrl interface{}) {
 	// prepare logger
 	if len(controllers) == 0 {
@@ -177,8 +209,17 @@ func Start(app *echo.Echo, sessStore *csxsession.CsxStore, sessionKey string) {
 		HandleController(app, ctrl, nil)
 		InitController(ctrl)
 	}
+	initRoutes()
+	for i := 0; i < len(initCallbacks); i++ {
+		cb := initCallbacks[i]
+		go cb()
+	}
 	sessionsStore = sessStore
 	SessionKey = sessionKey
+}
+
+func InitHandler(cb func()) {
+	initCallbacks = append(initCallbacks, cb)
 }
 
 // SetSessionStore set session store
