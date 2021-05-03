@@ -2048,6 +2048,14 @@ func GetRegisterSchemaManager() *registerSchemeManager {
 	return &registerSchema
 }
 
+func Database(name string) (*sqlx.DB, error) {
+	db, ok := registerSchema.GetDatabase(name)
+	if !ok {
+		return nil, errors.New("error get cockroach db connection")
+	}
+	return db, nil
+}
+
 func Init() {
 	if moduleInited {
 		return
