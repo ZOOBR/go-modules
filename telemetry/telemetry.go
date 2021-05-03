@@ -24,6 +24,9 @@ const (
 	// calculated
 	ParamCalcOdo  = 3001
 	ParamSpeedAvg = 3005
+
+	ParamClientLat = 4101
+	ParamClientLon = 4102
 )
 
 var mapParamsPrecision = map[uint16]float64{
@@ -289,6 +292,9 @@ var Params = map[string]param{
 	"paramFuel2":      {3401, 0, false},
 	"paramAvgFuel":    {3500, 0, true},
 	"paramAvgFuel2":   {3501, 0, false},
+
+	"paramClientLat": {4101, 0, true},
+	"paramClientLon": {4102, 0, true},
 }
 
 // GetParamCode prepare uit16 code from interface
