@@ -1,17 +1,18 @@
-// Package amqpconnector is a wrapper for amqp package
+// Package csxamqp is a wrapper for amqp package
 // with reconnect functional support
-package amqpconnector
+package csxamqp
 
 import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/streadway/amqp"
-	csxstrings "gitlab.com/battler/modules/csxstrings"
+	"gitlab.com/battler/modules/csxstrings"
 )
 
 var (
@@ -76,14 +77,29 @@ type Queue struct {
 }
 
 type Delivery amqp.Delivery
+type Table amqp.Table
 
-// TODO:: Get from env
 var (
-	reconTime = time.Second * 20
+	defaultAmqpReconnectionTime = 20 // in seconds
+
+	reconTime = prepareReconnectionTime() // in seconds
 )
 
 func (c *Consumer) logInfo(log string) string {
 	return "[" + c.name + "]" + log
+}
+
+func prepareReconnectionTime() time.Duration {
+	amqpReconTime, err := strconv.Atoi(os.Getenv("AMQP_RECONNECTION_TIME"))
+	if err != nil {
+		amqpReconTime = defaultAmqpReconnectionTime
+	}
+	return time.Second * time.Duration(amqpReconTime)
+}
+
+// GetReconnectionTime returns AMQP reconnection time
+func GetReconnectionTime() time.Duration {
+	return reconTime
 }
 
 // ExchangeDeclare dial amqp server, decrare echange an queue if set
@@ -335,12 +351,13 @@ func (c *Consumer) Publish(msg []byte, routingKey string) error {
 }
 
 // PublishWithReply sends messages to receiver that passed in replyTo parameter and correlationId of delivery
-func (c *Consumer) PublishWithReply(msg []byte, routingKey, replyTo, correlationId string) error {
+func (c *Consumer) PublishWithReply(msg []byte, routingKey, replyTo, correlationId string, headers map[string]interface{}) error {
 	content := amqp.Publishing{
 		ContentType:   "text/plain",
 		Body:          msg,
 		ReplyTo:       replyTo,
 		CorrelationId: correlationId,
+		Headers:       headers,
 	}
 	return c.channelPublish(msg, routingKey, &content)
 }

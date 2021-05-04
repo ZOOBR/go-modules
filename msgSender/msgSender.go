@@ -12,7 +12,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxamqp"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -32,9 +32,9 @@ const (
 var (
 	amqpURI               = os.Getenv("AMQP_URI")
 	mailingsExchange      = initMailingsExchange()
-	publisher             *amqpconnector.Consumer
-	notificationPublisher *amqpconnector.Consumer
-	reconTime             = time.Second * 20
+	publisher             *csxamqp.Consumer
+	notificationPublisher *csxamqp.Consumer
+	reconTime             = csxamqp.GetReconnectionTime()
 	botProxy              = os.Getenv("BOT_HTTP_PROXY")
 	emailSender           = os.Getenv("EMAIL_SENDER")
 
@@ -89,7 +89,7 @@ func initEventsPublisher() {
 	amqpTelemetryExchange := os.Getenv("AMQP_EVENTS_EXCHANGE")
 	if amqpURI != "" && amqpTelemetryExchange != "" {
 		var err error
-		publisher, err = amqpconnector.NewPublisher(amqpURI, "initEventsPublisher", amqpconnector.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
+		publisher, err = csxamqp.NewPublisher(amqpURI, "initEventsPublisher", csxamqp.Exchange{Name: amqpTelemetryExchange, Type: "topic", Durable: true})
 		if err != nil {
 			log.Error("init events publisher err:", err)
 			log.Warn("try reconnect to rabbitmq after:", reconTime)
@@ -104,7 +104,7 @@ func initEventsPublisher() {
 func initNotificationsPublisher() {
 	if amqpURI != "" && mailingsExchange != "" {
 		var err error
-		notificationPublisher, err = amqpconnector.NewPublisher(amqpURI, "initNotificationsPublisher", amqpconnector.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
+		notificationPublisher, err = csxamqp.NewPublisher(amqpURI, "initNotificationsPublisher", csxamqp.Exchange{Name: mailingsExchange, Type: "direct", Durable: true})
 		if err != nil {
 			log.Error("init notification publisher err:", err)
 			log.Warn("try reconnect to rabbitmq after:", reconTime)
@@ -267,10 +267,10 @@ func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool
 
 // SendWeb is using for sending web push messages
 func SendWeb(routingKey string, payload interface{}) {
-	var event amqpconnector.Update
+	var event csxamqp.Update
 	switch payload.(type) {
-	case amqpconnector.Update:
-		event = payload.(amqpconnector.Update)
+	case csxamqp.Update:
+		event = payload.(csxamqp.Update)
 	case map[string]interface{}:
 		payload := payload.(map[string]interface{})
 		event.Cmd = "notify"

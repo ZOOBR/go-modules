@@ -20,7 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/buger/jsonparser"
-	amqp "gitlab.com/battler/modules/amqpconnector"
+	"gitlab.com/battler/modules/csxamqp"
 	"gitlab.com/battler/modules/csxjson"
 	csxstrings "gitlab.com/battler/modules/csxstrings"
 	"gitlab.com/battler/modules/csxutils"
@@ -882,7 +882,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 		}
 
 		if table != "" && id != "" {
-			go amqp.SendUpdate(amqpURI, table, id, "update", diffPub)
+			go csxamqp.SendUpdate(amqpURI, table, id, "update", diffPub)
 			if withLog {
 				queryObj.SaveLog(table, id, user, diff)
 			}
@@ -977,7 +977,7 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		}
 		table := settings["table"]
 		id := settings["id"]
-		go amqp.SendUpdate(amqpURI, table, id, "create", diffPub)
+		go csxamqp.SendUpdate(amqpURI, table, id, "create", diffPub)
 	}
 	return nil
 }
