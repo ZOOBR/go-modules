@@ -38,7 +38,11 @@ func initRoutes() {
 		route := routes[i]
 		var routeName string
 		if route.controller != "" {
-			routeName = "/" + route.controller + "/" + route.name
+			if routeName != "" {
+				routeName = "/" + route.controller + "/" + route.name
+			} else {
+				routeName = "/" + route.controller
+			}
 		} else {
 			routeName = "/" + route.name
 		}
