@@ -25,10 +25,16 @@ import (
 )
 
 const (
-	JoinIn       = 1
-	JoinEqual    = 2
-	JoinLike     = 3
-	JoinNotEqual = 4
+	OperatorIn        = 1
+	OperatorEqual     = 2
+	OperatorLike      = 3
+	OperatorNotEqual  = 4
+	OperatorIsNull    = 5
+	OperatorIsNotNull = 6
+	OperatorGte       = 7
+	OperatorGt        = 8
+	OperatorLte       = 9
+	OperatorLt        = 10
 )
 
 var (
@@ -89,7 +95,8 @@ type SchemaTable struct {
 
 // SchemaTableAmqpDataCallback is using for get data for amqp update
 type SchemaTableAmqpDataCallback func(id string) interface{}
-type schemaTablePrepareCallback func(table *SchemaTable, event string)
+
+// type schemaTablePrepareCallback func(table *SchemaTable, event string)
 type schemaTableUpdateCallback func(table *SchemaTable, msg interface{})
 type schemaTableReg struct {
 	table       *SchemaTable
@@ -114,10 +121,10 @@ type QueryCondition struct {
 }
 
 type Join struct {
-	table       *SchemaTable
-	fields      []QueryCondition
-	whereParams []QueryCondition
-	tableAlias  string
+	Table       string
+	Fields      []QueryCondition
+	WhereParams []QueryCondition
+	TableAlias  string
 }
 
 type SchemaQuery struct {
@@ -128,7 +135,7 @@ type SchemaQuery struct {
 	jsonWhere     *JSONExpression
 	fields        []SchemaField
 	tableAliasMap map[string]int
-	queryStr      string
+	// queryStr      string
 }
 
 type JSONExpression struct {
@@ -295,8 +302,8 @@ func NewSchemaField(name, typ string, args ...interface{}) *SchemaField {
 // NewSchemaTableFields create SchemaTable definition
 func NewSchemaTableFields(name string, fieldsInfo ...*SchemaField) *SchemaTable {
 	fields := make([]*SchemaField, len(fieldsInfo))
-	for index, field := range fieldsInfo {
-		fields[index] = field
+	for i := 0; i < len(fieldsInfo); i++ {
+		fields[i] = fieldsInfo[i]
 	}
 	newSchemaTable := SchemaTable{}
 	newSchemaTable.Name = name
@@ -406,9 +413,9 @@ func (table *SchemaTable) register() {
 	if registerSchema.tables == nil {
 		registerSchema.tables = make(schemaTableMap)
 	}
-	reg, ok := registerSchema.tables[table.Name]
+	_, ok := registerSchema.tables[table.Name]
 	if !ok {
-		reg = &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
+		reg := &schemaTableReg{table, []schemaTableUpdateCallback{}, false}
 		registerSchema.tables[table.Name] = reg
 	}
 	registerSchema.Unlock()
@@ -831,6 +838,9 @@ func (table *SchemaTable) Query(recs interface{}, fields, where, order, group *[
 	}
 
 	query, err := dbc.MakeQuery(qparams)
+	if err != nil {
+		return err
+	}
 	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
 		logrus.Error("err: ", err, " query:", *query)
 		return err
@@ -851,9 +861,11 @@ func (table *SchemaTable) QueryJoin(recs interface{}, fields, where, order, join
 	}
 
 	query, err := dbc.MakeQuery(qparams)
+	if err != nil {
+		return err
+	}
 	if err = table.DB.Select(recs, *query, args...); err != nil && err != sql.ErrNoRows {
-		logrus.Error(*query)
-		fmt.Println(err)
+		logrus.Error("table.DB.Select query: ", *query, " err: ", err)
 		return err
 	}
 	return nil
@@ -1172,14 +1184,17 @@ func (table *SchemaTable) SelectMap(where string) ([]map[string]interface{}, err
 	defer rows.Close()
 	for rows.Next() {
 		row := make(map[string]interface{})
-		err = rows.MapScan(row)
+		err := rows.MapScan(row)
+		if err != nil {
+			logrus.Error("SelectMap rows.MapScan err: ", err)
+		}
 		for k, v := range row {
-			switch v.(type) {
+			switch data := v.(type) {
 			case []byte:
 				var jsonMap map[string]*json.RawMessage
-				err := json.Unmarshal(v.([]byte), &jsonMap)
+				err := json.Unmarshal(data, &jsonMap)
 				if err != nil {
-					row[k] = string(v.([]byte))
+					row[k] = string(data)
 				} else {
 					row[k] = jsonMap
 				}
@@ -1805,7 +1820,7 @@ func (table *SchemaTable) InsertStructValues(queryObj *dbc.Query, query string, 
 	return nil
 }
 
-func prepareJoinParamField(joinParam *QueryCondition) string {
+func prepareQueryCondition(joinParam *QueryCondition) string {
 	if joinParam == nil {
 		return ""
 	}
@@ -1818,14 +1833,26 @@ func prepareJoinParamField(joinParam *QueryCondition) string {
 
 	var condition string
 	switch joinParam.Operator {
-	case JoinIn:
+	case OperatorIn:
 		condition = field + " IN (" + joinParam.Value + ")"
-	case JoinEqual:
-		condition = field + " = " + "'" + joinParam.Value + "'"
-	case JoinLike:
+	case OperatorEqual:
+		condition = field + " = " + joinParam.Value
+	case OperatorLike:
 		condition = field + " ILIKE '%" + joinParam.Value + "%'"
-	case JoinNotEqual:
+	case OperatorNotEqual:
 		condition = field + " <> " + joinParam.Value
+	case OperatorIsNotNull:
+		condition = field + " IS NOT NULL"
+	case OperatorIsNull:
+		condition = field + " IS NULL"
+	case OperatorGte:
+		condition = field + " >= " + joinParam.Value
+	case OperatorGt:
+		condition = field + " > " + joinParam.Value
+	case OperatorLte:
+		condition = field + " <= " + joinParam.Value
+	case OperatorLt:
+		condition = field + " < " + joinParam.Value
 	}
 	return condition
 }
@@ -1873,13 +1900,16 @@ func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
 	selectFields := []SchemaField{}
 	if len(fields) == 0 {
 		for i := 0; i < len(table.Fields); i++ {
-			selectFields = append(selectFields, *table.Fields[i])
+			field := *table.Fields[i]
+			field.TableAlias = table.Name
+			selectFields = append(selectFields, field)
 		}
 
 	} else {
 		paramFields := fields[0]
 		for i := 0; i < len(paramFields); i++ {
 			if count, field := table.FindField(paramFields[i]); count > -1 {
+				field.TableAlias = table.Name
 				selectFields = append(selectFields, *field)
 			}
 
@@ -1889,14 +1919,14 @@ func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
 	return schemaQuery
 }
 
-func (schemaQuery *SchemaQuery) Where(queryConditions ...*QueryCondition) *SchemaQuery {
+func (schemaQuery *SchemaQuery) Where(queryConditions ...QueryCondition) *SchemaQuery {
 	if len(queryConditions) == 0 {
 		logrus.Error("Call SchemaQuery.Where(<>) without params, schemaQuery: " + schemaQuery.table.Name)
 	}
 	schemaQuery.Lock()
 	defer schemaQuery.Unlock()
 	for i := 0; i < len(queryConditions); i++ {
-		schemaQuery.where = append(schemaQuery.where, *queryConditions[i])
+		schemaQuery.where = append(schemaQuery.where, queryConditions[i])
 	}
 
 	return schemaQuery
@@ -1921,7 +1951,7 @@ func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
 	schemaQuery.Lock()
 	defer schemaQuery.Unlock()
 
-	tableName := joinParam.table.Name
+	tableName := joinParam.Table
 	tableAliasCounter := schemaQuery.tableAliasMap[tableName]
 	var tableAlias string
 	if tableAliasCounter > 0 {
@@ -1929,15 +1959,15 @@ func (schemaQuery *SchemaQuery) LeftJoin(joinParam Join) *SchemaQuery {
 	} else {
 		tableAlias = tableName
 	}
-	for i := 0; i < len(joinParam.fields); i++ {
-		joinParam.fields[i].TableAlias = tableAlias
+	for i := 0; i < len(joinParam.Fields); i++ {
+		joinParam.Fields[i].TableAlias = tableAlias
 	}
-	for i := 0; i < len(joinParam.whereParams); i++ {
-		joinParam.whereParams[i].TableAlias = tableAlias
+	for i := 0; i < len(joinParam.WhereParams); i++ {
+		joinParam.WhereParams[i].TableAlias = tableAlias
 	}
-	joinParam.tableAlias = tableAlias
+	joinParam.TableAlias = tableAlias
 	schemaQuery.join = append(schemaQuery.join, joinParam)
-	schemaQuery.where = append(schemaQuery.where, joinParam.whereParams...)
+	schemaQuery.where = append(schemaQuery.where, joinParam.WhereParams...)
 	schemaQuery.tableAliasMap[tableName]++
 	return schemaQuery
 }
@@ -1948,14 +1978,17 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 
 	for i := 0; i < len(joinParams); i++ {
 		join := joinParams[i]
-		if join.table == nil || len(join.fields) == 0 {
+		if join.Table == "" || len(join.Fields) == 0 {
 			continue
 		}
-
+		joinTable, ok := GetSchemaTable(join.Table)
+		if !ok {
+			continue
+		}
 		var joinPart string
-		for i := 0; i < len(join.fields); i++ {
-			field := join.fields[i]
-			if count, _ := join.table.FindField(field.Field); count == 0 {
+		for i := 0; i < len(join.Fields); i++ {
+			field := join.Fields[i]
+			if count, _ := joinTable.FindField(field.Field); count < 0 {
 				continue
 			}
 			if len(joinPart) > 0 {
@@ -1965,12 +1998,12 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 			if len(field.Template) > 0 && field.TemplateData != nil {
 				joinPart += prepareJoinParamTemplate(&field)
 			} else {
-				joinPart += prepareJoinParamField(&field)
+				joinPart += prepareQueryCondition(&field)
 			}
 		}
 
 		if len(joinPart) > 0 {
-			joinStr += ` left join "` + join.table.Name + `" "` + join.tableAlias + `" ON ` + joinPart
+			joinStr += ` left join "` + joinTable.Name + `" "` + join.TableAlias + `" ON ` + joinPart
 
 		}
 	}
@@ -1986,7 +2019,7 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 		if len(whereParam.Template) > 0 && whereParam.TemplateData != nil {
 			wherePart += prepareJoinParamTemplate(&whereParam)
 		} else {
-			wherePart += prepareJoinParamField(&whereParam)
+			wherePart += prepareQueryCondition(&whereParam)
 		}
 		whereStr += wherePart
 	}
