@@ -53,6 +53,9 @@ func (h *Hub) Run() {
 			for i := 0; i < len(message.Clients); i++ {
 				clientID := message.Clients[i]
 				client := h.clients[clientID]
+				if client == nil {
+					continue
+				}
 				select {
 				case client.send <- message:
 				default:
