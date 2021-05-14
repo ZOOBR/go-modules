@@ -2,7 +2,6 @@ package csxsession
 
 import (
 	"encoding/base32"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -271,7 +270,7 @@ func (s *CsxStore) GetByID(sid, sessionKey string) (*sessions.Session, error) {
 	session := sessions.NewSession(s, sessionKey)
 	session.ID = sid
 	data := dataInt.([]byte)
-	err = json.Unmarshal(data, &session.Values)
+	err = s.serializer.Deserialize(data, session)
 	if err != nil {
 		return nil, err
 	}
