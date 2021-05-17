@@ -489,15 +489,15 @@ func (c *Consumer) handleDeliveries(deliveries <-chan amqp.Delivery) {
 		logrus.Info(c.logInfo("handle deliveries"))
 		go func() {
 			for d := range deliveries {
-				// routingKey := d.RoutingKey
+				routingKey := d.RoutingKey
 				c.handlers.Range(func(keyInt, cbInt interface{}) bool {
-					// key, ok := keyInt.(string)
-					// if !ok {
-					// 	return true
-					// }
-					// if key != "#" && routingKey != key {
-					// 	return true
-					// }
+					key, ok := keyInt.(string)
+					if !ok {
+						return true
+					}
+					if key != "#" && key != "-" && routingKey != key {
+						return true
+					}
 					cbs, ok := cbInt.([]func(*Delivery))
 					if !ok {
 						return true
