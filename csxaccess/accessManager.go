@@ -61,7 +61,7 @@ func (mandat *Mandat) CheckAccess(roles map[string]interface{}) int {
 // Assign assign mandat properties
 func (mandat *Mandat) Assign(extMandat *Mandat) *Mandat {
 	if extMandat.Access > 0 {
-		mandat.Access &= extMandat.Access
+		mandat.Access |= extMandat.Access
 	} else if extMandat.Access < 0 {
 		mandat.Access ^= extMandat.Access * -1
 	}
@@ -353,8 +353,8 @@ func (manager *AccessManager) GetMandatsByCategory(category string) ([]*Mandat, 
 	return resultMandats, true
 }
 
-// GetMandatsBySubject ---
-func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[string]interface{}) ([]*Mandat, bool) {
+// GetMandatBySubject ---
+func (manager *AccessManager) GetMandatBySubject(subject string, roles map[string]interface{}) (*Mandat, bool) {
 	mandatsInt, ok := manager.accessMap.FindByIndex("Subject", subject)
 	if !ok {
 		return nil, false
@@ -370,20 +370,24 @@ func (manager *AccessManager) GetMandatsBySubject(subject string, roles map[stri
 		if !ok {
 			return true
 		}
-		if mandat.ID == "" {
-			mandat = currentMandat
-		}
-		if !currentMandat.CheckRole(roles) {
-			return true
-		}
-		if mandat.ID != currentMandat.ID {
-			mandat.Assign(currentMandat)
-		}
-		roleMandats = append(roleMandats, mandat)
+		roleMandats = append(roleMandats, currentMandat)
 		return true
 	})
-	sortMandats(roleMandats)
-	return roleMandats, true
+	sort.SliceStable(roleMandats, func(i, j int) bool {
+		return roleMandats[i].Priority < roleMandats[j].Priority
+	})
+	for i := 0; i < len(roleMandats); i++ {
+		currentMandat := roleMandats[i]
+		if !currentMandat.CheckRole(roles) {
+			continue
+		}
+		if mandat.ID == "" {
+			mandat = currentMandat
+		} else if mandat.ID != currentMandat.ID {
+			mandat.Assign(currentMandat)
+		}
+	}
+	return mandat, true
 }
 
 // GetRolesRights returns map of role interfaces from string
