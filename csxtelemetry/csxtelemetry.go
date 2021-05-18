@@ -1,4 +1,4 @@
-package telemetry
+package csxtelemetry
 
 import (
 	"encoding/binary"
