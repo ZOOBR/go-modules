@@ -42,6 +42,7 @@ var (
 	disableRegisterMetadata = os.Getenv("DISABLE_REGISTER_METADATA") == "1"
 	amqpURI                 = os.Getenv("AMQP_URI")
 	sqlURIS                 = os.Getenv("SQL_URIS")
+	disableOnUpdate         = os.Getenv("DISABLE_SCHEMA_ON_UPDATE") == "1"
 	moduleInited            = false
 )
 
@@ -228,7 +229,7 @@ func registerSchemaSetUpdateCallback(tableName string, cb schemaTableUpdateCallb
 		} else {
 			queueName += "." + *csxstrings.NewId()
 		}
-		go csxamqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
+		csxamqp.OnUpdates(registerSchemaOnUpdate, []string{tableName})
 	}
 	return nil
 }
@@ -798,7 +799,9 @@ func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
 
 // OnUpdate init and set callback on table external update event
 func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
-	registerSchemaSetUpdateCallback(table.Name, cb, false)
+	if !disableOnUpdate {
+		go registerSchemaSetUpdateCallback(table.Name, cb, false)
+	}
 }
 
 // QueryParams execute  sql query with params
