@@ -232,6 +232,11 @@ func SetSessionStore(store *csxsession.CsxStore, key string) {
 	SessionKey = key
 }
 
+// GetSessionStore return session store object
+func GetSessionStore() *csxsession.CsxStore {
+	return sessionsStore
+}
+
 func NewSession(ctx *csxhttp.Context) (*sessions.Session, error) {
 	return sessionsStore.New(ctx.Request(), SessionKey)
 }
