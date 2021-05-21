@@ -52,6 +52,11 @@ func (s *CsxStore) SetKeyPrefix(p string) {
 	s.keyPrefix = p
 }
 
+// GetKeyPrefix returns the key prefix
+func (s *CsxStore) GetKeyPrefix() string {
+	return s.keyPrefix
+}
+
 // SetSerializer sets the serializer
 func (s *CsxStore) SetSerializer(ss SessionSerializer) {
 	s.serializer = ss
