@@ -153,7 +153,7 @@ func NewCsxStoreWithPool(pool *redis.Pool, keyPairs ...[]byte) (*CsxStore, error
 			Path:   "/",
 			MaxAge: sessionExpire,
 		},
-		DefaultMaxAge: 60 * 20, // 20 minutes seems like a reasonable default
+		DefaultMaxAge: sessionExpire,
 		maxLength:     4096,
 		keyPrefix:     "session_",
 		serializer:    JSONSerializer{},
