@@ -11,6 +11,22 @@ const egtsHeaderProtocolVersion = byte(1) // 0x01
 const egtsHeaderPrefix = "00"
 
 // ---------------------------------------------------------------------------------
+// Packet Priority
+// ---------------------------------------------------------------------------------
+
+// Highest routing priority of packet
+const PacketPriorityHighest = "00"
+
+// High routing priority of packet
+const PacketPriorityHigh = "01"
+
+// Normal routing priority of packet
+const PacketPriorityNormal = "10"
+
+// Low routing priority of packet
+const PacketPriorityLow = "11"
+
+// ---------------------------------------------------------------------------------
 // Source Service On Device
 // ---------------------------------------------------------------------------------
 
