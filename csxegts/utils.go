@@ -2,6 +2,7 @@ package csxegts
 
 import (
 	"sync/atomic"
+	"time"
 )
 
 const uint16Max = 65_535
@@ -26,4 +27,13 @@ func (counter *Counter) Next() uint16 {
 	}
 
 	return uint16(atomic.LoadUint32(&counter.accumulator))
+}
+
+// ---------------------------------------------------------------------------------
+// EGTS Time
+// ---------------------------------------------------------------------------------
+
+func EgtsTimeNowSeconds() uint32 {
+	startDate := time.Date(2010, time.January, 1, 0, 0, 0, 0, time.UTC)
+	return uint32(time.Now().Sub(startDate).Seconds())
 }
