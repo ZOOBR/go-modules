@@ -41,3 +41,10 @@ func newServiceDataRecord(objectIdentifier uint32, priority string, serviceType 
 
 	return &sdr
 }
+
+func newServiceFrameData(objectIdentifier uint32, priority string, serviceType byte, recordType byte, recordData egts.BinaryData) *egts.ServiceDataSet {
+	record := newRecord(recordType, recordData)
+	sdr := newServiceDataRecord(objectIdentifier, priority, serviceType, record)
+
+	return &egts.ServiceDataSet{*sdr}
+}
