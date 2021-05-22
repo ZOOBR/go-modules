@@ -4,6 +4,10 @@ import (
 	"github.com/kuznetsovin/egts-protocol/app/egts"
 )
 
+type Packet struct {
+	egts.Package
+}
+
 var (
 	PacketIDCounter     = Counter{}
 	RecordNumberCounter = Counter{}
@@ -47,4 +51,27 @@ func newServiceFrameData(objectIdentifier uint32, priority string, serviceType b
 	sdr := newServiceDataRecord(objectIdentifier, priority, serviceType, record)
 
 	return &egts.ServiceDataSet{*sdr}
+}
+
+// newPacket returns EGTS packet
+func newPacket(packetID uint16, packetType byte, priority string, servicesFrameData egts.BinaryData) *Packet {
+	packet := Packet{
+		egts.Package{
+			ProtocolVersion:   egtsHeaderProtocolVersion,
+			SecurityKeyID:     0,
+			Prefix:            egtsHeaderPrefix,
+			Route:             "0",
+			EncryptionAlg:     "00",
+			Compression:       "0",
+			Priority:          priority,
+			HeaderLength:      11,
+			HeaderEncoding:    0,
+			FrameDataLength:   servicesFrameData.Length(),
+			PacketIdentifier:  packetID,
+			PacketType:        packetType,
+			ServicesFrameData: servicesFrameData,
+		},
+	}
+
+	return &packet
 }
