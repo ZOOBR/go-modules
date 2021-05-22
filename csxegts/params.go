@@ -73,3 +73,42 @@ const RpPriorityLowest = "110"
 
 // Idle priority of record processing
 const RpPriorityIdle = "111"
+
+// ---------------------------------------------------------------------------------
+// Sources (events) that initiated sending telemetry
+// Codes 17, 18, 26 reserved
+// ---------------------------------------------------------------------------------
+
+const SrcTimerEnabledIgnition = byte(0)
+const SrcDriveDistance = byte(1)
+const SrcExceedRotationAngel = byte(2)
+const SrcResponse = byte(3)
+const SrcChangeXState = byte(4)
+const SrcTimerDisabledIgnition = byte(5)
+const SrcPeripheralEquipOff = byte(6)
+const SrcExceedSpeed = byte(7)
+const SrcRestart = byte(8)
+const SrcOverloadY = byte(9)
+const SrcIntrusionSensorOn = byte(10)
+const SrcBackupPowerOn = byte(11)
+const SrcLowBackupPowerVoltage = byte(12)
+const SrcAlertBtnPressed = byte(13)
+const SrcOperatorVoiceRequest = byte(14)
+const SrcEmergencyCall = byte(15)
+const SrcExternalServiceData = byte(16)
+const SrcBackupBatteryFailure = byte(19)
+const SrcHardAcceleration = byte(20)
+const SrcHardBraking = byte(21)
+const SrcNavigationModuleFailure = byte(22)
+const SrcAccidentSensorFailure = byte(23)
+const SrcGSMAntennaFailure = byte(24)
+const SrcNavigationAntennaFailure = byte(25)
+const SrcReduceSpeed = byte(27)
+const SrcDisabledIgnitioMove = byte(28)
+const SrcTimerEmergencyTracking = byte(29)
+const SrcBeginEndNavigation = byte(30)
+const SrcUnstableNavigation = byte(31)
+const SrcIPConnection = byte(32)
+const SrcUnstableMobileNet = byte(33)
+const SrcUnstableCommunication = byte(34)
+const SrcModeChanging = byte(35)
