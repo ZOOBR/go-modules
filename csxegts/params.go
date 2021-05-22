@@ -112,3 +112,20 @@ const SrcIPConnection = byte(32)
 const SrcUnstableMobileNet = byte(33)
 const SrcUnstableCommunication = byte(34)
 const SrcModeChanging = byte(35)
+
+// ---------------------------------------------------------------------------------
+// Coordinate definition type
+// ---------------------------------------------------------------------------------
+
+const Fix2D = "0"
+const Fix3D = "1"
+
+// ---------------------------------------------------------------------------------
+// Coordinate system
+// ---------------------------------------------------------------------------------
+
+// Coordinate system WGS-84
+const CsWGS84 = "0"
+
+// Russian state geocentric coordinate system
+const CsEarthParams9002 = "1"
