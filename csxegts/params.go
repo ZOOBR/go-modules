@@ -29,3 +29,31 @@ const RsodTerminal = "1"
 
 // Recipient Service on telematic platform
 const RsodPlatform = "0"
+
+// ---------------------------------------------------------------------------------
+// Record Processing Priority
+// ---------------------------------------------------------------------------------
+
+// Highest priority of record processing
+const RpPriorityHighest = "000"
+
+// High priority of record processing
+const RpPriorityHigh = "001"
+
+// Above Normal priority of record processing
+const RpPriorityAboveNormal = "010"
+
+// Normal priority of record processing
+const RpPriorityNormal = "011"
+
+// Below normal priority of record processing
+const RpPriorityBelowNormal = "100"
+
+// Low priority of record processing
+const RpPriorityLow = "101"
+
+// Lowest priority of record processing
+const RpPriorityLowest = "110"
+
+// Idle priority of record processing
+const RpPriorityIdle = "111"
