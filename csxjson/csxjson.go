@@ -3,8 +3,13 @@ package csxjson
 import (
 	"errors"
 	"reflect"
+	"strings"
 
 	"github.com/buger/jsonparser"
+)
+
+const (
+	PgArrayType = 11
 )
 
 func isPointer(data interface{}) bool {
@@ -83,6 +88,13 @@ func GetParsedValue(data []byte, dataType jsonparser.ValueType) (parsedVal inter
 		if err == nil {
 			parsedVal = boolValue
 		}
+	case PgArrayType:
+		dataStr := string(data)
+		dataStr = dataStr[1 : len(data)-1]
+		if len(dataStr) > 0 {
+			return strings.Split(dataStr, ","), nil
+		}
+		return map[string]interface{}{}, nil
 	case jsonparser.Null:
 	default:
 		parsedVal = data
