@@ -11,6 +11,22 @@ const egtsHeaderProtocolVersion = byte(1) // 0x01
 const egtsHeaderPrefix = "00"
 
 // ---------------------------------------------------------------------------------
+// Temporal and quantitative
+// ---------------------------------------------------------------------------------
+
+// Time to wait for a packet to be acknowledged (in seconds)
+// TL_RESPONSE_TO in specification
+const TlResponseTo = byte(5)
+
+// The number of retries to send an unacknowledged packet
+// TL_RESEND_ATTEMPTS in specification
+const TlResendAttempts = byte(3)
+
+// The time after which a repeated attempt will be made to establish a communication channel after it is broken (in seconds)
+// TL_RECONNECT_TO in specification
+const TlReconnectTo = byte(30)
+
+// ---------------------------------------------------------------------------------
 // Packet Priority
 // ---------------------------------------------------------------------------------
 
