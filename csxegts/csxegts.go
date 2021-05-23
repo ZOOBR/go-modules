@@ -91,3 +91,12 @@ func GetPacketLength(header []byte) uint16 {
 	}
 	return packetLength
 }
+
+func DecodePacket(raw []byte) (*Packet, error) {
+	packet := Packet{}
+	_, err := packet.Decode(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &packet, nil
+}
