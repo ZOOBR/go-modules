@@ -149,3 +149,47 @@ const CsWGS84 = "0"
 
 // Russian state geocentric coordinate system
 const CsEarthParams9002 = "1"
+
+// ---------------------------------------------------------------------------------
+// Processing Result Codes
+// ---------------------------------------------------------------------------------
+
+const EgtsPcOk = uint8(0)
+const EgtsPcInProgress = uint8(1)
+const EgtsPcUnsProtocol = uint8(128)
+const EgtsPcDecryptError = uint8(129)
+const EgtsPcProcDenied = uint8(130)
+const EgtsPcIncHeaderform = uint8(131)
+const EgtsPcIncDataform = uint8(132)
+const EgtsPcUnsType = uint8(133)
+const EgtsPcNotenParams = uint8(134)
+const EgtsPcDblProc = uint8(135)
+const EgtsPcProcSrcDenied = uint8(136)
+const EgtsPcHeaderCrcError = uint8(137)
+const EgtsPcDatacrcError = uint8(138)
+const EgtsPcInvdatalen = uint8(139)
+const EgtsPcRouteNfound = uint8(140)
+const EgtsPcRouteClosed = uint8(141)
+const EgtsPcRouteDenied = uint8(142)
+const EgtsPcInvaddr = uint8(143)
+const EgtsPcTtlexpired = uint8(144)
+const EgtsPcNoAck = uint8(145)
+const EgtsPcObjNfound = uint8(146)
+const EgtsPcEvntNfound = uint8(147)
+const EgtsPcSrvcNfound = uint8(148)
+const EgtsPcSrvcDenied = uint8(149)
+const EgtsPcSrvcUnkn = uint8(150)
+const EgtsPcAuthPenied = uint8(151)
+const EgtsPcAlreadyExists = uint8(152)
+const EgtsPcIDNfound = uint8(153)
+const EgtsPcIncDatetime = uint8(154)
+const EgtsPcIoError = uint8(155)
+const EgtsPcNoResAvail = uint8(156)
+const EgtsPcModuleFault = uint8(157)
+const EgtsPcModulePwrFlt = uint8(158)
+const EgtsPcModuleProcFlt = uint8(159)
+const EgtsPcModuleSwFlt = uint8(160)
+const EgtsPcModuleFwFlt = uint8(161)
+const EgtsPcModuleIoFlt = uint8(162)
+const EgtsPcModuleMemFlt = uint8(163)
+const EgtsPcTestFailed = uint8(164)
