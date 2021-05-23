@@ -10,6 +10,10 @@ const egtsHeaderProtocolVersion = byte(1) // 0x01
 // Prefix of the EGTS header for current version
 const egtsHeaderPrefix = "00"
 
+// Length of EGTS packet header
+// Based on info from github.com/kuznetsovin/egts-protocol
+const EgtsHeaderLength = uint16(10)
+
 // ---------------------------------------------------------------------------------
 // Temporal and quantitative
 // ---------------------------------------------------------------------------------
