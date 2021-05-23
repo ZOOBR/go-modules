@@ -1,6 +1,7 @@
 package csxutils
 
 import (
+	"hash/fnv"
 	"reflect"
 	"time"
 	"unicode"
@@ -196,4 +197,11 @@ func LowerFirst(s string) string {
 	}
 	r, n := utf8.DecodeRuneInString(s)
 	return string(unicode.ToLower(r)) + s[n:]
+}
+
+// GetFNV1aHash32 returns FNV-1a 32 bit hash
+func GetFNV1aHash32(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
 }
