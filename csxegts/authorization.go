@@ -22,7 +22,7 @@ func newTermIdentityData(imei string) *egts.SrTermIdentity {
 
 func CreateAuthPacket(objectIdentifier uint32, imei string) *Packet {
 	recordData := newTermIdentityData(imei)
-	authFrameData := newServiceFrameData(objectIdentifier, RpPriorityHigh, egts.AuthService, egts.SrTermIdentityType, recordData)
+	authFrameData := newServiceFrameData(&objectIdentifier, RpPriorityHigh, egts.AuthService, egts.SrTermIdentityType, recordData)
 
 	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, authFrameData)
 }

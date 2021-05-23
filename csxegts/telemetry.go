@@ -60,7 +60,7 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 
 func CreateTelemetryPacket(objectIdentifier uint32, pos *csxtelemetry.FlatPosition) *Packet {
 	recordData := newPosData(pos)
-	telemetryFrameData := newServiceFrameData(objectIdentifier, RpPriorityNormal, egts.TeledataService, egts.SrPosDataType, recordData)
+	telemetryFrameData := newServiceFrameData(&objectIdentifier, RpPriorityNormal, egts.TeledataService, egts.SrPosDataType, recordData)
 
 	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityNormal, telemetryFrameData)
 }

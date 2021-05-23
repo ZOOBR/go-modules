@@ -25,7 +25,7 @@ func newRecord(recordType byte, data egts.BinaryData) *egts.RecordData {
 	return &r
 }
 
-func newServiceDataRecord(objectIdentifier uint32, priority string, serviceType byte, record *egts.RecordData) *egts.ServiceDataRecord {
+func newServiceDataRecord(objectIdentifier *uint32, priority string, serviceType byte, record *egts.RecordData) *egts.ServiceDataRecord {
 	rds := egts.RecordDataSet{*record}
 
 	sdr := egts.ServiceDataRecord{
@@ -37,18 +37,22 @@ func newServiceDataRecord(objectIdentifier uint32, priority string, serviceType 
 		RecordProcessingPriority: priority,
 		TimeFieldExists:          "1",
 		EventIDFieldExists:       "0",
-		ObjectIDFieldExists:      "1",
-		ObjectIdentifier:         objectIdentifier,
 		Time:                     EgtsTimeNowSeconds(), //TODO: rewrite to time.Now() after EGTS lib is updated
 		SourceServiceType:        serviceType,
 		RecipientServiceType:     serviceType,
 		RecordDataSet:            rds,
 	}
+	if objectIdentifier != nil {
+		sdr.ObjectIDFieldExists = "1"
+		sdr.ObjectIdentifier = *objectIdentifier
+	} else {
+		sdr.ObjectIDFieldExists = "0"
+	}
 
 	return &sdr
 }
 
-func newServiceFrameData(objectIdentifier uint32, priority string, serviceType byte, recordType byte, recordData egts.BinaryData) *egts.ServiceDataSet {
+func newServiceFrameData(objectIdentifier *uint32, priority string, serviceType byte, recordType byte, recordData egts.BinaryData) *egts.ServiceDataSet {
 	record := newRecord(recordType, recordData)
 	sdr := newServiceDataRecord(objectIdentifier, priority, serviceType, record)
 
