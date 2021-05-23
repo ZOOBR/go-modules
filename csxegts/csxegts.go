@@ -1,6 +1,8 @@
 package csxegts
 
 import (
+	"encoding/binary"
+
 	"github.com/kuznetsovin/egts-protocol/app/egts"
 )
 
@@ -74,4 +76,18 @@ func newPacket(packetID uint16, packetType byte, priority string, servicesFrameD
 	}
 
 	return &packet
+}
+
+// IsEGTSPacket checks whether the byte array is an EGTS packet
+func IsEGTSPacket(rawPacket []byte) bool {
+	return rawPacket[0] == egtsHeaderProtocolVersion
+}
+
+func GetPacketLength(header []byte) uint16 {
+	bodyLength := binary.LittleEndian.Uint16(header[5:7])
+	packetLength := uint16(header[3])
+	if bodyLength > 0 {
+		packetLength += bodyLength + 2
+	}
+	return packetLength
 }
