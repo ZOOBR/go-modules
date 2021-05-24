@@ -2,6 +2,15 @@ package csxegts
 
 import "github.com/kuznetsovin/egts-protocol/app/egts"
 
+type ResponsePacketStatus struct {
+	ResponsePacketID      uint16
+	ProcessingResult      uint8
+	ConfirmedRecordNumber uint16
+	RecordStatus          uint8
+	PeerAddress           *uint16
+	RecipientAddress      *uint16
+}
+
 func newResponseData(confirmedRecordNumber uint16, status uint8) *egts.SrResponse {
 	data := egts.SrResponse{
 		ConfirmedRecordNumber: confirmedRecordNumber,
@@ -46,22 +55,26 @@ func CreateResponsePacket(sourcePacket *Packet, resultCode uint8) *Packet {
 	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, peerAddress, recipientAddress, responseFrameData)
 }
 
-func ParseResponsePacket(packet *Packet) (uint16, uint8, uint16, uint8) {
-	var confirmedRecordNumber uint16
-	var recordStatus uint8
+func ParseResponsePacket(packet *Packet) *ResponsePacketStatus {
+	res := ResponsePacketStatus{}
+
+	if packet.Route == "1" {
+		res.PeerAddress = &packet.PeerAddress
+		res.RecipientAddress = &packet.RecipientAddress
+	}
 
 	sfd := packet.ServicesFrameData.(*egts.PtResponse)
-	responsePacketID := sfd.ResponsePacketID
-	processingResult := sfd.ProcessingResult
+	res.ResponsePacketID = sfd.ResponsePacketID
+	res.ProcessingResult = sfd.ProcessingResult
 	for _, serviceRec := range *sfd.SDR.(*egts.ServiceDataSet) {
 		for _, rec := range serviceRec.RecordDataSet {
 			subrec := rec.SubrecordData.(*egts.SrResponse)
-			confirmedRecordNumber = subrec.ConfirmedRecordNumber
-			recordStatus = subrec.RecordStatus
+			res.ConfirmedRecordNumber = subrec.ConfirmedRecordNumber
+			res.RecordStatus = subrec.RecordStatus
 			break
 		}
 		break
 	}
 
-	return responsePacketID, processingResult, confirmedRecordNumber, recordStatus
+	return &res
 }
