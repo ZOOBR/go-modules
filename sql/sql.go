@@ -811,6 +811,7 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 			updV = resultMap[tag].(string)
 		case pq.StringArray:
 			arr := f.Interface().(pq.StringArray)
+			rawValue = arr
 			updVal := "{" + strings.Join(arr, ",") + "}"
 			resultMap[tag] = updVal
 			updV = updVal
