@@ -33,8 +33,8 @@ func newServiceDataRecord(objectIdentifier *uint32, priority string, serviceType
 		RecordNumber:             RecordNumberCounter.Next(),
 		SourceServiceOnDevice:    SsodTerminal,
 		RecipientServiceOnDevice: RsodPlatform,
-		Group:                    "0", // this field is not found in the standart
-		RecordProcessingPriority: priority,
+		Group:                    string(priority[0]), // this field was removed from standart. Delete this field & rework to priority after EGTS lib updating
+		RecordProcessingPriority: priority[1:],
 		TimeFieldExists:          "1",
 		EventIDFieldExists:       "0",
 		Time:                     EgtsTimeNowSeconds(), //TODO: rewrite to time.Now() after EGTS lib is updated
