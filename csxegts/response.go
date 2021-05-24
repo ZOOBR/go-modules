@@ -37,3 +37,23 @@ func CreateResponsePacket(sourcePacket *Packet, resultCode uint8) *Packet {
 
 	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, responseFrameData)
 }
+
+func ParseResponsePacket(packet *Packet) (uint16, uint8, uint16, uint8) {
+	var confirmedRecordNumber uint16
+	var recordStatus uint8
+
+	sfd := packet.ServicesFrameData.(*egts.PtResponse)
+	responsePacketID := sfd.ResponsePacketID
+	processingResult := sfd.ProcessingResult
+	for _, serviceRec := range *sfd.SDR.(*egts.ServiceDataSet) {
+		for _, rec := range serviceRec.RecordDataSet {
+			subrec := rec.SubrecordData.(*egts.SrResponse)
+			confirmedRecordNumber = subrec.ConfirmedRecordNumber
+			recordStatus = subrec.RecordStatus
+			break
+		}
+		break
+	}
+
+	return responsePacketID, processingResult, confirmedRecordNumber, recordStatus
+}
