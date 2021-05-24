@@ -20,9 +20,9 @@ func newTermIdentityData(imei string) *egts.SrTermIdentity {
 	return &data
 }
 
-func CreateAuthPacket(objectIdentifier uint32, imei string) (*Packet, uint16) {
+func CreateAuthPacket(objectIdentifier uint32, peerAddress, recipientAddress *uint16, imei string) (*Packet, uint16) {
 	recordData := newTermIdentityData(imei)
 	authFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityHigh, egts.AuthService, egts.SrTermIdentityType, recordData)
 
-	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, authFrameData), recNum
+	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, peerAddress, recipientAddress, authFrameData), recNum
 }

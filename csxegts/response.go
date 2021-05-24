@@ -28,14 +28,22 @@ func CreateResponsePacket(sourcePacket *Packet, resultCode uint8) *Packet {
 	responsePacketID := sourcePacket.PacketIdentifier
 	var serviceType byte
 	var confirmedRecordNumber uint16
+	var peerAddress, recipientAddress *uint16
+
+	if sourcePacket.Route == "1" {
+		peerAddress = &sourcePacket.PeerAddress
+		recipientAddress = &sourcePacket.RecipientAddress
+	}
+
 	for _, rec := range *sourcePacket.ServicesFrameData.(*egts.ServiceDataSet) {
 		serviceType = rec.SourceServiceType
 		confirmedRecordNumber = rec.RecordNumber
 		break
 	}
+
 	responseFrameData := newResponseServiceFrameData(responsePacketID, confirmedRecordNumber, resultCode, EgtsPcOk, serviceType)
 
-	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, responseFrameData)
+	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, peerAddress, recipientAddress, responseFrameData)
 }
 
 func ParseResponsePacket(packet *Packet) (uint16, uint8, uint16, uint8) {
