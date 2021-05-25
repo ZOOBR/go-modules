@@ -384,7 +384,7 @@ func execQuery(db *sqlx.DB, q *string, fieldsMap *AccessFieldsMap, cb ...func(ro
 		}
 	}
 	if !parseRows {
-		return nil
+		return new(QueryResult)
 	}
 	results := QueryResult{Query: *q}
 	var parsingTime int64 = 0
