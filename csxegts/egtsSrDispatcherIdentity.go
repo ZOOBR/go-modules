@@ -50,10 +50,12 @@ func (srdi *SrDispatcherIdentity) Encode() ([]byte, error) {
 	if err = binary.Write(buf, binary.LittleEndian, srdi.DispatcherID); err != nil {
 		return result, fmt.Errorf("failed to encode dispatcher ID: %v", err)
 	}
-	if n, _ := buf.WriteString(srdi.Description); n != len(srdi.Description) {
-		return result, errors.New("failed to encode description: encoded partially")
+	if len(srdi.Description) > 0 {
+		if n, _ := buf.WriteString(srdi.Description); n != len(srdi.Description) {
+			return result, errors.New("failed to encode description: encoded partially")
+		}
+		buf.WriteByte(null) // for Description (null-terminated string by standart)
 	}
-	buf.WriteByte(null) // for Description (null-terminated string by standart)
 
 	result = buf.Bytes()
 	return result, err
