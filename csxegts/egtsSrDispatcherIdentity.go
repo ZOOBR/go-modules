@@ -19,8 +19,8 @@ func (srdi *SrDispatcherIdentity) Decode(content []byte) error {
 	var (
 		err error
 	)
-
 	buf := bytes.NewBuffer(content)
+
 	if srdi.DispatcherType, err = buf.ReadByte(); err != nil {
 		return fmt.Errorf("failed to decode dispatcher type: %v", err)
 	}
