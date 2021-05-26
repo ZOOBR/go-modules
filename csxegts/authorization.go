@@ -20,8 +20,10 @@ func newTermIdentityData() *egts.SrTermIdentity {
 }
 
 func CreateAuthPacket(objectIdentifier uint32) (*Packet, uint16) {
-	recordData := newTermIdentityData()
-	authFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityHigh, egts.AuthService, egts.SrTermIdentityType, recordData)
+	recordData := []subrecordData{
+		{SubrecordType: egts.SrTermIdentityType, SubrecordData: newTermIdentityData()},
+	}
+	authFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityHigh, egts.AuthService, recordData)
 
 	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, authFrameData), recNum
 }

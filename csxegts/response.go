@@ -20,8 +20,9 @@ func newResponseData(confirmedRecordNumber uint16, status uint8) *egts.SrRespons
 
 func newResponseServiceFrameData(responsePacketID, confirmedRecordNumber uint16, resultCode, status uint8, serviceType byte) *egts.PtResponse {
 	record := newRecord(egts.SrRecordResponseType, newResponseData(confirmedRecordNumber, status))
+	subrecords := egts.RecordDataSet{*record}
 
-	sdr := newServiceDataRecord(nil, RpPriorityNormal, serviceType, record)
+	sdr := newServiceDataRecord(nil, RpPriorityNormal, serviceType, subrecords)
 	sfd := egts.PtResponse{
 		ResponsePacketID: responsePacketID,
 		ProcessingResult: resultCode,

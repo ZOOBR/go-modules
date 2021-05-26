@@ -10,6 +10,11 @@ type Packet struct {
 	egts.Package
 }
 
+type subrecordData struct {
+	SubrecordType byte
+	SubrecordData egts.BinaryData
+}
+
 var (
 	PacketIDCounter     = Counter{}
 	RecordNumberCounter = Counter{}
@@ -25,22 +30,20 @@ func newRecord(recordType byte, data egts.BinaryData) *egts.RecordData {
 	return &r
 }
 
-func newServiceDataRecord(objectIdentifier *uint32, priority string, serviceType byte, record *egts.RecordData) *egts.ServiceDataRecord {
-	rds := egts.RecordDataSet{*record}
-
+func newServiceDataRecord(objectIdentifier *uint32, priority string, serviceType byte, subrecords egts.RecordDataSet) *egts.ServiceDataRecord {
 	sdr := egts.ServiceDataRecord{
-		RecordLength:             rds.Length(),
+		RecordLength:             subrecords.Length(),
 		RecordNumber:             RecordNumberCounter.Next(),
 		SourceServiceOnDevice:    SsodTerminal,
 		RecipientServiceOnDevice: RsodPlatform,
-		Group:                    string(priority[0]), // this field was removed from standart. Delete this field & rework to priority after EGTS lib updating
+		Group:                    string(priority[0]), // TODO:: this field was removed from standart. Delete this field & rework to priority after EGTS lib updating
 		RecordProcessingPriority: priority[1:],
 		TimeFieldExists:          "1",
 		EventIDFieldExists:       "0",
 		Time:                     EgtsTimeNowSeconds(), //TODO: rewrite to time.Now() after EGTS lib is updated
 		SourceServiceType:        serviceType,
 		RecipientServiceType:     serviceType,
-		RecordDataSet:            rds,
+		RecordDataSet:            subrecords,
 	}
 	if objectIdentifier != nil {
 		sdr.ObjectIDFieldExists = "1"
@@ -52,9 +55,13 @@ func newServiceDataRecord(objectIdentifier *uint32, priority string, serviceType
 	return &sdr
 }
 
-func newServiceFrameData(objectIdentifier *uint32, priority string, serviceType byte, recordType byte, recordData egts.BinaryData) (*egts.ServiceDataSet, uint16) {
-	record := newRecord(recordType, recordData)
-	sdr := newServiceDataRecord(objectIdentifier, priority, serviceType, record)
+func newServiceFrameData(objectIdentifier *uint32, priority string, serviceType byte, recordData []subrecordData) (*egts.ServiceDataSet, uint16) {
+	subrecords := egts.RecordDataSet{}
+	for _, rd := range recordData {
+		recData := rd
+		subrecords = append(subrecords, *newRecord(recData.SubrecordType, recData.SubrecordData))
+	}
+	sdr := newServiceDataRecord(objectIdentifier, priority, serviceType, subrecords)
 
 	return &egts.ServiceDataSet{*sdr}, sdr.RecordNumber
 }
