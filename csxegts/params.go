@@ -216,3 +216,13 @@ const StSoftwareDownload = uint8(7)
 
 const SrDispatcherIdentityType = byte(5)
 const SrServiceInfoType = byte(8)
+
+// ---------------------------------------------------------------------------------
+// Service statements
+// ---------------------------------------------------------------------------------
+
+const EgtsSstInService = byte(0)
+const EgtsSstOutOfService = byte(128)
+const EgtsSstDenied = byte(129)
+const EgtsSstNoConf = byte(130)
+const EgtsSstTempUnavail = byte(131)

@@ -6,7 +6,7 @@ func newServiceInfoData(serviceType byte) *SrServiceInfo {
 	// TODO:: move all constants to params
 	data := SrServiceInfo{
 		ServiceType:            serviceType,
-		ServiceStatement:       0,    // EGTS_SST_IN_SERVICE
+		ServiceStatement:       EgtsSstInService,
 		ServiceAttribute:       "0",  // service supported
 		ServiceRoutingPriority: "01", // high priority
 	}
