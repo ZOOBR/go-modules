@@ -196,3 +196,16 @@ const EgtsPcModuleFwFlt = uint8(161)
 const EgtsPcModuleIoFlt = uint8(162)
 const EgtsPcModuleMemFlt = uint8(163)
 const EgtsPcTestFailed = uint8(164)
+
+// ---------------------------------------------------------------------------------
+// Terminal modes
+// ---------------------------------------------------------------------------------
+
+const StPassive = uint8(0)
+const StERA = uint8(1)
+const StActive = uint8(2)
+const StEmergencyCall = uint8(3)
+const StEmergencyTracking = uint8(4)
+const StTesting = uint8(5)
+const StService = uint8(6)
+const StSoftwareDownload = uint8(7)
