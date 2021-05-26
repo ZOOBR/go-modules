@@ -30,9 +30,32 @@ func newDispatcherIdentityData(dispatcherID uint32, description string) *SrDispa
 	return &data
 }
 
+func newServiceInfoData(serviceType byte) *SrServiceInfo {
+	// TODO:: move all constants to params
+	data := SrServiceInfo{
+		ServiceType:            serviceType,
+		ServiceStatement:       0,    // EGTS_SST_IN_SERVICE
+		ServiceAttribute:       "0",  // service supported
+		ServiceRoutingPriority: "01", // high priority
+	}
+
+	return &data
+}
+
 func CreateAuthPacket(dispatcherID uint32, description string) (*Packet, uint16) {
 	recordData := []subrecordData{
 		{SubrecordType: egts.SrTermIdentityType, SubrecordData: newDispatcherIdentityData(dispatcherID, description)},
+	}
+	authFrameData, recNum := newServiceFrameData(nil, RpPriorityHigh, egts.AuthService, recordData)
+
+	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, authFrameData), recNum
+}
+
+func CreateServiceInfoPacket() (*Packet, uint16) {
+	recordData := []subrecordData{
+		// TODO:: move all constants to params (8 - EGTS_SR_SERVICE_INFO)
+		{SubrecordType: 8, SubrecordData: newServiceInfoData(egts.AuthService)},
+		{SubrecordType: 8, SubrecordData: newServiceInfoData(egts.TeledataService)},
 	}
 	authFrameData, recNum := newServiceFrameData(nil, RpPriorityHigh, egts.AuthService, recordData)
 
