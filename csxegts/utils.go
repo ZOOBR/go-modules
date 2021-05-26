@@ -1,6 +1,8 @@
 package csxegts
 
 import (
+	"encoding/binary"
+	"math"
 	"sync/atomic"
 	"time"
 )
@@ -36,4 +38,14 @@ func (counter *Counter) Next() uint16 {
 func EgtsTimeNowSeconds() uint32 {
 	startDate := time.Date(2010, time.January, 1, 0, 0, 0, 0, time.UTC)
 	return uint32(time.Now().Sub(startDate).Seconds())
+}
+
+// ---------------------------------------------------------------------------------
+// EGTS Bytes
+// ---------------------------------------------------------------------------------
+
+func float64ToByteArr(f float64, n int) []byte {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], math.Float64bits(f))
+	return buf[:n]
 }

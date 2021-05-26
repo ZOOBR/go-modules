@@ -5,7 +5,6 @@ import (
 
 	"github.com/kuznetsovin/egts-protocol/app/egts"
 
-	"gitlab.com/battler/modules/csxbinary"
 	"gitlab.com/battler/modules/csxtelemetry"
 )
 
@@ -19,7 +18,7 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 		FIX:            Fix2D,
 		VLD:            "1",
 		Direction:      byte(pos.P[1104]),
-		Odometer:       csxbinary.Float64ToByte(pos.P[1201]),
+		Odometer:       float64ToByteArr(pos.P[1201], 3),
 		Source:         SrcTimerEnabledIgnition,
 	}
 	data.DirectionHighestBit = data.Direction & 128
@@ -37,7 +36,7 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 
 	if pos.P[1103] != 0.0 {
 		data.ALTE = "1"
-		data.Altitude = csxbinary.Float64ToByte(pos.P[1103])
+		data.Altitude = float64ToByteArr(pos.P[1103], 3)
 
 		if pos.P[1103] > 0.0 {
 			data.AltitudeSign = 0
