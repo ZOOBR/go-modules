@@ -3,10 +3,10 @@ module gitlab.com/battler/modules
 go 1.16
 
 require (
-	github.com/aws/aws-sdk-go v1.38.40
+	github.com/aws/aws-sdk-go v1.38.48
 	github.com/buger/jsonparser v1.1.1
 	github.com/disintegration/imaging v1.6.2
-	github.com/go-redis/redis/v8 v8.8.3
+	github.com/go-redis/redis/v8 v8.9.0
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/gomodule/redigo v1.8.4
 	github.com/google/uuid v1.2.0
