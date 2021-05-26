@@ -7,8 +7,6 @@ type ResponsePacketStatus struct {
 	ProcessingResult      uint8
 	ConfirmedRecordNumber uint16
 	RecordStatus          uint8
-	PeerAddress           *uint16
-	RecipientAddress      *uint16
 }
 
 func newResponseData(confirmedRecordNumber uint16, status uint8) *egts.SrResponse {
@@ -37,12 +35,6 @@ func CreateResponsePacket(sourcePacket *Packet, resultCode uint8) *Packet {
 	responsePacketID := sourcePacket.PacketIdentifier
 	var serviceType byte
 	var confirmedRecordNumber uint16
-	var peerAddress, recipientAddress *uint16
-
-	if sourcePacket.Route == "1" {
-		peerAddress = &sourcePacket.PeerAddress
-		recipientAddress = &sourcePacket.RecipientAddress
-	}
 
 	for _, rec := range *sourcePacket.ServicesFrameData.(*egts.ServiceDataSet) {
 		serviceType = rec.SourceServiceType
@@ -52,16 +44,11 @@ func CreateResponsePacket(sourcePacket *Packet, resultCode uint8) *Packet {
 
 	responseFrameData := newResponseServiceFrameData(responsePacketID, confirmedRecordNumber, resultCode, EgtsPcOk, serviceType)
 
-	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, peerAddress, recipientAddress, responseFrameData)
+	return newPacket(PacketIDCounter.Next(), egts.PtResponsePacket, PacketPriorityNormal, responseFrameData)
 }
 
 func ParseResponsePacket(packet *Packet) *ResponsePacketStatus {
 	res := ResponsePacketStatus{}
-
-	if packet.Route == "1" {
-		res.PeerAddress = &packet.PeerAddress
-		res.RecipientAddress = &packet.RecipientAddress
-	}
 
 	sfd := packet.ServicesFrameData.(*egts.PtResponse)
 	res.ResponsePacketID = sfd.ResponsePacketID

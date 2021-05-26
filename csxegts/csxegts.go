@@ -60,32 +60,23 @@ func newServiceFrameData(objectIdentifier *uint32, priority string, serviceType 
 }
 
 // newPacket returns EGTS packet
-func newPacket(packetID uint16, packetType byte, priority string, peerAddress, recipientAddress *uint16, servicesFrameData egts.BinaryData) *Packet {
+func newPacket(packetID uint16, packetType byte, priority string, servicesFrameData egts.BinaryData) *Packet {
 	packet := Packet{
 		egts.Package{
 			ProtocolVersion:   egtsHeaderProtocolVersion,
 			SecurityKeyID:     0,
 			Prefix:            egtsHeaderPrefix,
+			Route:             "0",
 			EncryptionAlg:     "00",
 			Compression:       "0",
 			Priority:          priority,
+			HeaderLength:      11,
 			HeaderEncoding:    0,
 			FrameDataLength:   servicesFrameData.Length(),
 			PacketIdentifier:  packetID,
 			PacketType:        packetType,
 			ServicesFrameData: servicesFrameData,
 		},
-	}
-
-	if peerAddress != nil && recipientAddress != nil {
-		packet.Route = "1"
-		packet.PeerAddress = *peerAddress
-		packet.RecipientAddress = *recipientAddress
-		packet.TimeToLive = 64
-		packet.HeaderLength = 16
-	} else {
-		packet.Route = "0"
-		packet.HeaderLength = 11
 	}
 
 	return &packet
