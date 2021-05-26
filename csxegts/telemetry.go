@@ -8,6 +8,25 @@ import (
 	"gitlab.com/battler/modules/csxtelemetry"
 )
 
+// EGTS_SR_STATE_DATA
+func newStateData(pos *csxtelemetry.FlatPosition) *egts.SrStateData {
+	data := egts.SrStateData{
+		State:                  StActive,
+		MainPowerSourceVoltage: uint8(pos.P[1021]),
+		BackUpBatteryVoltage:   0,
+		InternalBatteryVoltage: 0,
+		IBU:                    "0",
+		BBU:                    "0",
+	}
+	if pos.P[1101] != 0.0 && pos.P[1102] != 0.0 {
+		data.NMS = "1"
+	} else {
+		data.NMS = "0"
+	}
+
+	return &data
+}
+
 func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 	data := egts.SrPosData{
 		NavigationTime: time.Unix(int64(pos.Time/1000), 0),
@@ -60,6 +79,7 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 func CreateTelemetryPacket(objectIdentifier uint32, pos *csxtelemetry.FlatPosition) (*Packet, uint16) {
 	recordData := []subrecordData{
 		{SubrecordType: egts.SrPosDataType, SubrecordData: newPosData(pos)},
+		{SubrecordType: egts.SrStateDataType, SubrecordData: newStateData(pos)},
 	}
 	telemetryFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityNormal, egts.TeledataService, recordData)
 
