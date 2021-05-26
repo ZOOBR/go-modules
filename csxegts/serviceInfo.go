@@ -3,7 +3,6 @@ package csxegts
 import "github.com/kuznetsovin/egts-protocol/app/egts"
 
 func newServiceInfoData(serviceType byte, serviceRoutingPriority string) *SrServiceInfo {
-	// TODO:: move all constants to params
 	data := SrServiceInfo{
 		ServiceType:            serviceType,
 		ServiceStatement:       EgtsSstInService,

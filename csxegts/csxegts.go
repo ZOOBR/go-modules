@@ -16,8 +16,8 @@ type subrecordData struct {
 }
 
 var (
-	PacketIDCounter     = Counter{}
-	RecordNumberCounter = Counter{}
+	PacketIDCounter     = NewCounter()
+	RecordNumberCounter = NewCounter()
 )
 
 func newRecord(recordType byte, data egts.BinaryData) *egts.RecordData {
