@@ -2,7 +2,7 @@ package csxegts
 
 import "github.com/kuznetsovin/egts-protocol/app/egts"
 
-func newTermIdentityData(imei string) *egts.SrTermIdentity {
+func newTermIdentityData() *egts.SrTermIdentity {
 	data := egts.SrTermIdentity{
 		TerminalIdentifier: 0,
 		MNE:                "0",
@@ -11,17 +11,16 @@ func newTermIdentityData(imei string) *egts.SrTermIdentity {
 		SSRA:               "1",
 		LNGCE:              "0",
 		IMSIE:              "0",
-		IMEIE:              "1",
+		IMEIE:              "0",
 		HDIDE:              "0",
-		IMEI:               imei,
 		// BufferSize
 	}
 
 	return &data
 }
 
-func CreateAuthPacket(objectIdentifier uint32, imei string) (*Packet, uint16) {
-	recordData := newTermIdentityData(imei)
+func CreateAuthPacket(objectIdentifier uint32) (*Packet, uint16) {
+	recordData := newTermIdentityData()
 	authFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityHigh, egts.AuthService, egts.SrTermIdentityType, recordData)
 
 	return newPacket(PacketIDCounter.Next(), egts.PtAppdataPacket, PacketPriorityHigh, authFrameData), recNum
