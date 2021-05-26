@@ -215,3 +215,4 @@ const StSoftwareDownload = uint8(7)
 // ---------------------------------------------------------------------------------
 
 const SrDispatcherIdentityType = byte(5)
+const SrServiceInfoType = byte(8)

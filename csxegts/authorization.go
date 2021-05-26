@@ -53,9 +53,8 @@ func CreateAuthPacket(dispatcherID uint32, description string) (*Packet, uint16)
 
 func CreateServiceInfoPacket() (*Packet, uint16) {
 	recordData := []subrecordData{
-		// TODO:: move all constants to params (8 - EGTS_SR_SERVICE_INFO)
-		{SubrecordType: 8, SubrecordData: newServiceInfoData(egts.AuthService)},
-		{SubrecordType: 8, SubrecordData: newServiceInfoData(egts.TeledataService)},
+		{SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.AuthService)},
+		{SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.TeledataService)},
 	}
 	authFrameData, recNum := newServiceFrameData(nil, RpPriorityHigh, egts.AuthService, recordData)
 
