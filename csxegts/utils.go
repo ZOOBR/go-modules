@@ -41,7 +41,7 @@ func (counter *Counter) Next() uint16 {
 
 func EgtsTimeNowSeconds() uint32 {
 	startDate := time.Date(2010, time.January, 1, 0, 0, 0, 0, time.UTC)
-	return uint32(time.Now().Sub(startDate).Seconds())
+	return uint32(time.Since(startDate).Seconds())
 }
 
 // ---------------------------------------------------------------------------------
