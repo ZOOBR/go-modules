@@ -14,6 +14,9 @@ const egtsHeaderPrefix = "00"
 // Based on info from github.com/kuznetsovin/egts-protocol
 const EgtsHeaderLength = uint16(10)
 
+// Null-terminator for strings
+const null = byte(0x00)
+
 // ---------------------------------------------------------------------------------
 // Temporal and quantitative
 // ---------------------------------------------------------------------------------
