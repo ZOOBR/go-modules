@@ -2,13 +2,13 @@ package csxegts
 
 import "github.com/kuznetsovin/egts-protocol/app/egts"
 
-func newServiceInfoData(serviceType byte) *SrServiceInfo {
+func newServiceInfoData(serviceType byte, serviceRoutingPriority string) *SrServiceInfo {
 	// TODO:: move all constants to params
 	data := SrServiceInfo{
 		ServiceType:            serviceType,
 		ServiceStatement:       EgtsSstInService,
-		ServiceAttribute:       "0",  // service supported
-		ServiceRoutingPriority: "01", // high priority
+		ServiceAttribute:       "0", // service supported
+		ServiceRoutingPriority: serviceRoutingPriority,
 	}
 
 	return &data
@@ -16,8 +16,8 @@ func newServiceInfoData(serviceType byte) *SrServiceInfo {
 
 func CreateServiceInfoPacket() (*Packet, uint16) {
 	recordData := []subrecordData{
-		// {SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.AuthService)}, // not necessary
-		{SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.TeledataService)},
+		// {SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.AuthService, SrPriorityHighest)}, // not necessary
+		{SubrecordType: SrServiceInfoType, SubrecordData: newServiceInfoData(egts.TeledataService, SrPriorityHigh)},
 	}
 	authFrameData, recNum := newServiceFrameData(nil, RpPriorityHigh, egts.AuthService, recordData)
 

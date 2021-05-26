@@ -226,3 +226,11 @@ const EgtsSstOutOfService = byte(128)
 const EgtsSstDenied = byte(129)
 const EgtsSstNoConf = byte(130)
 const EgtsSstTempUnavail = byte(131)
+
+// ---------------------------------------------------------------------------------
+// Service routing priority
+// ---------------------------------------------------------------------------------
+const SrPriorityHighest = "00"
+const SrPriorityHigh = "01"
+const SrPriorityNormal = "10"
+const SrPriorityLow = "11"
