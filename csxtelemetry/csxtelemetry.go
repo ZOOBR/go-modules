@@ -1,4 +1,4 @@
-package telemetry
+package csxtelemetry
 
 import (
 	"encoding/binary"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gitlab.com/battler/modules/csxbinary"
 )
 
 const (
@@ -517,12 +518,6 @@ func (r *BinaryReader) ReadFloat64() float64 {
 	return float
 }
 
-func float64ToByte(f float64) []byte {
-	var buf [8]byte
-	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
-	return buf[:]
-}
-
 func float32ToByte(f float32) []byte {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], math.Float32bits(f))
@@ -552,12 +547,6 @@ func uint32ToByte(f uint32) []byte {
 	binary.BigEndian.PutUint32(buf[:], uint32(f))
 	return buf[:]
 }
-
-// func float64ToByte(f float64) []byte {
-// 	var buf [8]byte
-// 	binary.BigEndian.PutUint64(buf[:], math.Float64bits(f))
-// 	return buf[:]
-// }
 
 func getNumberKind(value float64) int {
 	if value == float64(int64(value)) {
@@ -611,7 +600,7 @@ func writeNumber(value float64, bytes *[]byte) {
 	case binaryFloat32:
 		res = float32ToByte(float32(value))
 	case binaryFloat64:
-		res = float64ToByte(value)
+		res = csxbinary.Float64ToByte(value)
 	}
 
 	*bytes = append(*bytes, byte(kind))
@@ -838,7 +827,7 @@ func FlatPositionToBinary(pos *FlatPosition) (res []byte) {
 	}
 
 	res = append(res, uint32ToByte(uint32(len(data)+8))...)
-	res = append(res, float64ToByte(pos.Time)...)
+	res = append(res, csxbinary.Float64ToByte(pos.Time)...)
 	res = append(res, data...)
 
 	return res

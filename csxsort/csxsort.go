@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"gitlab.com/battler/modules/telemetry"
+	"gitlab.com/battler/modules/csxtelemetry"
 )
 
 // SortField struct for sort
@@ -175,12 +175,12 @@ func SortArrayMaps(res *[]map[string]interface{}, sorts []SortField) {
 					return *float1 > *float2
 				}
 				return *float1 < *float2
-			case *telemetry.FlatPosition:
+			case *csxtelemetry.FlatPosition:
 				if s.Param == 0 && s.Event == 0 {
 					return false
 				}
-				pos1, ok1 := val.(*telemetry.FlatPosition)
-				pos2, ok2 := valJ.(*telemetry.FlatPosition)
+				pos1, ok1 := val.(*csxtelemetry.FlatPosition)
+				pos2, ok2 := valJ.(*csxtelemetry.FlatPosition)
 				if !ok1 || !ok2 {
 					return false
 				}
