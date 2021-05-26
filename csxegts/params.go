@@ -230,7 +230,15 @@ const EgtsSstTempUnavail = byte(131)
 // ---------------------------------------------------------------------------------
 // Service routing priority
 // ---------------------------------------------------------------------------------
+
 const SrPriorityHighest = "00"
 const SrPriorityHigh = "01"
 const SrPriorityNormal = "10"
 const SrPriorityLow = "11"
+
+// ---------------------------------------------------------------------------------
+// Service attribute
+// ---------------------------------------------------------------------------------
+
+const SaSupported = "0"
+const SaRequested = "1"

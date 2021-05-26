@@ -7,7 +7,7 @@ func newServiceInfoData(serviceType byte, serviceRoutingPriority string) *SrServ
 	data := SrServiceInfo{
 		ServiceType:            serviceType,
 		ServiceStatement:       EgtsSstInService,
-		ServiceAttribute:       "0", // service supported
+		ServiceAttribute:       SaSupported,
 		ServiceRoutingPriority: serviceRoutingPriority,
 	}
 
