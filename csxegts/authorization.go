@@ -44,7 +44,7 @@ func newServiceInfoData(serviceType byte) *SrServiceInfo {
 
 func CreateAuthPacket(dispatcherID uint32, description string) (*Packet, uint16) {
 	recordData := []subrecordData{
-		{SubrecordType: egts.SrTermIdentityType, SubrecordData: newDispatcherIdentityData(dispatcherID, description)},
+		{SubrecordType: SrDispatcherIdentityType, SubrecordData: newDispatcherIdentityData(dispatcherID, description)},
 	}
 	authFrameData, recNum := newServiceFrameData(nil, RpPriorityHigh, egts.AuthService, recordData)
 

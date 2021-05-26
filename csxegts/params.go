@@ -209,3 +209,9 @@ const StEmergencyTracking = uint8(4)
 const StTesting = uint8(5)
 const StService = uint8(6)
 const StSoftwareDownload = uint8(7)
+
+// ---------------------------------------------------------------------------------
+// Subrecord type codes
+// ---------------------------------------------------------------------------------
+
+const SrDispatcherIdentityType = byte(5)
