@@ -444,26 +444,30 @@ func (table *SchemaTable) registerMetadata() {
 }
 
 // RestrictRolesRights return complex restrict query based on all roles
-func (table *SchemaTable) RestrictRolesRights(roles map[string]*dbc.JsonB) string {
+func (table *SchemaTable) RestrictRolesRights(rights map[string]interface{}) string {
 	restrictQuery := ""
-	for _, rights := range roles {
-		if restrictQuery != "" {
-			restrictQuery += " OR "
-		}
-		restrictVal := table.GetRestrictQuery(rights)
-		if restrictVal != "" {
-			restrictQuery += "( " + restrictVal + " )"
-		}
+	// for _, fieldRightsInt := range rights {
+	// 	if restrictQuery != "" {
+	// 		restrictQuery += " OR "
+	// 	}
+	// 	fieldRights, _ := fieldRightsInt.(map[string]interface{})
+	// 	restrictVal := table.GetRestrictQuery(fieldRights)
+	// 	if restrictVal != "" {
+	// 		restrictQuery += "( " + restrictVal + " )"
+	// 	}
+	// }
+	if _, ok := rights[table.Name]; !ok {
+		return restrictQuery
 	}
-	return restrictQuery
+	return table.GetRestrictQuery(rights)
 }
 
 // GetRestrictQuery returns sql restrict query by roles rights
-func (table *SchemaTable) GetRestrictQuery(rights *dbc.JsonB) string {
+func (table *SchemaTable) GetRestrictQuery(rights map[string]interface{}) string {
 	if rights == nil {
 		return ""
 	}
-	restrictFieldsInt, ok := (*rights)[table.Name]
+	restrictFieldsInt, ok := rights[table.Name]
 	if !ok {
 		// if entity collection not found in rights map is FULL ACCESS
 		return ""

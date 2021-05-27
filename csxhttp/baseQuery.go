@@ -26,6 +26,7 @@ func (baseQ *BaseQuery) StrictAccess(ctx *Context, mode int, fields []string) bo
 	}
 	isSuperUser := status == 1
 	roles := ctx.Get("roles").(map[string]interface{})
+	rights := ctx.Get("rights").(map[string]interface{})
 	// If * is specified, take a list of all fields from the scheme
 	// TODO:: baseQ.Schema != nil this crutch for use base info without schema
 	if baseQ.Schema != nil && len(fields) == 1 && fields[0] == "*" {
@@ -40,7 +41,7 @@ func (baseQ *BaseQuery) StrictAccess(ctx *Context, mode int, fields []string) bo
 		baseQ.StrictFields = &newFields
 	}
 	if baseQ.Schema != nil {
-		baseQ.RestrictAccessCondition = baseQ.Schema.RestrictRolesRights(csxaccess.GetRolesRights(roles))
+		baseQ.RestrictAccessCondition = baseQ.Schema.RestrictRolesRights(rights)
 	}
 	return success
 }

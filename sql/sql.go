@@ -436,6 +436,9 @@ func execQuery(db *sqlx.DB, q *string, fieldsMap *AccessFieldsMap, cb ...func(ro
 				}
 				// parse json value
 				data, dataType, _, _ := jsonparser.Get(valueForParse)
+				if isPgArray(data) {
+					dataType = csxjson.PgArrayType
+				}
 				val, _ := csxjson.GetParsedValue(data, dataType)
 				row[k] = val
 			}
@@ -443,6 +446,10 @@ func execQuery(db *sqlx.DB, q *string, fieldsMap *AccessFieldsMap, cb ...func(ro
 		results.Result = append(results.Result, row)
 	}
 	return &results
+}
+
+func isPgArray(data []byte) bool {
+	return len(data) > 1 && data[0] == '{' && data[1] != '"'
 }
 
 // ExecQuery exec query in main database and run callback with query result
@@ -727,6 +734,9 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 					oldMap[tag] = f.String()
 				case time.Time:
 					oldMap[tag] = val.Format(time.RFC3339Nano)
+				case pq.StringArray:
+					arr := f.Interface().(pq.StringArray)
+					oldMap[tag] = "{" + strings.Join(arr, ",") + "}"
 				default:
 					valJSON, _ := json.Marshal(val)
 					oldMap[tag] = string(valJSON)
@@ -799,6 +809,12 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 		case time.Time:
 			resultMap[tag] = val.Format(time.RFC3339Nano)
 			updV = resultMap[tag].(string)
+		case pq.StringArray:
+			arr := f.Interface().(pq.StringArray)
+			rawValue = arr
+			updVal := "{" + strings.Join(arr, ",") + "}"
+			resultMap[tag] = updVal
+			updV = updVal
 		default:
 			rawValue = val
 			valJSON, _ := json.Marshal(val)
