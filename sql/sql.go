@@ -649,7 +649,7 @@ func (queryObj *Query) SetStructValues(query string, structVal interface{}, isUp
 	var prepText string
 	if checkOldModel {
 		if len(prepFields) <= cntAuto {
-			return nil //errors.New("no fields to update")
+			return nil
 		} else if len(prepFields) == 1 {
 			prepText = " " + strings.Join(prepFields, ",") + " = " + strings.Join(prepValues, ",") + " "
 		} else {
