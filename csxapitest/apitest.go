@@ -102,6 +102,12 @@ type AppEmulatorStatus struct {
 	Running bool `json:"running"`
 }
 
+type TestScenario struct {
+	ID   string              `json:"id"`
+	Name string              `json:"name"`
+	Data AppEmulatorScenario `json:"data"`
+}
+
 type RequestInfo struct {
 	sync.RWMutex
 	Url         string
