@@ -145,6 +145,8 @@ func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
 
 // calcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
 // and distance from start point of arc to third point (in degrees)
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
 	delta13 := CalcDistance(arc.P1.Lat, arc.P1.Lon, point.Lat, point.Lon) / GeoRadiusAvgM // δ
 	theta13 := CalcInitialBearing(arc.P1, point)                                          // θ
@@ -155,12 +157,16 @@ func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
 }
 
 // CalcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func CalcCrossTrackDistance(arc GeoArc, point GeoPoint) float64 {
 	dXt, _ := calcCrossTrackDistance(arc, point)
 	return dXt
 }
 
 // CalcAlongTrackDistance returns distance from the start point to the closest point on the arc (in meters)
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func CalcAlongTrackDistance(arc GeoArc, point GeoPoint) float64 {
 	dXt, delta13 := calcCrossTrackDistance(arc, point)
 	dAt := math.Acos(math.Cos(delta13)/math.Cos(dXt/GeoRadiusAvgM)) * GeoRadiusAvgM
