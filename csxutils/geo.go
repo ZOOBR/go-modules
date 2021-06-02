@@ -18,6 +18,10 @@ type GeoPoint struct {
 	Lat, Lon float64
 }
 
+type GeoArc struct {
+	P1, P2 GeoPoint
+}
+
 // GeoData structure for store GeoJSON field
 type GeoData struct {
 	Type        string       `db:"type" json:"type"`
@@ -119,6 +123,7 @@ func calcUnnormalizedInitialBearing(startPoint, endPoint GeoPoint) float64 {
 	y := math.Sin(dLambda) * math.Cos(p2)
 	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dLambda)
 	theta := math.Atan2(y, x) // theta (θ)
+
 	return RadToDeg(theta)
 }
 
@@ -141,6 +146,31 @@ func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
 // ---------------------------------------------------------------------------------
 // Checking for belong
 // ---------------------------------------------------------------------------------
+
+// calcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
+// and distance from start point of arc to third point (in degrees)
+func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
+	delta13 := CalcDistance(arc.P1.Lat, arc.P1.Lon, point.Lat, point.Lon) / GeoRadiusAvgM // δ
+	theta13 := CalcInitialBearing(arc.P1, point)                                          // θ
+	theta12 := CalcInitialBearing(arc.P1, arc.P2)
+	dXt := math.Asin(math.Sin(delta13)*math.Sin(theta13-theta12)) * GeoRadiusAvgM
+
+	return dXt, delta13
+}
+
+// CalcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
+func CalcCrossTrackDistance(arc GeoArc, point GeoPoint) float64 {
+	dXt, _ := calcCrossTrackDistance(arc, point)
+	return dXt
+}
+
+// CalcAlongTrackDistance returns distance from the start point to the closest point on the arc (in meters)
+func CalcAlongTrackDistance(arc GeoArc, point GeoPoint) float64 {
+	dXt, delta13 := calcCrossTrackDistance(arc, point)
+	dAt := math.Acos(math.Cos(delta13)/math.Cos(dXt/GeoRadiusAvgM)) * GeoRadiusAvgM
+
+	return dAt
+}
 
 // insideCircleDist return true when point in radius and distance between point & center (in meters)
 //
