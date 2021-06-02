@@ -304,6 +304,7 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 	return exists
 }
 
+// CircleInsideCircle checks if one circle inside another
 func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint, radiusOut float64) bool {
 	isInside, d := insideCircleDist(centerIn, centerOut, radiusOut)
 	if !isInside {
@@ -312,6 +313,7 @@ func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint,
 	return d+radiusIn <= radiusOut
 }
 
+// PolygonInsideCircle checks if polygon inside circle
 func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bool {
 	for _, p := range polygon {
 		if !InsideCircle(p, center, radius) {
@@ -321,6 +323,7 @@ func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bo
 	return true
 }
 
+// PolygonInsidePolygon checks if one polygon inside another
 func PolygonInsidePolygon(polygonIn []GeoPoint, polygonOut []GeoPoint) bool {
 	for _, p := range polygonIn {
 		if !InsidePolygon(p, polygonOut) {
