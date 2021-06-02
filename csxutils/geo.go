@@ -205,18 +205,7 @@ func CalcHaversineDistance(point1, point2 GeoPoint) float64 {
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 // http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
 func insideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, float64) {
-	// degrees to radians
-	x1 := DegToRad(center.Lat)
-	y1 := DegToRad(center.Lon)
-	x2 := DegToRad(point.Lat)
-	y2 := DegToRad(point.Lon)
-	dx := x2 - x1
-	dy := y2 - y1
-	// Haversine formula
-	a := math.Pow(math.Sin(dx/2), 2) + math.Cos(x1)*math.Cos(x2)*math.Pow(math.Sin(dy/2), 2)
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-	d := GeoRadiusAvgM * c
-
+	d := calcHaversineDistance(point, point)
 	return d <= radius, d
 }
 
