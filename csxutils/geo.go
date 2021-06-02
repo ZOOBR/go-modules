@@ -222,3 +222,11 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 
 	return exists
 }
+
+func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint, radiusOut float64) bool {
+	isInside, d := insideCircleDist(centerIn, centerOut, radiusOut)
+	if !isInside {
+		return false
+	}
+	return d+radiusIn <= radiusOut
+}
