@@ -105,6 +105,39 @@ func CalcAngleDelta(firstAngle, secondAngle float64) (delta float64) {
 	return delta
 }
 
+// calcUnnormalizedInitialBearing returns unnormalized initial bearing in degrees
+// (sometimes referred to as forward azimuth) in degrees
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Bearing')
+func calcUnnormalizedInitialBearing(startPoint, endPoint GeoPoint) float64 {
+	p1 := startPoint.Lat // phi(φ)
+	l1 := startPoint.Lon // lambda (λ)
+	p2 := endPoint.Lat
+	l2 := endPoint.Lon
+	dLambda := l2 - l1
+
+	y := math.Sin(dLambda) * math.Cos(p2)
+	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dLambda)
+	theta := math.Atan2(y, x) // theta (θ)
+	return RadToDeg(theta)
+}
+
+// CalcBearing returns initial bearing (sometimes referred to as forward azimuth) in degrees
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Bearing')
+func CalcInitialBearing(startPoint, endPoint GeoPoint) float64 {
+	thetaDeg := calcUnnormalizedInitialBearing(startPoint, endPoint) // theta (θ) in degrees
+	return math.Mod(thetaDeg+360, 360)                               // normalizing
+}
+
+// CalcBearing returns final bearing in degrees
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Bearing')
+func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
+	thetaDeg := calcUnnormalizedInitialBearing(endPoint, startPoint) // theta (θ) in degrees
+	return math.Mod(thetaDeg+180, 360)                               // normalizing
+}
+
 // ---------------------------------------------------------------------------------
 // Checking for belong
 // ---------------------------------------------------------------------------------
@@ -125,10 +158,11 @@ func insideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, fl
 	a := math.Pow(math.Sin(dx/2), 2) + math.Cos(x1)*math.Cos(x2)*math.Pow(math.Sin(dy/2), 2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 	d := GeoRadiusAvgM * c
+
 	return d <= radius, d
 }
 
-// InsidePolygon return true when point[lon,lat]  inside polygone
+// InsidePolygon return true when point[lon,lat] inside polygon
 func InsidePolygon(point GeoPoint, polygon []GeoPoint) bool {
 	x := point.Lon
 	y := point.Lat
