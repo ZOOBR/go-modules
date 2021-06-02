@@ -18,6 +18,7 @@ type GeoPoint struct {
 	Lat, Lon float64
 }
 
+// GeoArc is struct for arc of a sphere with start & end geographic points
 type GeoArc struct {
 	P1, P2 GeoPoint
 }
@@ -95,6 +96,7 @@ func CalcDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	deg2km := 180. / (math.Pi * radius)
 	dy := (lat2 - lat1) / deg2km
 	dx := (lon2 - lon1) / (deg2km / math.Cos(latrad))
+
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
@@ -106,6 +108,7 @@ func CalcAngleDelta(firstAngle, secondAngle float64) (delta float64) {
 	} else {
 		delta = math.Abs(firstAngle - secondAngle)
 	}
+
 	return delta
 }
 
@@ -186,6 +189,7 @@ func calcHaversineDistance(point1, point2 GeoPoint) float64 {
 	l2 := DegToRad(point2.Lon)
 	dp := p2 - p1
 	dl := l2 - l1
+
 	// Haversine formula
 	a := math.Pow(math.Sin(dp/2), 2) + math.Cos(p1)*math.Cos(p2)*math.Pow(math.Sin(dl/2), 2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
@@ -281,7 +285,6 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 
 	if pnts[1].Lon == pnts[0].Lon { // Vertical line
 		exists = x >= (pnts[0].Lon-width) && x <= (pnts[0].Lon+width)
-
 		if exists {
 			if pnts[0].Lat > pnts[1].Lat {
 				exists = y >= (pnts[1].Lat-width) && y <= (pnts[0].Lat+width)
