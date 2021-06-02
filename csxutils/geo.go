@@ -143,10 +143,6 @@ func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
 	return math.Mod(thetaDeg+180, 360)                               // normalizing
 }
 
-// ---------------------------------------------------------------------------------
-// Checking for belong
-// ---------------------------------------------------------------------------------
-
 // calcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
 // and distance from start point of arc to third point (in degrees)
 func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
@@ -171,6 +167,38 @@ func CalcAlongTrackDistance(arc GeoArc, point GeoPoint) float64 {
 
 	return dAt
 }
+
+// calcHaversineDistance returns distance (in meters) between two geo points calculated by haversine formula
+//
+// https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Distance')
+func calcHaversineDistance(point1, point2 GeoPoint) float64 {
+	// degrees to radians
+	p1 := DegToRad(point1.Lat) // φ
+	l1 := DegToRad(point1.Lon) // λ
+	p2 := DegToRad(point2.Lat)
+	l2 := DegToRad(point2.Lon)
+	dp := p2 - p1
+	dl := l2 - l1
+	// Haversine formula
+	a := math.Pow(math.Sin(dp/2), 2) + math.Cos(p1)*math.Cos(p2)*math.Pow(math.Sin(dl/2), 2)
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+	d := GeoRadiusAvgM * c
+
+	return d
+}
+
+// CalcHaversineDistance returns distance (in meters) between two geo points calculated by haversine formula
+//
+// https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Distance')
+func CalcHaversineDistance(point1, point2 GeoPoint) float64 {
+	return calcHaversineDistance(point1, point2)
+}
+
+// ---------------------------------------------------------------------------------
+// Checking for belong
+// ---------------------------------------------------------------------------------
 
 // insideCircleDist return true when point in radius and distance between point & center (in meters)
 //
