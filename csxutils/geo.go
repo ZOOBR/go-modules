@@ -23,6 +23,12 @@ type GeoArc struct {
 	P1, P2 GeoPoint
 }
 
+// GeoCircle is struct for circle with center geographic point
+type GeoCircle struct {
+	C GeoPoint // center
+	R float64  // radius
+}
+
 // GeoData structure for store GeoJSON field
 type GeoData struct {
 	Type        string       `db:"type" json:"type"`
@@ -214,9 +220,9 @@ func CalcHaversineDistance(point1, point2 GeoPoint) float64 {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 // http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func insideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, float64) {
-	d := calcHaversineDistance(point, point)
-	return d <= radius, d
+func insideCircleDist(point GeoPoint, circle GeoCircle) (bool, float64) {
+	d := calcHaversineDistance(point, circle.C)
+	return d <= circle.R, d
 }
 
 // InsidePolygon return true when point[lon,lat] inside polygon
@@ -248,8 +254,8 @@ func InsidePolygon(point GeoPoint, polygon []GeoPoint) bool {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 //	http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func InsideCircle(point GeoPoint, center GeoPoint, radius float64) bool {
-	isInside, _ := insideCircleDist(point, center, radius)
+func InsideCircle(point GeoPoint, circle GeoCircle) bool {
+	isInside, _ := insideCircleDist(point, circle)
 	return isInside
 }
 
@@ -257,8 +263,8 @@ func InsideCircle(point GeoPoint, center GeoPoint, radius float64) bool {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 //	http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func InsideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, float64) {
-	return insideCircleDist(point, center, radius)
+func InsideCircleDist(point GeoPoint, circle GeoCircle) (bool, float64) {
+	return insideCircleDist(point, circle)
 }
 
 // InsidePolyline Check inside polyline
@@ -314,20 +320,20 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 }
 
 // CircleInsideCircle checks if one circle inside another
-func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint, radiusOut float64) bool {
-	isInside, d := insideCircleDist(centerIn, centerOut, radiusOut)
+func CircleInsideCircle(circleIn, circleOut GeoCircle) bool {
+	isInside, d := insideCircleDist(circleIn.C, circleOut)
 	if !isInside {
 		return false
 	}
-	return d+radiusIn <= radiusOut
+	return d+circleIn.R <= circleOut.R
 }
 
 // CircleInsidePolygon checks if circle inside polygon
 //
 // https://qna.habr.com/answer?answer_id=1199288
 // https://stackoverflow.com/a/7827181
-func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bool {
-	if !InsidePolygon(center, polygon) {
+func CircleInsidePolygon(circle GeoCircle, polygon []GeoPoint) bool {
+	if !InsidePolygon(circle.C, polygon) {
 		return false
 	}
 
@@ -341,8 +347,8 @@ func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bo
 		}
 
 		arc := GeoArc{P1: polygon[i], P2: polygon[nextI]}
-		dAt := CalcAlongTrackDistance(arc, center)
-		if dAt < radius {
+		dAt := CalcAlongTrackDistance(arc, circle.C)
+		if dAt < circle.R {
 			return false
 		}
 	}
@@ -351,9 +357,9 @@ func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bo
 }
 
 // PolygonInsideCircle checks if polygon inside circle
-func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bool {
+func PolygonInsideCircle(polygon []GeoPoint, circle GeoCircle) bool {
 	for _, p := range polygon {
-		if !InsideCircle(p, center, radius) {
+		if !InsideCircle(p, circle) {
 			return false
 		}
 	}
