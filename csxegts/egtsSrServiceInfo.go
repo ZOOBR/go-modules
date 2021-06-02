@@ -7,6 +7,7 @@ import (
 )
 
 // SrDispatcherIdentity is struct for EGTS_SR_SERVICE_INFO subrecord type
+// UNUSED
 type SrServiceInfo struct {
 	ServiceType            byte   `json:"ST"`
 	ServiceStatement       byte   `json:"SST"`

@@ -2,6 +2,7 @@ package csxutils
 
 import (
 	"hash/fnv"
+	"math"
 	"reflect"
 	"time"
 	"unicode"
@@ -204,4 +205,12 @@ func GetFNV1aHash32(s string) uint32 {
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	return h.Sum32()
+}
+
+func DegToRad(degree float64) float64 {
+	return degree * (math.Pi / 180)
+}
+
+func RadToDeg(radian float64) float64 {
+	return radian * (180 / math.Pi)
 }
