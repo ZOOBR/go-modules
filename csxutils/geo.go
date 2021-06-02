@@ -230,3 +230,21 @@ func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint,
 	}
 	return d+radiusIn <= radiusOut
 }
+
+func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bool {
+	for _, p := range polygon {
+		if !InsideCircle(p, center, radius) {
+			return false
+		}
+	}
+	return true
+}
+
+func PolygonInsidePolygon(polygonIn []GeoPoint, polygonOut []GeoPoint) bool {
+	for _, p := range polygonIn {
+		if !InsidePolygon(p, polygonOut) {
+			return false
+		}
+	}
+	return true
+}
