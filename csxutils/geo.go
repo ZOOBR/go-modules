@@ -313,6 +313,34 @@ func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint,
 	return d+radiusIn <= radiusOut
 }
 
+// CircleInsidePolygon checks if circle inside polygon
+//
+// https://qna.habr.com/answer?answer_id=1199288
+// https://stackoverflow.com/a/7827181
+func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bool {
+	if !InsidePolygon(center, polygon) {
+		return false
+	}
+
+	cnt := len(polygon)
+	for i := 0; i < cnt; i++ {
+		var nextI int
+		if i == cnt-1 {
+			nextI = 0
+		} else {
+			nextI = i + 1
+		}
+
+		arc := GeoArc{P1: polygon[i], P2: polygon[nextI]}
+		dAt := CalcAlongTrackDistance(arc, center)
+		if dAt < radius {
+			return false
+		}
+	}
+
+	return true
+}
+
 // PolygonInsideCircle checks if polygon inside circle
 func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bool {
 	for _, p := range polygon {
