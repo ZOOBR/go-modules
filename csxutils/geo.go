@@ -157,8 +157,8 @@ func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
 //
 // http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
-	delta13 := CalcDistance(arc.P1.Lat, arc.P1.Lon, point.Lat, point.Lon) / GeoRadiusAvgM // δ
-	theta13 := CalcInitialBearing(arc.P1, point)                                          // θ
+	delta13 := calcHaversineDistance(arc.P1, point) / GeoRadiusAvgM // δ
+	theta13 := CalcInitialBearing(arc.P1, point)                    // θ
 	theta12 := CalcInitialBearing(arc.P1, arc.P2)
 	dXt := math.Asin(math.Sin(delta13)*math.Sin(theta13-theta12)) * GeoRadiusAvgM
 
