@@ -2,7 +2,10 @@ package csxutils
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -382,4 +385,73 @@ func PolygonInsidePolygon(polygonIn []GeoPoint, polygonOut []GeoPoint) bool {
 
 func IsGeoPointsEqual(point1, point2 GeoPoint) bool {
 	return Float64Eq(point1.Lat, point2.Lat) && Float64Eq(point1.Lon, point2.Lon)
+}
+
+// ---------------------------------------------------------------------------------
+// Strings parsing
+// ---------------------------------------------------------------------------------
+
+func ParseCircleString(circleStr string) (*GeoCircle, error) {
+	if circleStr == "" {
+		return nil, errors.New("circle string is empty")
+	}
+	params := []float64{}
+	err := json.Unmarshal([]byte(strings.Trim(circleStr, " ")), &params)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) != 3 {
+		return nil, errors.New("wrong number of circle params (need center lat, lon & radius)")
+	}
+	circle := GeoCircle{
+		C: GeoPoint{Lat: params[0], Lon: params[1]},
+		R: params[2],
+	}
+
+	return &circle, nil
+}
+
+func ParsePolygonString(polygonStr string) ([]GeoPoint, error) {
+	if polygonStr == "" {
+		return nil, errors.New("polygon string is empty")
+	}
+	pointsArr := [][]float64{}
+	err := json.Unmarshal([]byte(strings.Trim(polygonStr, " ")), &pointsArr)
+	if err != nil {
+		return nil, err
+	}
+	pLen := len(pointsArr)
+	if pLen < 2 {
+		msg := fmt.Sprintf("wrong number of points: %d (at least 2 points are required)", pLen)
+		return nil, errors.New(msg)
+	}
+
+	points := make([]GeoPoint, pLen) // parsed points of polygon
+	for i := 0; i < pLen; i++ {
+		p := pointsArr[i]
+		if len(p) != 2 {
+			msg := fmt.Sprintf("wrong number of point params: %d (lat, lon required)", len(p))
+			return nil, errors.New(msg)
+		}
+		points[i] = GeoPoint{Lat: p[0], Lon: p[1]}
+	}
+
+	// upper left & bottom right corners of rectangle
+	if pLen == 2 {
+		polygon := []GeoPoint{
+			{points[0].Lat, points[0].Lon},
+			{points[1].Lat, points[0].Lon},
+			{points[1].Lat, points[1].Lon},
+			{points[0].Lat, points[1].Lon},
+			{points[0].Lat, points[0].Lon},
+		}
+		return polygon, nil // closed rectangle
+	}
+
+	// arbitrary polygon
+	if !IsGeoPointsEqual(points[0], points[pLen-1]) { // polygon is not closed (it is line)
+		return append(points, GeoPoint{Lat: points[0].Lat, Lon: points[0].Lon}), nil
+	}
+
+	return points, nil // polygon is closed
 }
