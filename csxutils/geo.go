@@ -2,7 +2,10 @@ package csxutils
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,8 +21,15 @@ type GeoPoint struct {
 	Lat, Lon float64
 }
 
+// GeoArc is struct for arc of a sphere with start & end geographic points
 type GeoArc struct {
 	P1, P2 GeoPoint
+}
+
+// GeoCircle is struct for circle with center geographic point
+type GeoCircle struct {
+	C GeoPoint // center
+	R float64  // radius
 }
 
 // GeoData structure for store GeoJSON field
@@ -95,6 +105,7 @@ func CalcDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	deg2km := 180. / (math.Pi * radius)
 	dy := (lat2 - lat1) / deg2km
 	dx := (lon2 - lon1) / (deg2km / math.Cos(latrad))
+
 	return math.Sqrt(dx*dx + dy*dy)
 }
 
@@ -106,6 +117,7 @@ func CalcAngleDelta(firstAngle, secondAngle float64) (delta float64) {
 	} else {
 		delta = math.Abs(firstAngle - secondAngle)
 	}
+
 	return delta
 }
 
@@ -118,10 +130,10 @@ func calcUnnormalizedInitialBearing(startPoint, endPoint GeoPoint) float64 {
 	l1 := startPoint.Lon // lambda (λ)
 	p2 := endPoint.Lat
 	l2 := endPoint.Lon
-	dLambda := l2 - l1
+	dl := l2 - l1
 
-	y := math.Sin(dLambda) * math.Cos(p2)
-	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dLambda)
+	y := math.Sin(dl) * math.Cos(p2)
+	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dl)
 	theta := math.Atan2(y, x) // theta (θ)
 
 	return RadToDeg(theta)
@@ -145,9 +157,11 @@ func CalcFinalBearing(startPoint, endPoint GeoPoint) float64 {
 
 // calcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
 // and distance from start point of arc to third point (in degrees)
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
-	delta13 := CalcDistance(arc.P1.Lat, arc.P1.Lon, point.Lat, point.Lon) / GeoRadiusAvgM // δ
-	theta13 := CalcInitialBearing(arc.P1, point)                                          // θ
+	delta13 := calcHaversineDistance(arc.P1, point) / GeoRadiusAvgM // δ
+	theta13 := CalcInitialBearing(arc.P1, point)                    // θ
 	theta12 := CalcInitialBearing(arc.P1, arc.P2)
 	dXt := math.Asin(math.Sin(delta13)*math.Sin(theta13-theta12)) * GeoRadiusAvgM
 
@@ -155,12 +169,16 @@ func calcCrossTrackDistance(arc GeoArc, point GeoPoint) (float64, float64) {
 }
 
 // CalcCrossTrackDistance returns distance of a point from a great-circle path (arc) in meters
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func CalcCrossTrackDistance(arc GeoArc, point GeoPoint) float64 {
 	dXt, _ := calcCrossTrackDistance(arc, point)
 	return dXt
 }
 
 // CalcAlongTrackDistance returns distance from the start point to the closest point on the arc (in meters)
+//
+// http://www.movable-type.co.uk/scripts/latlong.html (section 'Cross-track distance')
 func CalcAlongTrackDistance(arc GeoArc, point GeoPoint) float64 {
 	dXt, delta13 := calcCrossTrackDistance(arc, point)
 	dAt := math.Acos(math.Cos(delta13)/math.Cos(dXt/GeoRadiusAvgM)) * GeoRadiusAvgM
@@ -180,6 +198,7 @@ func calcHaversineDistance(point1, point2 GeoPoint) float64 {
 	l2 := DegToRad(point2.Lon)
 	dp := p2 - p1
 	dl := l2 - l1
+
 	// Haversine formula
 	a := math.Pow(math.Sin(dp/2), 2) + math.Cos(p1)*math.Cos(p2)*math.Pow(math.Sin(dl/2), 2)
 	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
@@ -204,9 +223,9 @@ func CalcHaversineDistance(point1, point2 GeoPoint) float64 {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 // http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func insideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, float64) {
-	d := calcHaversineDistance(point, point)
-	return d <= radius, d
+func insideCircleDist(point GeoPoint, circle GeoCircle) (bool, float64) {
+	d := calcHaversineDistance(point, circle.C)
+	return d <= circle.R, d
 }
 
 // InsidePolygon return true when point[lon,lat] inside polygon
@@ -238,8 +257,8 @@ func InsidePolygon(point GeoPoint, polygon []GeoPoint) bool {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 //	http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func InsideCircle(point GeoPoint, center GeoPoint, radius float64) bool {
-	isInside, _ := insideCircleDist(point, center, radius)
+func InsideCircle(point GeoPoint, circle GeoCircle) bool {
+	isInside, _ := insideCircleDist(point, circle)
 	return isInside
 }
 
@@ -247,8 +266,8 @@ func InsideCircle(point GeoPoint, center GeoPoint, radius float64) bool {
 //
 // https://en.wikipedia.org/wiki/Great-circle_distance#Computational_formulas
 //	http://www.movable-type.co.uk/scripts/latlong.html (`Distance`)
-func InsideCircleDist(point GeoPoint, center GeoPoint, radius float64) (bool, float64) {
-	return insideCircleDist(point, center, radius)
+func InsideCircleDist(point GeoPoint, circle GeoCircle) (bool, float64) {
+	return insideCircleDist(point, circle)
 }
 
 // InsidePolyline Check inside polyline
@@ -275,7 +294,6 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 
 	if pnts[1].Lon == pnts[0].Lon { // Vertical line
 		exists = x >= (pnts[0].Lon-width) && x <= (pnts[0].Lon+width)
-
 		if exists {
 			if pnts[0].Lat > pnts[1].Lat {
 				exists = y >= (pnts[1].Lat-width) && y <= (pnts[0].Lat+width)
@@ -305,20 +323,20 @@ func InsidePolyline(point GeoPoint, pnts []GeoPoint, width float64) bool {
 }
 
 // CircleInsideCircle checks if one circle inside another
-func CircleInsideCircle(centerIn GeoPoint, radiusIn float64, centerOut GeoPoint, radiusOut float64) bool {
-	isInside, d := insideCircleDist(centerIn, centerOut, radiusOut)
+func CircleInsideCircle(circleIn, circleOut GeoCircle) bool {
+	isInside, d := insideCircleDist(circleIn.C, circleOut)
 	if !isInside {
 		return false
 	}
-	return d+radiusIn <= radiusOut
+	return d+circleIn.R <= circleOut.R
 }
 
 // CircleInsidePolygon checks if circle inside polygon
 //
 // https://qna.habr.com/answer?answer_id=1199288
 // https://stackoverflow.com/a/7827181
-func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bool {
-	if !InsidePolygon(center, polygon) {
+func CircleInsidePolygon(circle GeoCircle, polygon []GeoPoint) bool {
+	if !InsidePolygon(circle.C, polygon) {
 		return false
 	}
 
@@ -332,8 +350,8 @@ func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bo
 		}
 
 		arc := GeoArc{P1: polygon[i], P2: polygon[nextI]}
-		dAt := CalcAlongTrackDistance(arc, center)
-		if dAt < radius {
+		dAt := CalcAlongTrackDistance(arc, circle.C)
+		if dAt < circle.R {
 			return false
 		}
 	}
@@ -342,9 +360,9 @@ func CircleInsidePolygon(center GeoPoint, radius float64, polygon []GeoPoint) bo
 }
 
 // PolygonInsideCircle checks if polygon inside circle
-func PolygonInsideCircle(polygon []GeoPoint, center GeoPoint, radius float64) bool {
+func PolygonInsideCircle(polygon []GeoPoint, circle GeoCircle) bool {
 	for _, p := range polygon {
-		if !InsideCircle(p, center, radius) {
+		if !InsideCircle(p, circle) {
 			return false
 		}
 	}
@@ -359,4 +377,81 @@ func PolygonInsidePolygon(polygonIn []GeoPoint, polygonOut []GeoPoint) bool {
 		}
 	}
 	return true
+}
+
+// ---------------------------------------------------------------------------------
+// Comparison
+// ---------------------------------------------------------------------------------
+
+func IsGeoPointsEqual(point1, point2 GeoPoint) bool {
+	return Float64Eq(point1.Lat, point2.Lat) && Float64Eq(point1.Lon, point2.Lon)
+}
+
+// ---------------------------------------------------------------------------------
+// Strings parsing
+// ---------------------------------------------------------------------------------
+
+func ParseCircleString(circleStr string) (*GeoCircle, error) {
+	if circleStr == "" {
+		return nil, errors.New("circle string is empty")
+	}
+	params := []float64{}
+	err := json.Unmarshal([]byte(strings.Trim(circleStr, " ")), &params)
+	if err != nil {
+		return nil, err
+	}
+	if len(params) != 3 {
+		return nil, errors.New("wrong number of circle params (need center lat, lon & radius)")
+	}
+	circle := GeoCircle{
+		C: GeoPoint{Lat: params[0], Lon: params[1]},
+		R: params[2],
+	}
+
+	return &circle, nil
+}
+
+func ParsePolygonString(polygonStr string) ([]GeoPoint, error) {
+	if polygonStr == "" {
+		return nil, errors.New("polygon string is empty")
+	}
+	pointsArr := [][]float64{}
+	err := json.Unmarshal([]byte(strings.Trim(polygonStr, " ")), &pointsArr)
+	if err != nil {
+		return nil, err
+	}
+	pLen := len(pointsArr)
+	if pLen < 2 {
+		msg := fmt.Sprintf("wrong number of points: %d (at least 2 points are required)", pLen)
+		return nil, errors.New(msg)
+	}
+
+	points := make([]GeoPoint, pLen) // parsed points of polygon
+	for i := 0; i < pLen; i++ {
+		p := pointsArr[i]
+		if len(p) != 2 {
+			msg := fmt.Sprintf("wrong number of point params: %d (lat, lon required)", len(p))
+			return nil, errors.New(msg)
+		}
+		points[i] = GeoPoint{Lat: p[0], Lon: p[1]}
+	}
+
+	// upper left & bottom right corners of rectangle
+	if pLen == 2 {
+		polygon := []GeoPoint{
+			{points[0].Lat, points[0].Lon},
+			{points[1].Lat, points[0].Lon},
+			{points[1].Lat, points[1].Lon},
+			{points[0].Lat, points[1].Lon},
+			{points[0].Lat, points[0].Lon},
+		}
+		return polygon, nil // closed rectangle
+	}
+
+	// arbitrary polygon
+	if !IsGeoPointsEqual(points[0], points[pLen-1]) { // polygon is not closed (it is line)
+		return append(points, GeoPoint{Lat: points[0].Lat, Lon: points[0].Lon}), nil
+	}
+
+	return points, nil // polygon is closed
 }

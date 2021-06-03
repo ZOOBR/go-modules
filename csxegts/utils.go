@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-const uint16Max = 65_535
-
 // ---------------------------------------------------------------------------------
 // Counter
 // ---------------------------------------------------------------------------------
@@ -26,7 +24,7 @@ func NewCounter() *Counter {
 //
 // Based on getNextPid() & getNextRN() from github.com/kuznetsovin/egts-protocol
 func (counter *Counter) Next() uint16 {
-	if counter.accumulator < uint16Max {
+	if counter.accumulator < math.MaxUint16 {
 		atomic.AddInt32(&counter.accumulator, 1)
 	} else {
 		counter.accumulator = 0
