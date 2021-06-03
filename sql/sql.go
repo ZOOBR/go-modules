@@ -957,6 +957,9 @@ func (queryObj *Query) InsertStructValues(query string, structVal interface{}, o
 		case time.Time:
 			resultMap[tag] = val.Format(time.RFC3339Nano)
 			diffPub[tag] = resultMap[tag]
+		case pq.StringArray:
+			diffPub[tag] = val
+			resultMap[tag] = "{" + strings.Join(val, ",") + "}"
 		default:
 			valJSON, _ := json.Marshal(val)
 			resultMap[tag] = string(valJSON)
