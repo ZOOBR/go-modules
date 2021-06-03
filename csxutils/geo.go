@@ -127,10 +127,10 @@ func calcUnnormalizedInitialBearing(startPoint, endPoint GeoPoint) float64 {
 	l1 := startPoint.Lon // lambda (λ)
 	p2 := endPoint.Lat
 	l2 := endPoint.Lon
-	dLambda := l2 - l1
+	dl := l2 - l1
 
-	y := math.Sin(dLambda) * math.Cos(p2)
-	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dLambda)
+	y := math.Sin(dl) * math.Cos(p2)
+	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dl)
 	theta := math.Atan2(y, x) // theta (θ)
 
 	return RadToDeg(theta)
