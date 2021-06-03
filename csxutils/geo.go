@@ -375,3 +375,11 @@ func PolygonInsidePolygon(polygonIn []GeoPoint, polygonOut []GeoPoint) bool {
 	}
 	return true
 }
+
+// ---------------------------------------------------------------------------------
+// Comparison
+// ---------------------------------------------------------------------------------
+
+func IsGeoPointsEqual(point1, point2 GeoPoint) bool {
+	return Float64Eq(point1.Lat, point2.Lat) && Float64Eq(point1.Lon, point2.Lon)
+}
