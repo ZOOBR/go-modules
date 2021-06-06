@@ -785,7 +785,7 @@ func (table *SchemaTable) prepare() error {
 
 		table.registerMetadata()
 	}
-	if err == nil && table.onUpdate != nil {
+	if err == nil && table.onUpdate != nil && !disableOnUpdate {
 		registerSchemaSetUpdateCallback(table.Name, table.onUpdate, true)
 	}
 	return err
@@ -803,9 +803,7 @@ func (table *SchemaTable) FindField(name string) (int, *SchemaField) {
 
 // OnUpdate init and set callback on table external update event
 func (table *SchemaTable) OnUpdate(cb schemaTableUpdateCallback) {
-	if !disableOnUpdate {
-		go registerSchemaSetUpdateCallback(table.Name, cb, false)
-	}
+	go registerSchemaSetUpdateCallback(table.Name, cb, false)
 }
 
 // QueryParams execute  sql query with params
