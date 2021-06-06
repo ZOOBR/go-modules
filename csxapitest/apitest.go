@@ -94,7 +94,19 @@ type AppEmulatorState struct {
 // AppEmulatorScenario struct contains emulator states
 type AppEmulatorScenario struct {
 	ID     string
-	States []*AppEmulatorState `json:"states"`
+	States []*AppEmulatorState ` json:"states"`
+}
+
+func (appEmulatorScenario *AppEmulatorScenario) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		return errors.New("unable scan appEmulatorScenario")
+	}
+	err := json.Unmarshal(val, &appEmulatorScenario)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // AppEmulatorStatus is struct for status of app emulator
@@ -401,10 +413,12 @@ func runScenaries(startScenario string) {
 	scenarioInt, ok := scenaries.Load(startScenario)
 	if !ok {
 		logrus.Error("test [NOT RUNNING] start scenario: ", startScenario, " not found in map")
+		return
 	}
 	scenario, ok := scenarioInt.(*AppEmulatorScenario)
 	if !ok {
 		logrus.Error("test [NOT RUNNING] start scenario ", startScenario, " interface conversion err, not *AppEmulatorScenario")
+		return
 	}
 	clients.Range(func(_, clientInt interface{}) bool {
 		clientsPassed++
