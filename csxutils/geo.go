@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	GeoRadiusMax  = 6378.137
-	GeoRadiusMin  = 6356.752
-	GeoRadiusAvgM = 6371e3 // in meters
+	GeoRadiusMax  = 6378.137  // equatorial radius of the Earth (km)
+	GeoRadiusMin  = 6356.752  // polar radius of the Earth (km)
+	GeoRadiusAvgM = 6378137.0 // equatorial radius of the Earth (m)
 )
+
+var degree float64 = 2 * math.Pi / 360
 
 // GeoPoint structure WGS-64 coordinates point
 type GeoPoint struct {
@@ -357,6 +359,89 @@ func CircleInsidePolygon(circle GeoCircle, polygon []GeoPoint) bool {
 	}
 
 	return true
+}
+
+func GetPolygonVectors(polygon []GeoPoint) (res []GeoArc) {
+
+	count := len(polygon) - 1
+
+	for i := 1; i <= count; i++ {
+		geoArc := GeoArc{
+			P1: GeoPoint{
+				Lat: polygon[i-1].Lat,
+				Lon: polygon[i-1].Lon,
+			},
+			P2: GeoPoint{
+				Lat: polygon[i].Lat,
+				Lon: polygon[i].Lon,
+			},
+		}
+		res = append(res, geoArc)
+	}
+
+	return res
+}
+
+// https://gis.stackexchange.com/questions/36841/line-intersection-with-circle-on-a-sphere-globe-or-earth
+func ArcIntersectCircle(c GeoPoint, r float64, arc GeoArc) bool {
+
+	type vector struct {
+		x, y float64
+	}
+
+	radius := r * 1000
+
+	arcBegin := vector{x: arc.P1.Lon * degree, y: arc.P1.Lat * degree}
+	arcEnd := vector{x: arc.P2.Lon * degree, y: arc.P2.Lat * degree}
+	center := vector{x: c.Lon * degree, y: c.Lat * degree}
+
+	// Projection
+	arcBegin.x = arcBegin.x * GeoRadiusAvgM
+	arcBegin.y = arcBegin.y * math.Cos(center.x) * GeoRadiusAvgM
+	arcEnd.x = arcEnd.x * GeoRadiusAvgM
+	arcEnd.y = arcEnd.y * math.Cos(center.x) * GeoRadiusAvgM
+
+	center.y = center.y * math.Cos(center.x) * GeoRadiusAvgM
+	center.x = center.x * GeoRadiusAvgM
+
+	// Compute coefficients of the quadratic equation
+	v := vector{x: arcBegin.x - center.x, y: arcBegin.y - center.y}
+	u := vector{x: arcEnd.x - arcBegin.x, y: arcEnd.y - arcBegin.y}
+
+	alpha := (v.x*v.x + v.y*v.y)
+	beta := (u.x*v.x + u.y*v.y)
+	gamma := (v.x*v.x + v.y*v.y) - radius*radius
+
+	t := func(x, y, alpha float64) (res []float64) {
+		res = append(res, (x+y)/alpha)
+		res = append(res, (x-y)/alpha)
+		return
+	}
+
+	res := t(-beta, math.Sqrt(beta*beta-alpha*gamma), alpha)
+	// restrict the solution to the limit from 0 to 1
+	var isIntersect bool
+	for _, i := range res {
+		if i >= 0 && i <= 1 {
+			isIntersect = true
+			break
+		}
+	}
+
+	return isIntersect
+}
+
+func CircleIntersectPolygon(center GeoPoint, radius float64, polygon []GeoPoint) (res bool) {
+
+	vectors := GetPolygonVectors(polygon)
+
+	for _, v := range vectors {
+		ok := ArcIntersectCircle(center, radius, v)
+		if ok {
+			return true
+		}
+	}
+	return false
 }
 
 // PolygonInsideCircle checks if polygon inside circle
