@@ -361,7 +361,7 @@ func (manager *AccessManager) GetMandatBySubject(subject string, roles map[strin
 	}
 	mandats, ok := mandatsInt.(*sync.Map)
 	if !ok {
-		return nil, true
+		return nil, false
 	}
 	roleMandats := []*Mandat{}
 	mandat := &Mandat{}
@@ -376,18 +376,20 @@ func (manager *AccessManager) GetMandatBySubject(subject string, roles map[strin
 	sort.SliceStable(roleMandats, func(i, j int) bool {
 		return roleMandats[i].Priority < roleMandats[j].Priority
 	})
+	isFound := false
 	for i := 0; i < len(roleMandats); i++ {
 		currentMandat := roleMandats[i]
 		if !currentMandat.CheckRole(roles) {
 			continue
 		}
+		isFound = true
 		if mandat.ID == "" {
 			mandat = currentMandat
 		} else if mandat.ID != currentMandat.ID {
 			mandat.Assign(currentMandat)
 		}
 	}
-	return mandat, true
+	return mandat, isFound
 }
 
 // GetRolesRights returns map of role interfaces from string
