@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/buger/jsonparser"
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/sirupsen/logrus"
@@ -60,6 +61,7 @@ type SchemaTableMetadata struct {
 type SchemaField struct {
 	Name       string
 	Type       string
+	JSONType   string
 	IndexType  string
 	Length     int
 	IsNull     bool
@@ -344,6 +346,7 @@ func NewSchemaTable(name string, info interface{}, options map[string]interface{
 			field := new(SchemaField)
 			field.Name = name
 			field.Type = f.Tag.Get("type")
+			field.JSONType = f.Tag.Get("jsontype")
 			field.IndexType = f.Tag.Get("index")
 			if len(field.Type) == 0 {
 				field.Type = f.Type.Name()
@@ -1073,7 +1076,7 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 	return args, values, fields, itemID, diff, diffPub
 }
 
-func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
+func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}, errKey string) {
 	diff = make(map[string]interface{})
 	diffPub = make(map[string]interface{})
 	args = []interface{}{}
@@ -1126,8 +1129,16 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 			} else if f.Type == "jsonb" {
 				valJSON, err := json.Marshal(val)
 				if err != nil {
-					logrus.Error("invalid jsonb value: ", val, " of field: ", name)
+					logrus.Error("invalid jsonb value: ", val, " of field: ", name, " err: ", err)
+					return args, values, fields, itemID, diff, diffPub, "InvalidJSON"
 				}
+				_, dataType, _, _ := jsonparser.Get(valJSON)
+				err = checkJSONType(f.JSONType, dataType)
+				if err != nil {
+					logrus.Error("check json type fail: ", err.Error())
+					return nil, "", "", "", nil, nil, "InvalidJSON"
+				}
+
 				val = valJSON
 				values += argNum
 			} else {
@@ -1140,7 +1151,26 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 		cntField++
 	}
 	excludeFields(diff, diffPub, options...)
-	return args, values, fields, itemID, diff, diffPub
+	return args, values, fields, itemID, diff, diffPub, ""
+}
+
+func checkJSONType(fieldType string, dataType jsonparser.ValueType) error {
+	if (fieldType == "" || fieldType == "object") && dataType != jsonparser.Object { // object by default
+		return errors.New("value of json field is not compatible with object type (JSON)")
+	}
+	if fieldType == "array" && dataType != jsonparser.Array {
+		return errors.New("value of json field is not compatible with object type (JSON)")
+	}
+	if fieldType == "string" && dataType != jsonparser.String {
+		return errors.New("value of json field is not compatible with string type (JSON)")
+	}
+	if fieldType == "number" && dataType != jsonparser.Number {
+		return errors.New("value of json field is not compatible with number type (JSON)")
+	}
+	if fieldType == "bool" && dataType != jsonparser.Boolean {
+		return errors.New("value of json field is not compatible with bool type (JSON)")
+	}
+	return nil
 }
 
 func excludeFields(diff map[string]interface{}, diffPub map[string]interface{}, options ...map[string]interface{}) {
@@ -1238,6 +1268,7 @@ func (table *SchemaTable) CheckInsert(data interface{}, where *string, options .
 
 // checkInsert execute insert sql string if not exist where expression
 func (table *SchemaTable) checkInsert(data interface{}, where *string, query *dbc.Query, options ...map[string]interface{}) (sql.Result, error) {
+	var errKey string
 	if query == nil {
 		query = table.NewQuery()
 	}
@@ -1260,7 +1291,10 @@ func (table *SchemaTable) checkInsert(data interface{}, where *string, query *db
 		if !ok {
 			return nil, errors.New("element must be a map[string]interface")
 		}
-		args, values, fields, itemID, diff, diffPub = table.prepareArgsMap(dataMap, nil, idField)
+		args, values, fields, itemID, diff, diffPub, errKey = table.prepareArgsMap(dataMap, nil, idField)
+		if errKey != "" {
+			return nil, errors.New(errKey)
+		}
 	} else if recType.Kind() == reflect.Struct {
 		args, values, fields, itemID, diff, diffPub = table.prepareArgsStruct(rec, nil, idField)
 	} else {
@@ -1321,6 +1355,7 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 
 // updateMultiple execute update sql string
 func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string, query *dbc.Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
+	var errKey string
 	if query == nil {
 		query = table.NewQuery()
 	}
@@ -1342,7 +1377,10 @@ func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string
 		if !ok {
 			return nil, nil, nil, errors.New("oldData must be a map[string]interface")
 		}
-		args, values, fields, _, diff, diffPub = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
+		args, values, fields, _, diff, diffPub, errKey = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
+		if errKey != "" {
+			return nil, nil, nil, errors.New(errKey)
+		}
 	} else if recType.Kind() == reflect.Struct {
 		oldRec := reflect.ValueOf(oldData)
 		oldRecType := oldRec.Type()
@@ -1354,7 +1392,10 @@ func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string
 		//if oldData is map and rec is struct - convert rec to map
 		if oldRecType.Kind() == reflect.Map {
 			str := dbc.GetMapFromStruct(data, map[string]interface{}{"mapToJson": false})
-			args, values, fields, _, diff, diffPub = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
+			args, values, fields, _, diff, diffPub, errKey = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
+			if errKey != "" {
+				return nil, nil, nil, errors.New(errKey)
+			}
 		} else {
 			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
 		}
