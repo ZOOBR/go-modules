@@ -163,7 +163,9 @@ func (store *DataStore) Store(id string, data interface{}) {
 			oldValues = store.readIndexies(itemPtr)
 		}
 	}
-	store.items.Store(id, data)
+	if itemPtr != data {
+		store.items.Store(id, data)
+	}
 	if cntIndexes > 0 {
 		store.updateIndexies(data, oldValues)
 	}
