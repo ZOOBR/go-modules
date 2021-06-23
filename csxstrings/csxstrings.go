@@ -14,7 +14,7 @@ import (
 var (
 	matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
 	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
-	matchName     = regexp.MustCompile("[^a-zA-Z0-9 ]+")
+	matchName     = regexp.MustCompile("[^\\p{L}\\d ]+")
 )
 
 func RandomString(n int, onlyDigits bool) string {
