@@ -14,6 +14,7 @@ import (
 var (
 	matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
 	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
+	matchName     = regexp.MustCompile("[^\\p{L}\\d ]+")
 )
 
 func RandomString(n int, onlyDigits bool) string {
@@ -66,6 +67,12 @@ func GetIdsStr(ids string) string {
 		idsArray[key] = "'" + idsArray[key] + "'"
 	}
 	return strings.Join(idsArray, ",")
+}
+
+func GetValidName(value string) string {
+	trimmed := strings.TrimSpace(value)
+
+	return matchName.ReplaceAllString(trimmed, "")
 }
 
 // GetStructFields extract all json fields from structure
