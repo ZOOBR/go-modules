@@ -657,7 +657,7 @@ func (table *SchemaTable) createIndex(field *SchemaField) error {
 			indexType = "btree"
 		}
 	}
-	sql := `CREATE INDEX "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
+	sql := `CREATE INDEX CONCURRENTLY "` + table.Name + "_" + field.Name + `_idx" ON "` + table.Name + `" USING ` + indexType + ` ("` + field.Name + `")`
 	_, err := table.DB.Exec(sql)
 	schemaLogSQL(sql, err)
 	return err
