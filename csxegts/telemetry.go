@@ -27,7 +27,7 @@ func newStateData(pos *csxtelemetry.FlatPosition) *egts.SrStateData {
 	return &data
 }
 
-func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
+func newPosData(pos *csxtelemetry.FlatPosition, rented bool) *egts.SrPosData {
 	data := egts.SrPosData{
 		NavigationTime: time.Unix(int64(pos.Time/1000), 0),
 		Latitude:       pos.P[1101],
@@ -41,7 +41,9 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 		Source:         SrcTimerEnabledIgnition,
 	}
 	data.DirectionHighestBit = data.Direction & 128
-
+	if rented {
+		data.DigitalInputs |= 128
+	}
 	if data.Latitude > 0 {
 		data.LAHS = "0" // northern latitude
 	} else {
@@ -76,9 +78,9 @@ func newPosData(pos *csxtelemetry.FlatPosition) *egts.SrPosData {
 	return &data
 }
 
-func CreateTelemetryPacket(objectIdentifier uint32, pos *csxtelemetry.FlatPosition) (*Packet, uint16) {
+func CreateTelemetryPacket(objectIdentifier uint32, pos *csxtelemetry.FlatPosition, rented bool) (*Packet, uint16) {
 	recordData := []subrecordData{
-		{SubrecordType: egts.SrPosDataType, SubrecordData: newPosData(pos)},
+		{SubrecordType: egts.SrPosDataType, SubrecordData: newPosData(pos, rented)},
 		{SubrecordType: egts.SrStateDataType, SubrecordData: newStateData(pos)},
 	}
 	telemetryFrameData, recNum := newServiceFrameData(&objectIdentifier, RpPriorityNormal, egts.TeledataService, recordData)
