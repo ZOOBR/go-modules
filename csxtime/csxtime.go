@@ -24,6 +24,15 @@ func MonthBegin(timeCheck time.Time) time.Time {
 	return firstDay
 }
 
+// DayBeginWithTimezoneOffset return time begin of day with time zone offset
+func DayBeginWithTimezoneOffset(timeCheck time.Time, offset int) time.Time {
+	timeOffset := time.Duration(offset) * time.Second * 60 * 60
+	dayBegin := timeCheck.Add(timeOffset)
+	dayBegin = DayBegin(dayBegin)
+	dayBegin = dayBegin.Add(-timeOffset)
+	return dayBegin
+}
+
 // DayBegin return time begin of day
 func DayBegin(timeCheck time.Time) time.Time {
 	year, month, day := timeCheck.Date()
