@@ -9,13 +9,18 @@ import (
 	"github.com/tealeg/xlsx"
 )
 
-func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer) error {
+func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer, args ...[]string) error {
 	var err error
 
 	// Get column names from query result
 	colNames, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("error fetching column names, %s\n", err)
+	}
+
+	// CRUTCH:: Temporary solution, need rework
+	if len(args) > 0 {
+		colNames = args[0]
 	}
 
 	// Create output xlsx workbook
