@@ -18,7 +18,7 @@ func GenerateXLSXFromRows(rows *sqlx.Rows, buf *bytes.Buffer, args ...[]string) 
 		return fmt.Errorf("error fetching column names, %s\n", err)
 	}
 
-	// temporary crutch
+	// CRUTCH:: Temporary solution, need rework
 	if len(args) > 0 {
 		colNames = args[0]
 	}
