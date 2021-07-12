@@ -1007,7 +1007,7 @@ func (table *SchemaTable) upsert(id string, data interface{}, query *dbc.Query, 
 	return err
 }
 
-func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}) {
+func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}, errKey string) {
 	diff = make(map[string]interface{})
 	diffPub = make(map[string]interface{})
 	args = []interface{}{}
@@ -1053,6 +1053,22 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 		if newFld.IsValid() {
 			if fType == "geometry" {
 				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
+			} else if fType == "jsonb" {
+				valJSON, err := json.Marshal(fldInt)
+				if err != nil {
+					logrus.Error("invalid jsonb value: ", fldInt, " of field: ", name, " err: ", err)
+					return args, values, fields, itemID, diff, diffPub, "InvalidJSON"
+				}
+				fJSONType := f.Tag.Get("jsontype")
+				_, dataType, _, _ := jsonparser.Get(valJSON)
+				err = checkJSONType(fJSONType, dataType)
+				if err != nil {
+					logrus.Error("check json type fail: ", err.Error())
+					return args, values, fields, itemID, diff, diffPub, "InvalidJSON"
+				}
+
+				fldInt = valJSON
+				values += "$" + strconv.Itoa(cnt)
 			} else {
 				values += "$" + strconv.Itoa(cnt)
 			}
@@ -1073,7 +1089,7 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 		}
 	}
 	excludeFields(diff, diffPub, options...)
-	return args, values, fields, itemID, diff, diffPub
+	return args, values, fields, itemID, diff, diffPub, ""
 }
 
 func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, idField string, options ...map[string]interface{}) (args []interface{}, values, fields, itemID string, diff, diffPub map[string]interface{}, errKey string) {
@@ -1296,7 +1312,10 @@ func (table *SchemaTable) checkInsert(data interface{}, where *string, query *db
 			return nil, errors.New(errKey)
 		}
 	} else if recType.Kind() == reflect.Struct {
-		args, values, fields, itemID, diff, diffPub = table.prepareArgsStruct(rec, nil, idField)
+		args, values, fields, itemID, diff, diffPub, errKey = table.prepareArgsStruct(rec, nil, idField)
+		if errKey != "" {
+			return nil, errors.New(errKey)
+		}
 	} else {
 		return nil, errors.New("element must be struct or map[string]interface")
 	}
@@ -1393,11 +1412,11 @@ func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string
 		if oldRecType.Kind() == reflect.Map {
 			str := dbc.GetMapFromStruct(data, map[string]interface{}{"mapToJson": false})
 			args, values, fields, _, diff, diffPub, errKey = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
-			if errKey != "" {
-				return nil, nil, nil, errors.New(errKey)
-			}
 		} else {
-			args, values, fields, _, diff, diffPub = table.prepareArgsStruct(rec, oldData, "", options...)
+			args, values, fields, _, diff, diffPub, errKey = table.prepareArgsStruct(rec, oldData, "", options...)
+		}
+		if errKey != "" {
+			return nil, nil, nil, errors.New(errKey)
 		}
 	} else {
 		return nil, nil, nil, errors.New("element must be struct or map[string]interface")
