@@ -1062,7 +1062,7 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 				fJSONType := f.Tag.Get("jsontype")
 				_, dataType, _, _ := jsonparser.Get(valJSON)
 				err = checkJSONType(fJSONType, dataType)
-				if err != nil {
+				if err != nil && fJSONType != "" {
 					logrus.Error("check json type fail: ", err.Error())
 					return args, values, fields, itemID, diff, diffPub, "InvalidJSON"
 				}
