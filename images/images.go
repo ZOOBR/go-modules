@@ -42,10 +42,12 @@ var (
 		"csx-docs-tn-051019": "fr-par",
 	}
 	S3_CLIENT_DOCS = map[string]string{
-		"csx-docs041019": "fr-par",
-		"csx-docs":       "nl-ams",
+		"csx-docs-200717": "pl-waw",
+		"csx-docs041019":  "fr-par",
+		"csx-docs":        "nl-ams",
 	}
 	S3_OBJECT_DAMAGES = map[string]string{
+		"csx-photo-damages-200717": "pl-waw",
 		"csx-photo-damages-051019": "fr-par",
 		"csx-photo-damages":        "fr-par",
 	}
