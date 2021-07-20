@@ -193,12 +193,13 @@ type BinaryPosition struct {
 
 // ZoneInfo zone information
 type ZoneInfo struct {
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`
-	Path     string   `json:"path"`
-	Type     string   `json:"tid"`
-	Additive *float64 `json:"additive,omitempty"`
-	Distance *float64 `json:"distance,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Path       string   `json:"path"`
+	Type       string   `json:"tid"`
+	Additive   *float64 `json:"additive,omitempty"`
+	Distance   *float64 `json:"distance,omitempty"`
+	SpeedLimit int      `json:"speedLimit"`
 }
 
 // FlatPosition compact position format
