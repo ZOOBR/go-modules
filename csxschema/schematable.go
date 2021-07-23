@@ -1053,7 +1053,7 @@ func (table *SchemaTable) prepareArgsStruct(rec reflect.Value, oldData interface
 		if newFld.IsValid() {
 			if fType == "geometry" {
 				values += "ST_GeomFromGeoJSON($" + strconv.Itoa(cnt) + ")"
-			} else if fType == "jsonb" {
+			} else if fType == "jsonb" && fldInt.(*dbc.JsonB) != nil {
 				valJSON, err := json.Marshal(fldInt)
 				if err != nil {
 					logrus.Error("invalid jsonb value: ", fldInt, " of field: ", name, " err: ", err)
