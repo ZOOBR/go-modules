@@ -55,6 +55,42 @@ func Unpstr(ref *string) string {
 	return ""
 }
 
+// CopyPtrStr return copy string pointer
+func CopyPtrStr(ref *string) *string {
+	var copyStr string
+	if ref != nil {
+		copyStr = *ref
+	}
+	return &copyStr
+}
+
+// CopyPtrFloat64 return copy float64 pointer
+func CopyPtrFloat64(ref *float64) *float64 {
+	var copyFloat64 float64
+	if ref != nil {
+		copyFloat64 = *ref
+	}
+	return &copyFloat64
+}
+
+// CopyPtrInt return copy int pointer
+func CopyPtrInt(ref *int) *int {
+	var copyInt int
+	if ref != nil {
+		copyInt = *ref
+	}
+	return &copyInt
+}
+
+// CopyPtrTime return copy time pointer
+func CopyPtrTime(ref *time.Time) *time.Time {
+	var copyTime time.Time
+	if ref != nil {
+		copyTime = *ref
+	}
+	return &copyTime
+}
+
 // Copy creates a deep copy of whatever is passed to it and returns the copy
 // in an interface{}.  The returned value will need to be asserted to the
 // correct type.

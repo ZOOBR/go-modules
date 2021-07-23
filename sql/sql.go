@@ -209,6 +209,15 @@ func (queryObj *Query) In(query string, args ...interface{}) (string, []interfac
 // JsonB struct for work with jsonb database fields
 type JsonB map[string]interface{}
 
+// Copy interface for read jsonb content
+func (js *JsonB) Copy() *JsonB {
+	var newJsonB JsonB
+	for k, v := range *js {
+		newJsonB[k] = v
+	}
+	return &newJsonB
+}
+
 // Scan interface for read jsonb content
 func (js *JsonB) Scan(src interface{}) error {
 	val, ok := src.([]byte)
