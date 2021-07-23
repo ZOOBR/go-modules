@@ -211,7 +211,7 @@ type JsonB map[string]interface{}
 
 // Copy interface for read jsonb content
 func (js *JsonB) Copy() *JsonB {
-	var newJsonB JsonB
+	newJsonB := JsonB{}
 	for k, v := range *js {
 		newJsonB[k] = v
 	}
