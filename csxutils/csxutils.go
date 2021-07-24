@@ -60,8 +60,9 @@ func CopyPtrStr(ref *string) *string {
 	var copyStr string
 	if ref != nil {
 		copyStr = *ref
+		return &copyStr
 	}
-	return &copyStr
+	return nil
 }
 
 // CopyPtrFloat64 return copy float64 pointer
@@ -69,8 +70,9 @@ func CopyPtrFloat64(ref *float64) *float64 {
 	var copyFloat64 float64
 	if ref != nil {
 		copyFloat64 = *ref
+		return &copyFloat64
 	}
-	return &copyFloat64
+	return nil
 }
 
 // CopyPtrInt return copy int pointer
@@ -78,8 +80,9 @@ func CopyPtrInt(ref *int) *int {
 	var copyInt int
 	if ref != nil {
 		copyInt = *ref
+		return &copyInt
 	}
-	return &copyInt
+	return nil
 }
 
 // CopyPtrTime return copy time pointer
@@ -87,8 +90,9 @@ func CopyPtrTime(ref *time.Time) *time.Time {
 	var copyTime time.Time
 	if ref != nil {
 		copyTime = *ref
+		return &copyTime
 	}
-	return &copyTime
+	return nil
 }
 
 // Copy creates a deep copy of whatever is passed to it and returns the copy
