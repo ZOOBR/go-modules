@@ -21,9 +21,10 @@ const null = byte(0x00)
 // Temporal and quantitative
 // ---------------------------------------------------------------------------------
 
+// TODO:: this is temporary (hotfix). Return values to default, add env vars with custom values to rnis later
 // Time to wait for a packet to be acknowledged (in seconds)
 // TL_RESPONSE_TO in specification
-const TlResponseTo = byte(5)
+const TlResponseTo = byte(1) // byte(5)
 
 // The number of retries to send an unacknowledged packet
 // TL_RESEND_ATTEMPTS in specification
@@ -31,7 +32,7 @@ const TlResendAttempts = byte(3)
 
 // The time after which a repeated attempt will be made to establish a communication channel after it is broken (in seconds)
 // TL_RECONNECT_TO in specification
-const TlReconnectTo = byte(30)
+const TlReconnectTo = byte(3) // byte(30)
 
 // ---------------------------------------------------------------------------------
 // Packet Priority
