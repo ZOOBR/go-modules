@@ -97,6 +97,32 @@ func (data *GeoData) Scan(src interface{}) error {
 	return nil
 }
 
+// Scan GeoPoint
+func (data *GeoPoint) Scan(src interface{}) error {
+	val, ok := src.([]byte)
+	if !ok {
+		return nil
+	}
+	var m GeoJSON
+	err := json.Unmarshal(val, &m)
+	if err != nil {
+		logrus.Error("Error unmarshal GeoJSON ", err)
+		return nil
+	}
+
+	if m.Type == "Point" {
+		val := m.Coordinates.([]interface{})
+		data.Lon = val[0].(float64)
+		data.Lat = val[1].(float64)
+
+		return nil // OK
+	}
+
+	logrus.Error("Scan GeoJSON, instead of the expected point, got a ", m.Type)
+
+	return nil
+}
+
 // ---------------------------------------------------------------------------------
 // Calculating
 // ---------------------------------------------------------------------------------
