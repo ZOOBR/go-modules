@@ -2,6 +2,28 @@ package csxtime
 
 import "time"
 
+// YearBegin return begin date of the year
+func YearBegin(timeCheck time.Time) time.Time {
+	year, _, _ := timeCheck.Date()
+	firstDay := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
+	return firstDay
+}
+
+// YearBegin return end date of the year
+func YearEnd(timeCheck time.Time) time.Time {
+	year, _, _ := timeCheck.Date()
+	year++
+	lastDay := time.Date(year, 1, 1, 0, 0, 0, -1, time.UTC)
+	return lastDay
+}
+
+//YearInterval return begin and end dates of the year
+func YearInterval(timeCheck time.Time) (time.Time, time.Time) {
+	firstDay := YearBegin(timeCheck)
+	lastDay := YearEnd(timeCheck)
+	return firstDay, lastDay
+}
+
 // MonthInterval return begin and end time of month by setted time
 func MonthInterval(timeCheck time.Time) (firstDay, lastDay time.Time) {
 	year, month, _ := timeCheck.Date()
