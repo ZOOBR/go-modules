@@ -1,6 +1,9 @@
 package csxdata
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+	"gitlab.com/battler/modules/csxhttp"
+)
 
 //DataImport
 type DataImport struct {
@@ -10,13 +13,13 @@ type DataImport struct {
 
 //ModelActionRunner
 type ModelActionsRunner interface {
-	ActionInsert(*Context)
-	ActionDelete(*Context)
-	ActionUpdate(*Context)
+	ActionInsert(*csxhttp.Context)
+	ActionDelete(*csxhttp.Context)
+	ActionUpdate(*csxhttp.Context)
 }
 
 // ApplyActions
-func ApplyActions(data []DataImport, ctx *Context) {
+func ApplyActions(data []DataImport, ctx *csxhttp.Context) {
 	for _, item := range data {
 		switch item.Action {
 		case "insert":
