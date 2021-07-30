@@ -1,4 +1,4 @@
-package csxhttp
+package csxdata
 
 import "github.com/sirupsen/logrus"
 
@@ -15,8 +15,8 @@ type ModelActionsRunner interface {
 	ActionUpdate(*Context)
 }
 
-// RunModelActions
-func RunModelActions(data []DataImport, ctx *Context) {
+// ApplyActions
+func ApplyActions(data []DataImport, ctx *Context) {
 	for _, item := range data {
 		switch item.Action {
 		case "insert":
