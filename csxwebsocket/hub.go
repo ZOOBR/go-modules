@@ -1,12 +1,10 @@
 package csxwebsocket
 
 import (
-	"sync"
-
 	"github.com/sirupsen/logrus"
 )
 
-var clientsMutex sync.RWMutex
+// var clientsMutex sync.RWMutex
 
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
@@ -29,24 +27,24 @@ type Hub struct {
 
 // registerClient register new client
 func (h *Hub) registerClient(client *Client) {
-	clientsMutex.Lock()
+	// clientsMutex.Lock()
 	h.clients[client.ID] = client
-	clientsMutex.Unlock()
+	// clientsMutex.Unlock()
 	logrus.Debug("register websocket client: ", client.ID)
 }
 
 // unregisterClient unregister client and force close connection
 func (h *Hub) unregisterClient(client *Client, useLock bool) {
-	if useLock {
-		clientsMutex.Lock()
-	}
+	// if useLock {
+	// 	clientsMutex.Lock()
+	// }
 	if _, ok := h.clients[client.ID]; ok {
 		delete(h.clients, client.ID)
 		close(client.send)
 	}
-	if useLock {
-		clientsMutex.Unlock()
-	}
+	// if useLock {
+	// 	clientsMutex.Unlock()
+	// }
 	logrus.Debug("unregister websocket client: ", client.ID)
 }
 
@@ -63,24 +61,24 @@ func NewHub() *Hub {
 
 // GetClientByID get client by ID
 func (h *Hub) GetClientByID(clientID string) (*Client, bool) {
-	clientsMutex.RLock()
+	// clientsMutex.RLock()
 	client, ok := h.clients[clientID]
-	clientsMutex.RUnlock()
+	// clientsMutex.RUnlock()
 	return client, ok
 }
 
 // RangeClients iterate all clients in hub and run callback
 func (h *Hub) RangeClients(cb func(client *Client)) {
-	clientsMutex.Lock()
+	// clientsMutex.Lock()
 	for _, client := range h.clients {
 		cb(client)
 	}
-	clientsMutex.Unlock()
+	// clientsMutex.Unlock()
 }
 
 // SendBroadcast send broadcast with prepare message callback
 func (h *Hub) SendBroadcast(cb func(*Client) (*Message, bool)) {
-	clientsMutex.Lock()
+	// clientsMutex.Lock()
 	for _, client := range h.clients {
 		message, ok := cb(client)
 		if !ok {
@@ -92,7 +90,7 @@ func (h *Hub) SendBroadcast(cb func(*Client) (*Message, bool)) {
 			h.unregisterClient(client, false)
 		}
 	}
-	clientsMutex.Unlock()
+	// clientsMutex.Unlock()
 }
 
 // Run prepare hub channels
@@ -117,7 +115,7 @@ func (h *Hub) Run() {
 				}
 			}
 		case message := <-h.Broadcast:
-			clientsMutex.Lock()
+			// clientsMutex.Lock()
 			for _, client := range h.clients {
 				select {
 				case client.send <- message:
@@ -125,7 +123,7 @@ func (h *Hub) Run() {
 					h.unregisterClient(client, false)
 				}
 			}
-			clientsMutex.Unlock()
+			// clientsMutex.Unlock()
 		}
 	}
 }
