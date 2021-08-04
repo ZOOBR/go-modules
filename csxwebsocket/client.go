@@ -114,6 +114,9 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
+			if w == nil {
+				return
+			}
 			if message != nil {
 				w.Write(message.Data)
 				if err := w.Close(); err != nil {
