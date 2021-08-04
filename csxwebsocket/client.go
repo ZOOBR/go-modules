@@ -118,11 +118,12 @@ func (c *Client) writePump() {
 			}
 			if message != nil {
 				if len(message.Data) > 0 {
-					w.Write(message.Data)
+					_, err := w.Write(message.Data)
+					if err != nil {
+						return
+					}
+					w.Close()
 				}
-			}
-			if w != nil {
-				w.Close()
 			}
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
