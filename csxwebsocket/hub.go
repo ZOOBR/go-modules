@@ -39,8 +39,8 @@ func (h *Hub) unregisterClient(client *Client, useLock bool) {
 	// 	clientsMutex.Lock()
 	// }
 	if _, ok := h.clients[client.ID]; ok {
-		delete(h.clients, client.ID)
 		close(client.send)
+		delete(h.clients, client.ID)
 	}
 	// if useLock {
 	// 	clientsMutex.Unlock()
