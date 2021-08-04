@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/csxhttp"
 )
 
@@ -117,15 +116,14 @@ func (c *Client) writePump() {
 			if w == nil {
 				return
 			}
-			if message != nil && len(message.Data) > 0 {
-				w.Write(message.Data)
-				if err := w.Close(); err != nil {
-					return
+			if message != nil {
+				if len(message.Data) > 0 {
+					w.Write(message.Data)
 				}
-			} else {
-				logrus.Error("err: msg pointer is nil")
 			}
-
+			if w != nil {
+				w.Close()
+			}
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
