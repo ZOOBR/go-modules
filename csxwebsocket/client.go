@@ -3,6 +3,7 @@ package csxwebsocket
 import (
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -44,6 +45,7 @@ type Message struct {
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
+	sync.RWMutex
 	ID  string
 	hub *Hub
 
@@ -102,23 +104,26 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				// The hub closed the channel.
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
-
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			if message != nil {
-				if len(message.Data) > 0 {
-					w.Write(message.Data)
+			func() {
+				c.Lock()
+				defer c.Unlock()
+				c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+				if !ok {
+					// The hub closed the channel.
+					c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+					return
 				}
-			}
-			w.Close()
+				w, err := c.conn.NextWriter(websocket.TextMessage)
+				if err != nil {
+					return
+				}
+				if message != nil {
+					if len(message.Data) > 0 {
+						w.Write(message.Data)
+					}
+				}
+				w.Close()
+			}()
 		case <-ticker.C:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
