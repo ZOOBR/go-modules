@@ -27,6 +27,8 @@ type Hub struct {
 
 // registerClient register new client
 func (h *Hub) registerClient(client *Client) {
+	client.Lock()
+	defer client.Unlock()
 	// clientsMutex.Lock()
 	h.clients[client.ID] = client
 	// clientsMutex.Unlock()
@@ -38,6 +40,8 @@ func (h *Hub) unregisterClient(client *Client, useLock bool) {
 	// if useLock {
 	// 	clientsMutex.Lock()
 	// }
+	client.Lock()
+	defer client.Unlock()
 	if _, ok := h.clients[client.ID]; ok {
 		close(client.send)
 		delete(h.clients, client.ID)
