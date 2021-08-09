@@ -170,7 +170,6 @@ func (sender *Sender) Run(objID, imei, drv string, clientID, userID *string, cmd
 				response.SetBitErrors()
 			}
 			log.Debug(response)
-			log.Info("cmd response ", resp)
 		}
 	}
 	if sender.Loggers != nil && len(sender.Loggers) > 0 {
