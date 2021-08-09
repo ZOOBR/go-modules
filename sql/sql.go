@@ -844,7 +844,17 @@ func (queryObj *Query) UpdateStructValues(query string, structVal interface{}, o
 				if rawValue != nil {
 					diffPub[tag] = rawValue
 				} else {
-					diffPub[tag] = tagVal
+					jsonTag := ft.Tag.Get("json")
+					if jsonTag != "" {
+						jsonTags := strings.Split(jsonTag, ",")
+						for _, tagValue := range jsonTags {
+							if tagValue == "string" {
+								diffPub[tag] = updV
+							} else {
+								diffPub[tag] = tagVal
+							}
+						}
+					}
 				}
 			}
 			if auto {
