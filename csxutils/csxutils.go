@@ -35,6 +35,15 @@ var (
 		"67": "Maestro",
 		"7":  "УЭК",
 	}
+	weekDays = map[string]int{
+		"Monday":    1,
+		"Tuesday":   2,
+		"Wednesday": 3,
+		"Thursday":  4,
+		"Friday":    5,
+		"Saturday":  6,
+		"Sunday":    7,
+	}
 )
 
 // Interface for delegating copy process to type
@@ -53,6 +62,14 @@ func Unpstr(ref *string) string {
 		return *ref
 	}
 	return ""
+}
+
+// Unpint return int from pointer
+func Unpint(ref *int) int {
+	if ref != nil {
+		return *ref
+	}
+	return 0
 }
 
 // CopyPtrStr return copy string pointer
@@ -255,4 +272,12 @@ func IsNilInterface(i interface{}) bool {
 		return reflect.ValueOf(i).IsNil()
 	}
 	return false
+}
+
+// Weekday Returns the number of the day of the week starting from Monday
+func Weekday(date *time.Time) int {
+	if date == nil {
+		return -1
+	}
+	return weekDays[date.UTC().Weekday().String()]
 }
