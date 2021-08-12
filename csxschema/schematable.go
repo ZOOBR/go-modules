@@ -1148,11 +1148,13 @@ func (table *SchemaTable) prepareArgsMap(data, oldData map[string]interface{}, i
 					logrus.Error("invalid jsonb value: ", val, " of field: ", name, " err: ", err)
 					return args, values, fields, itemID, diff, diffPub, "InvalidJSON"
 				}
-				_, dataType, _, _ := jsonparser.Get(valJSON)
-				err = checkJSONType(f.JSONType, dataType)
-				if err != nil {
-					logrus.Error("check json type fail: ", err.Error())
-					return nil, "", "", "", nil, nil, "InvalidJSON"
+				if f.JSONType != "" {
+					_, dataType, _, _ := jsonparser.Get(valJSON)
+					err = checkJSONType(f.JSONType, dataType)
+					if err != nil {
+						logrus.Error("check json type fail: ", err.Error())
+						return nil, "", "", "", nil, nil, "InvalidJSON"
+					}
 				}
 
 				val = valJSON
