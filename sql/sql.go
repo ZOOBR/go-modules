@@ -1027,6 +1027,7 @@ func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) 
 	var checkTags *bool
 	var tagsForCheck map[string]bool
 	mapToJson := true
+	structToJson := true
 	if len(options) > 0 {
 		opts := options[0]
 		if val, ok := opts["checkTags"]; ok {
@@ -1035,6 +1036,9 @@ func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) 
 		}
 		if val, ok := opts["mapToJson"]; ok {
 			mapToJson = val.(bool)
+		}
+		if val, ok := opts["structToJson"]; ok {
+			structToJson = val.(bool)
 		}
 		if val, ok := opts["roles"]; ok {
 			tagsForCheck = map[string]bool{}
@@ -1131,8 +1135,12 @@ func GetMapFromStruct(structVal interface{}, options ...map[string]interface{}) 
 				arr := f.Interface().(pq.StringArray)
 				res[tag] = "{" + strings.Join(arr, ",") + "}"
 			default:
-				valJSON, _ := json.Marshal(val)
-				res[tag] = string(valJSON)
+				if structToJson {
+					valJSON, _ := json.Marshal(val)
+					res[tag] = string(valJSON)
+				} else {
+					res[tag] = val
+				}
 			}
 		} else {
 			res[tag] = nil
