@@ -95,6 +95,15 @@ type AccessFieldsMap struct {
 	Deny   map[string]bool
 }
 
+// ApplyTransaction Rollback transaction if err not nil or commit
+func ApplyTransaction(err error, query *Query) {
+	if err != nil {
+		query.Rollback()
+	} else {
+		query.Commit()
+	}
+}
+
 //  check manadat access
 func (accessFieldsMap *AccessFieldsMap) Check(subject string) bool {
 	if len(accessFieldsMap.Access) > 0 {
