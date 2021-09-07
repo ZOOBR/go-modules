@@ -150,6 +150,7 @@ type JSONExpression struct {
 	// equalsValue interface{}
 }
 
+// TODO:: Need refactoring applyAmqpUpdates and applySendUpdate to one function
 func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
 	registerSchema.RLock()
 	schemaTableReg, ok := registerSchema.tables[table]
@@ -170,6 +171,18 @@ func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
 		}
 	}
 }
+
+// TODO:: Need refactoring applyAmqpUpdates and applySendUpdate to one function
+func applySendUpdate(table *SchemaTable, query *dbc.Query, itemID string, action string, diffPub map[string]interface{}, options ...map[string]interface{}) {
+	if query.IsTransact() {
+		query.BindTxCommitCallback(func() {
+			csxamqp.SendUpdate(amqpURI, table.Name, itemID, action, diffPub, options...)
+		})
+	} else {
+		go csxamqp.SendUpdate(amqpURI, table.Name, itemID, action, diffPub, options...)
+	}
+}
+
 func schemaLogSQL(sql string, err error) {
 	if err != nil {
 		logrus.Error(sql, ": ", err)
@@ -1331,7 +1344,7 @@ func (table *SchemaTable) checkInsert(data interface{}, where *string, query *db
 
 	res, err := query.Exec(sql, args...)
 	if err == nil {
-		go csxamqp.SendUpdate(amqpURI, table.Name, itemID, "create", diffPub, options...)
+		applySendUpdate(table, query, itemID, "create", diffPub, options...)
 		table.SaveLog(itemID, diff, options)
 	}
 	return res, err
@@ -1469,7 +1482,7 @@ func (table *SchemaTable) update(id string, data interface{}, query *dbc.Query, 
 	}
 	diff, diffPub, _, err := table.updateMultiple(oldData, data, where, query, options...)
 	if err == nil && len(diff) > 0 {
-		go csxamqp.SendUpdate(amqpURI, table.Name, id, "update", diffPub, options...)
+		applySendUpdate(table, query, id, "update", diffPub, options...)
 		table.SaveLog(id, diff, options)
 	}
 	return err
@@ -1508,7 +1521,7 @@ func (table *SchemaTable) deleteMultiple(where string, query *dbc.Query, options
 	if err == nil {
 		countDelete := len(ids)
 		if countDelete > 0 {
-			go csxamqp.SendUpdate(amqpURI, table.Name, strings.Join(ids, ","), "delete", nil, options...)
+			applySendUpdate(table, query, strings.Join(ids, ","), "delete", nil, options...)
 		}
 
 		return countDelete, err
