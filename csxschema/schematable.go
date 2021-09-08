@@ -174,7 +174,7 @@ func applyAmqpUpdates(table, id string, queryObj *dbc.Query) {
 
 // TODO:: Need refactoring applyAmqpUpdates and applySendUpdate to one function
 func applySendUpdate(table *SchemaTable, query *dbc.Query, itemID string, action string, diffPub map[string]interface{}, options ...map[string]interface{}) {
-	if query.IsTransact() {
+	if query != nil && query.IsTransact() {
 		query.BindTxCommitCallback(func() {
 			csxamqp.SendUpdate(amqpURI, table.Name, itemID, action, diffPub, options...)
 		})
