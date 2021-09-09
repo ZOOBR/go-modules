@@ -1425,7 +1425,7 @@ func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string
 		}
 		//if oldData is map and rec is struct - convert rec to map
 		if oldRecType.Kind() == reflect.Map {
-			str := dbc.GetMapFromStruct(data, map[string]interface{}{"mapToJson": false})
+			str := dbc.GetMapFromStruct(data, map[string]interface{}{"mapToJson": false, "structToJson": false})
 			args, values, fields, _, diff, diffPub, errKey = table.prepareArgsMap(str, oldData.(map[string]interface{}), "", options...)
 		} else {
 			args, values, fields, _, diff, diffPub, errKey = table.prepareArgsStruct(rec, oldData, "", options...)
