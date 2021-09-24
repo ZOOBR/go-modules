@@ -39,6 +39,7 @@ type CommandAction struct {
 	Ton     uint32                 `json:"ton,omitempty"`
 	Toff    uint32                 `json:"toff,omitempty"`
 	Args    map[string]interface{} `json:"args,omitempty"`
+	URL     string                 `json:"url,omitempty"`
 	Next    []interface{}          `json:"next,omitempty"`
 	Result  *int                   `json:"result,omitempty"`
 	Timeout uint32                 `json:"timeout,omitempty"`
