@@ -138,7 +138,8 @@ type SchemaQuery struct {
 	jsonWhere     *JSONExpression
 	fields        []SchemaField
 	tableAliasMap map[string]int
-	// queryStr      string
+	limit         uint
+	offset        uint
 }
 
 type JSONExpression struct {
@@ -1961,6 +1962,22 @@ func (schemaQuery *SchemaQuery) FindOne(dest interface{}) error {
 	return table.DB.Get(dest, sql)
 }
 
+func (schemaQuery *SchemaQuery) Limit(limit uint) *SchemaQuery {
+	schemaQuery.limit = limit
+	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) Offset(offset uint) *SchemaQuery {
+	schemaQuery.offset = offset
+	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) Range(limit, offset uint) *SchemaQuery {
+	schemaQuery.limit = limit
+	schemaQuery.offset = offset
+	return schemaQuery
+}
+
 func Table(tableName string) *SchemaQuery {
 	schemaTable, ok := GetSchemaTable(tableName)
 	if !ok {
@@ -2154,6 +2171,14 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 
 	if len(jsonStr) > 0 {
 		queryStr += " WHERE " + jsonStr
+	}
+
+	if schemaQuery.limit > 0 {
+		queryStr += " LIMIT " + fmt.Sprint(schemaQuery.limit)
+	}
+
+	if schemaQuery.offset > 0 {
+		queryStr += " OFFSET " + fmt.Sprint(schemaQuery.offset)
 	}
 
 	return queryStr
