@@ -57,19 +57,50 @@ func Iface(iface interface{}) interface{} {
 }
 
 // Unpstr return string from pointer
-func Unpstr(ref *string) string {
+func Unpstr(ref *string, def ...string) string {
+	var result string
 	if ref != nil {
-		return *ref
+		result = *ref
+	}
+	if result == "" && len(def) > 0 {
+		return def[0]
+	}
+	return result
+}
+
+// UnpstrOr return firstargwith not nil value
+func UnpstrOr(refs ...*string) string {
+	for i := 0; i < len(refs); i++ {
+		ref := refs[i]
+		if ref != nil {
+			return *ref
+		}
 	}
 	return ""
 }
 
 // Unpint return int from pointer
-func Unpint(ref *int) int {
+func Unpint(ref *int, def ...int) int {
+	var result int
 	if ref != nil {
-		return *ref
+		result = *ref
 	}
-	return 0
+	if result == 0 && len(def) > 0 {
+		return def[0]
+	}
+	return result
+}
+
+// Unpfloat64 return float64 from pointer
+func Unpfloat64(ref *float64, def ...float64) float64 {
+	var result float64
+	if ref != nil {
+		result = *ref
+	}
+	if result == 0 && len(def) > 0 {
+		return def[0]
+	}
+	return result
 }
 
 // CopyPtrStr return copy string pointer
