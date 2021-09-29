@@ -171,3 +171,7 @@ func GetIntMapFromList(list *string, zero bool) map[int]bool {
 	}
 	return result
 }
+
+func QuoteStr(str string) string {
+	return `"` + str + `"`
+}

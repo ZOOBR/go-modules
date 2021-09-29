@@ -73,6 +73,7 @@ type SchemaField struct {
 	Sequence   string
 	Alias      string
 	TableAlias string
+	Raw        bool
 }
 
 // SchemaTable is definition of sql table
@@ -140,6 +141,7 @@ type SchemaQuery struct {
 	tableAliasMap map[string]int
 	limit         uint
 	offset        uint
+	group         []string
 }
 
 type JSONExpression struct {
@@ -1991,6 +1993,22 @@ func Table(tableName string) *SchemaQuery {
 	}
 }
 
+func (schemaQuery *SchemaQuery) GroupBy(fields []string) *SchemaQuery {
+	schemaQuery.group = append(schemaQuery.group, fields...)
+	return schemaQuery
+}
+
+func (schemaQuery *SchemaQuery) SelectRaw(fields []string) *SchemaQuery {
+	for i := 0; i < len(fields); i++ {
+		field := SchemaField{
+			Name: fields[i],
+			Raw:  true,
+		}
+		schemaQuery.fields = append(schemaQuery.fields, field)
+	}
+	return schemaQuery
+}
+
 func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
 
 	table := schemaQuery.table
@@ -2005,11 +2023,12 @@ func (schemaQuery *SchemaQuery) Select(fields ...[]string) *SchemaQuery {
 	} else {
 		paramFields := fields[0]
 		for i := 0; i < len(paramFields); i++ {
-			if count, field := table.FindField(paramFields[i]); count > -1 {
+			var field *SchemaField
+			var count int
+			if count, field = table.FindField(paramFields[i]); count > -1 {
 				field.TableAlias = table.Name
-				selectFields = append(selectFields, *field)
 			}
-
+			selectFields = append(selectFields, *field)
 		}
 	}
 	schemaQuery.fields = selectFields
@@ -2141,13 +2160,17 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 		selectParam := schemaQuery.fields[i]
 
 		if len(selectParam.TableAlias) > 0 {
-			selectStr += `"` + selectParam.TableAlias + `".`
+			selectStr += csxstrings.QuoteStr(selectParam.TableAlias) + `.`
 		}
 
-		selectStr += `"` + selectParam.Name + `"`
+		if !selectParam.Raw {
+			selectStr += csxstrings.QuoteStr(selectParam.Name)
+		} else {
+			selectStr += selectParam.Name
+		}
 
 		if len(selectParam.Alias) > 0 {
-			selectStr += ` AS "` + selectParam.Alias + `"`
+			selectStr += ` AS ` + csxstrings.QuoteStr(selectParam.Alias)
 		}
 	}
 	if len(selectStr) == 0 {
@@ -2158,9 +2181,9 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 	queryTable := schemaQuery.table.Name
 	queryTableAlias := schemaQuery.tableAliasMap[queryTable]
 
-	fromParam := ` FROM ` + `"` + queryTable + `"`
+	fromParam := ` FROM ` + csxstrings.QuoteStr(queryTable)
 	if queryTableAlias > 0 {
-		fromParam += ` AS "` + queryTable + strconv.Itoa(queryTableAlias) + `"`
+		fromParam += ` AS ` + csxstrings.QuoteStr(queryTable+strconv.Itoa(queryTableAlias))
 	}
 
 	queryStr := "SELECT " + selectStr + fromParam + joinStr
@@ -2171,6 +2194,10 @@ func (schemaQuery *SchemaQuery) GetQueryString() string {
 
 	if len(jsonStr) > 0 {
 		queryStr += " WHERE " + jsonStr
+	}
+
+	if len(schemaQuery.group) > 0 {
+		queryStr += " GROUP BY " + strings.Join(schemaQuery.group, ",")
 	}
 
 	if schemaQuery.limit > 0 {
