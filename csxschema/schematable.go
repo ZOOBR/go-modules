@@ -1576,7 +1576,7 @@ func (table *SchemaTable) NewQuery() (q *dbc.Query) {
 
 // BeginTransaction Constructor for creating a pointer to work with the base and begin new transaction
 func (table *SchemaTable) BeginTransaction() (q *dbc.Query, err error) {
-	return dbc.NewDBQuery(table.DB, false)
+	return dbc.NewDBQuery(table.DB, true)
 }
 
 // ExecQuery exec query and run callback with query result
