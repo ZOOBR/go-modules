@@ -147,7 +147,7 @@ func NewQuery(useTransaction bool) (q Query, err error) {
 func NewDBQuery(db *sqlx.DB, useTransaction bool) (q *Query, err error) {
 	q = &Query{db: db}
 	if useTransaction {
-		q.tx, err = DB.Beginx()
+		q.tx, err = db.Beginx()
 		q.Tx = q.tx
 	}
 	return q, err
