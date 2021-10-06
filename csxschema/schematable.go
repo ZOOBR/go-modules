@@ -1390,6 +1390,12 @@ func (table *SchemaTable) UpdateMultiple(oldData, data interface{}, where string
 	return table.updateMultiple(oldData, data, where, nil, options...)
 }
 
+// SimpleUpdateMultiple execute update sql string
+func (table *SchemaTable) SimpleUpdateMultiple(data interface{}, where string, options ...map[string]interface{}) (err error) {
+	_, _, _, err = table.updateMultiple(nil, data, where, nil, options...)
+	return err
+}
+
 // updateMultiple execute update sql string
 func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string, query *dbc.Query, options ...map[string]interface{}) (diff, diffPub map[string]interface{}, ids []string, err error) {
 	var errKey string
@@ -1410,10 +1416,15 @@ func (table *SchemaTable) updateMultiple(oldData, data interface{}, where string
 		if !ok {
 			return nil, nil, nil, errors.New("data must be a map[string]interface")
 		}
-		oldDataMap, ok := oldData.(map[string]interface{})
-		if !ok {
-			return nil, nil, nil, errors.New("oldData must be a map[string]interface")
+
+		var oldDataMap map[string]interface{}
+		if oldData != nil {
+			oldDataMap, ok = oldData.(map[string]interface{})
+			if !ok {
+				return nil, nil, nil, errors.New("oldData must be a map[string]interface")
+			}
 		}
+
 		args, values, fields, _, diff, diffPub, errKey = table.prepareArgsMap(dataMap, oldDataMap, "", options...)
 		if errKey != "" {
 			return nil, nil, nil, errors.New(errKey)
