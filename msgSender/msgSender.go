@@ -13,6 +13,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"gitlab.com/battler/modules/csxamqp"
+	"gitlab.com/battler/modules/csxschema"
 	dbc "gitlab.com/battler/modules/sql"
 )
 
@@ -48,6 +49,11 @@ type InitWait struct {
 	cond        *sync.Cond
 	initialized bool
 	result      error
+}
+
+type clientsInfo struct {
+	ID          string `db:"id"`
+	DeviceToken string `db:"deviceToken"`
 }
 
 // NewInitWait - new waiter
@@ -173,6 +179,7 @@ type Push struct {
 	Data    interface{} `json:"data"`
 	Title   string      `json:"title"`
 	Tokens  []string    `json:"tokens"`
+	Clients []string    `json:"clients"`
 	IsTopic bool        `json:"isTopic"`
 }
 
@@ -251,9 +258,9 @@ func SendSMS(phone, msg string, payload interface{}, options ...string) {
 // title - message title
 // tokens - recipient tokens, array of deviceToken
 // isTopic - is topic message
-func SendPush(msg, title string, tokens []string, data interface{}, isTopic bool) {
+func SendPush(msg, title string, tokens, clients []string, data interface{}, isTopic bool) {
 	log.Info("[msgSender-SendPush] ", "Try send push to: ", tokens)
-	newPush := Push{Msg: msg, Title: title, Tokens: tokens, Data: data}
+	newPush := Push{Msg: msg, Title: title, Tokens: tokens, Clients: clients, Data: data}
 	newPush.IsTopic = isTopic
 
 	m, err := json.Marshal(newPush)
@@ -345,7 +352,20 @@ func (msg *Message) Send(data interface{}) {
 			info += ","
 		}
 		info += strings.Join(msg.Tokens[:], ",")
-		SendPush(msg.PreparedMsg.Text, msg.PreparedMsg.Title, msg.Tokens, msg.Payload, false)
+		clients := []string{}
+		clientsInfo := []clientsInfo{}
+		err := csxschema.Table("client").Select([]string{"id", "deviceToken"}).Where(csxschema.QueryCondition{
+			Field:    "deviceToken",
+			Operator: csxschema.OperatorIn,
+			Value:    strings.Join(msg.Tokens[:], ","),
+		}).Find(&clientsInfo)
+		if err != nil {
+			log.Debug("[SendMessage] get client id by token error - ", err)
+		}
+		for _, clientInfo := range clientsInfo {
+			clients = append(clients, clientInfo.ID)
+		}
+		SendPush(msg.PreparedMsg.Text, msg.PreparedMsg.Title, msg.Tokens, clients, msg.Payload, false)
 	}
 	if (msg.Mode & MessageModeWebPush) != 0 {
 		SendWeb(msg.Trigger, msg.Payload)
