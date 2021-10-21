@@ -354,10 +354,11 @@ func (msg *Message) Send(data interface{}) {
 		info += strings.Join(msg.Tokens[:], ",")
 		clients := []string{}
 		clientsInfo := []clientsInfo{}
+		tokens := "'" + strings.Join(msg.Tokens[:], "','") + "'"
 		err := csxschema.Table("client").Select([]string{"id", "deviceToken"}).Where(csxschema.QueryCondition{
 			Field:    "deviceToken",
 			Operator: csxschema.OperatorIn,
-			Value:    strings.Join(msg.Tokens[:], ","),
+			Value:    tokens,
 		}).Find(&clientsInfo)
 		if err != nil {
 			log.Debug("[SendMessage] get client id by token error - ", err)
